@@ -1,0 +1,12 @@
+# Line endings are a property of this repository, not of a developer's machine.
+# Without this file the result depends on each clone's core.autocrlf setting,
+# which is how a project ends up with diffs that show every line as changed.
+#
+# Everything is LF — in the repository AND in the working copy. Every tool this
+# project uses (VS Code, IntelliJ, Node, Maven) reads LF on Windows without
+# complaint, and the backend's mvnw script *must* be LF to run on Linux and macOS.
+* text=auto eol=lf
+
+# The exception: cmd.exe misparses a batch file that does not use CRLF.
+*.cmd text eol=crlf
+*.bat text eol=crlf

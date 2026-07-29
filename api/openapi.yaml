@@ -1,0 +1,117 @@
+openapi: 3.1.0
+
+# ---------------------------------------------------------------------------
+# TradeTies API contract — SINGLE SOURCE OF TRUTH.
+#
+# This document is shared by two builds and owned by neither:
+#   backend/  -> openapi-generator-maven-plugin generates Spring API interfaces
+#                and DTOs. Controllers implement them, so the Java compiler
+#                fails the build if an implementation drifts from this file.
+#   frontend/ -> generates a typed TypeScript client from the same file.
+#
+# Change this file FIRST, then make both sides compile again.
+# ---------------------------------------------------------------------------
+
+info:
+  title: TradeTies API
+  version: 0.1.0
+  description: |
+    Two-sided marketplace connecting customers with local tradespeople.
+  contact:
+    name: TradeTies
+
+servers:
+  - url: http://localhost:8080
+    description: Local development
+  - url: https://api.tradeties.com
+    description: Production
+
+tags:
+  - name: identity
+    description: The authenticated principal and its role in the marketplace.
+
+security:
+  - workosAuthKit: []
+
+paths:
+  /api/v1/me:
+    get:
+      tags: [identity]
+      operationId: getCurrentUser
+      summary: Return the authenticated principal.
+      description: |
+        Resolves the WorkOS access token to the local user projection. Used by both
+        the customer-facing app and the business dashboard to bootstrap a session.
+      responses:
+        "200":
+          description: The authenticated principal.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CurrentUser"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+components:
+  securitySchemes:
+    workosAuthKit:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: WorkOS AuthKit access token, validated against the WorkOS JWKS endpoint.
+
+  responses:
+    Unauthorized:
+      description: Missing or invalid access token.
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problem"
+
+  schemas:
+    CurrentUser:
+      type: object
+      description: The authenticated principal as TradeTies knows it.
+      required: [userId, roles]
+      properties:
+        userId:
+          type: string
+          description: WorkOS user id (`user_...`). Stable external identifier.
+          examples: ["user_01HQ8Z3K9M2P4R6T8V0X2Y4A6C"]
+        email:
+          type: string
+          format: email
+        roles:
+          type: array
+          description: Marketplace roles held by this principal.
+          items:
+            $ref: "#/components/schemas/MarketplaceRole"
+
+    MarketplaceRole:
+      type: string
+      description: |
+        A principal is normally a CUSTOMER or belongs to a business (BUSINESS_OWNER /
+        BUSINESS_MEMBER). Holding both is allowed — a tradesperson can also book work.
+      enum:
+        - CUSTOMER
+        - BUSINESS_OWNER
+        - BUSINESS_MEMBER
+        - PLATFORM_ADMIN
+
+    Problem:
+      type: object
+      description: RFC 9457 problem detail, as produced by Spring's ProblemDetail.
+      properties:
+        type:
+          type: string
+          format: uri
+        title:
+          type: string
+        status:
+          type: integer
+          format: int32
+        detail:
+          type: string
+        instance:
+          type: string
+          format: uri

@@ -1,0 +1,71 @@
+spring:
+  application:
+    name: tradeties-backend
+
+  # Java 25 + Boot 4: request handling on virtual threads. Safe here because
+  # JDK 24+ no longer pins a virtual thread inside synchronized blocks.
+  threads:
+    virtual:
+      enabled: true
+
+  datasource:
+    url: ${DATABASE_URL:jdbc:postgresql://localhost:5432/tradeties}
+    username: ${DATABASE_USER:tradeties}
+    password: ${DATABASE_PASSWORD:tradeties}
+
+  jpa:
+    # Flyway owns the schema. Hibernate is only allowed to check that the code
+    # still matches it — never to change it. This is the single setting that
+    # keeps a JPA codebase honest over years.
+    hibernate:
+      ddl-auto: validate
+    # No lazy loading outside a transaction: forces explicit, intentional fetching.
+    open-in-view: false
+    properties:
+      hibernate:
+        jdbc:
+          time_zone: UTC
+        query:
+          fail_on_pagination_over_collection_fetch: true
+
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+
+  jackson:
+    default-property-inclusion: non_null
+    time-zone: UTC
+
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          # WorkOS AuthKit publishes a JWKS per client id. Deliberately NOT using
+          # issuer-uri: that would trigger OIDC discovery against api.workos.com,
+          # which does not serve a discovery document. The issuer is validated
+          # explicitly in SecurityConfig instead.
+          jwk-set-uri: https://api.workos.com/sso/jwks/${WORKOS_CLIENT_ID:missing-client-id}
+
+# WorkOS AuthKit issues every tenant's tokens under the same issuer, so the
+# client-scoped JWKS above is what actually binds a token to this application.
+workos:
+  issuer: https://api.workos.com
+
+server:
+  # Traefik terminates TLS and sits in front of this service.
+  forward-headers-strategy: framework
+  shutdown: graceful
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,modulith
+  endpoint:
+    health:
+      probes:
+        enabled: true
+
+logging:
+  level:
+    org.springframework.modulith: INFO

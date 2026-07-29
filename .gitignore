@@ -1,0 +1,43 @@
+# Global 
+# node_modules anywhere (frontend + future JS packages)
+**/node_modules/
+
+# Environment variables & secrets — never commit
+# also covers frontend/.env.local, backend .env, etc.
+.env
+.env.*
+!.env.example
+
+# Logs
+*.log
+pnpm-debug.log*
+
+# Local-only notes — architecture decisions & rationale, kept out of the repo.
+# Same .local convention as infra/**/*.local.yml below.
+*.local.md
+
+# Backend (Spring Boot / Maven)
+# Build output, incl. OpenAPI sources generated into target/generated-sources.
+backend/target/
+backend/bin/
+backend/out/
+# The Maven wrapper scripts and .mvn/wrapper/maven-wrapper.properties ARE committed —
+# they pin the Maven version. Only the downloaded jar is ignored.
+.mvn/wrapper/maven-wrapper.jar
+
+# Infra (Docker / Traefik)
+infra/**/.env
+infra/**/*.local.yml
+
+# IDEs & editors
+.idea/
+*.iml
+.vscode/
+.project
+.classpath
+.settings/
+
+# Operating system 
+.DS_Store
+Thumbs.db
+Desktop.ini
