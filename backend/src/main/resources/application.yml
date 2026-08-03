@@ -40,16 +40,25 @@ spring:
     oauth2:
       resourceserver:
         jwt:
-          # WorkOS AuthKit publishes a JWKS per client id. Deliberately NOT using
-          # issuer-uri: that would trigger OIDC discovery against api.workos.com,
-          # which does not serve a discovery document. The issuer is validated
+          # WorkOS AuthKit publishes a JWKS per client id. Kept instead of
+          # issuer-uri only because the decoder is still built by hand in
+          # SecurityConfig — discovery does exist, see the note below.
+
           # explicitly in SecurityConfig instead.
           jwk-set-uri: https://api.workos.com/sso/jwks/${WORKOS_CLIENT_ID:missing-client-id}
 
-# WorkOS AuthKit issues every tenant's tokens under the same issuer, so the
-# client-scoped JWKS above is what actually binds a token to this application.
+# The issuer is CLIENT-SCOPED — not a shared "https://api.workos.com" that every
+# tenant gets. Read from the horse's mouth rather than assumed:
+#
+#   curl https://api.workos.com/user_management/<client_id>/.well-known/openid-configuration
+#   -> "issuer":   "https://api.workos.com/user_management/<client_id>"
+#      "jwks_uri": "https://api.workos.com/sso/jwks/<client_id>"     (matches the above)
+#
+# JwtIssuerValidator compares this string exactly, with no normalisation. Getting it
+# wrong does not fail at startup — it turns every request into a 401 whose only clue
+# sits in the WWW-Authenticate header. Override only for a custom auth domain.
 workos:
-  issuer: https://api.workos.com
+  issuer: https://api.workos.com/user_management/${WORKOS_CLIENT_ID:missing-client-id}
 
 server:
   # Traefik terminates TLS and sits in front of this service.
