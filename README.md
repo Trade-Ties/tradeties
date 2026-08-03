@@ -31,11 +31,33 @@ Frontend and backend are tightly coupled, so keeping them together allows atomic
 
 Requirements: Node.js >= 20.9, pnpm 11 (via Corepack), JDK 25, and Docker.
 
+Authentication runs against WorkOS AuthKit, so both sides need credentials from the
+[WorkOS dashboard](https://dashboard.workos.com) before they will start:
+
+```bash
+cp frontend/.env.example frontend/.env.local   # then fill in — see the comments in it
+export WORKOS_CLIENT_ID=client_...             # backend; must match the frontend's
+```
+
+Register `http://localhost:3000/callback` as a redirect URI in the WorkOS dashboard, or the
+sign-in round trip fails with a redirect_uri mismatch.
+
 ```bash
 pnpm install && pnpm dev               
 cd backend && ./mvnw spring-boot:test-run 
 cd infra && docker compose up -d        # not set up yet
 ```
+
+`pnpm dev` regenerates the typed API client from `api/openapi.yaml` first, so it cannot go
+stale. Docker Desktop must be running for the backend — its tests and `spring-boot:test-run`
+provision PostgreSQL through Testcontainers.
+
+Two entry points, and they behave differently by design:
+
+| URL | Who | Account |
+| --- | --- | --- |
+| `http://localhost:3000/` | customers — search and book | none needed |
+| `http://localhost:3000/portal` | tradespeople — sign in to the dashboard | required |
 
 `spring-boot:test-run` starts the app with a Testcontainers-managed PostgreSQL, so there is no separate database to install or keep in sync. To run against your own PostgreSQL instead, use `./mvnw spring-boot:run` and set `DATABASE_URL`, `DATABASE_USER`, `DATABASE_PASSWORD`.
 

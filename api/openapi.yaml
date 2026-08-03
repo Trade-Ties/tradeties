@@ -40,11 +40,49 @@ paths:
       operationId: getCurrentUser
       summary: Return the authenticated principal.
       description: |
-        Resolves the WorkOS access token to the local user projection. Used by both
-        the customer-facing app and the business dashboard to bootstrap a session.
+        Resolves the WorkOS access token to the local user projection.
+
+        Read-only: a caller who has authenticated but never registered gets their
+        token identity back with an EMPTY `roles` array, and no row is written.
+        Empty roles is therefore the wire representation of "signed in, but not a
+        member of this marketplace yet" — the dashboard uses exactly that to decide
+        whether to send the caller through registration.
       responses:
         "200":
           description: The authenticated principal.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CurrentUser"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/v1/me/registration:
+    post:
+      tags: [identity]
+      operationId: registerCurrentUser
+      summary: Register the authenticated principal in the marketplace.
+      description: |
+        Creates the local user projection for the caller's WorkOS token and grants the
+        role their entry point implies. Called server-side by the portal right after the
+        AuthKit callback — never from the browser.
+
+        **Idempotent.** Signing in again re-posts this and must not fail, so the response
+        is always `200` with the resulting principal rather than `201`/`409`. Roles are
+        additive: registering as a tradesperson never removes a role already held.
+
+        The client states an *intent*, not a role. Which role an intent grants is a
+        marketplace rule and stays on this side of the wire — a client that could name
+        `PLATFORM_ADMIN` directly would be an escalation path.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RegistrationRequest"
+      responses:
+        "200":
+          description: The registered principal, including the granted roles.
           content:
             application/json:
               schema:
@@ -86,6 +124,25 @@ components:
           description: Marketplace roles held by this principal.
           items:
             $ref: "#/components/schemas/MarketplaceRole"
+
+    RegistrationRequest:
+      type: object
+      description: Which side of the marketplace the caller is joining.
+      required: [intent]
+      properties:
+        intent:
+          $ref: "#/components/schemas/RegistrationIntent"
+
+    RegistrationIntent:
+      type: string
+      description: |
+        Only tradespeople register today: customers use TradeTies anonymously and never
+        need an account to search or to send a request. A `CUSTOMER` intent is the
+        additive change that opens accounts to the demand side later — extending this
+        enum is backwards compatible, which is why the intent exists at all rather than
+        the endpoint hard-coding the one case it currently serves.
+      enum:
+        - TRADESPERSON
 
     MarketplaceRole:
       type: string

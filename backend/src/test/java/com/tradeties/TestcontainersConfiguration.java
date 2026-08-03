@@ -17,7 +17,7 @@ import org.testcontainers.utility.DockerImageName;
  * no second database configuration that can drift from this one.
  */
 @TestConfiguration(proxyBeanMethods = false)
-class TestcontainersConfiguration {
+public class TestcontainersConfiguration {
 
 	/** Pinned, not {@code :latest} — a build should not change because upstream did. */
 	@Bean

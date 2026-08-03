@@ -63,10 +63,22 @@ class SecurityConfig {
 	}
 
 	/**
-	 * Built by hand rather than by auto-configuration for one reason: WorkOS issues
-	 * every tenant's tokens under the same {@code iss} ({@code https://api.workos.com}),
-	 * so the issuer alone proves nothing. What binds a token to <em>this</em> application
-	 * is the client-scoped JWKS URL. We validate both.
+	 * Validates the signature against the client-scoped JWKS, and the {@code iss} claim
+	 * against the client-scoped issuer. Both are bound to this application's client id, so
+	 * a token minted for another WorkOS application fails on either count.
+	 *
+	 * <p><strong>Corrected.</strong> This class was written on the assumption that WorkOS
+	 * issues every tenant's tokens under one shared {@code https://api.workos.com}, making
+	 * the JWKS URL the only thing that identified the application. That is wrong for AuthKit
+	 * access tokens: the issuer is {@code https://api.workos.com/user_management/<client_id>}.
+	 * Both values now derive from {@code WORKOS_CLIENT_ID} so they cannot drift apart.
+	 *
+	 * <p>WorkOS <em>does</em> serve OIDC discovery, at
+	 * {@code /user_management/<client_id>/.well-known/openid-configuration} — the second
+	 * incorrect assumption behind building this decoder by hand. Setting
+	 * {@code spring.security.oauth2.resourceserver.jwt.issuer-uri} would let Spring read both
+	 * values from that document and delete this bean, which is the simplification to make
+	 * once the flow is confirmed working end to end.
 	 */
 	@Bean
 	JwtDecoder jwtDecoder(
