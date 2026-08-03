@@ -1,0 +1,46 @@
+#!/bin/sh
+#
+# Validates the commit header against the convention in CONTRIBUTING.md.
+#
+# Enable once per clone:
+#
+#     git config core.hooksPath .githooks
+#
+# Deliberately dependency-free. commitlint would check more, but it would also mean two
+# devDependencies and a lockfile entry to enforce a one-line format. The header is the part
+# a machine can judge; whether the body explains WHY is a human's job and stays one.
+#
+# Bypass with --no-verify only when you mean it.
+
+header=$(head -n 1 "$1")
+
+# These carry formats git itself generates or the convention exempts.
+case "$header" in
+	Merge\ *|Revert\ *|fixup!\ *|squash!\ *|amend!\ *) exit 0 ;;
+esac
+
+types='feat|fix|refactor|perf|test|docs|build|chore'
+
+if ! printf '%s' "$header" | grep -Eq "^($types)(\([a-z0-9.-]+\))?!?: .+"; then
+	echo "commit-msg: header does not match the convention." >&2
+	echo >&2
+	echo "  got:      $header" >&2
+	echo "  expected: type(scope): imperative summary" >&2
+	echo "  types:    feat fix refactor perf test docs build chore" >&2
+	echo "  scope:    the domain module (identity, portal, job, auth), not the language" >&2
+	echo "  breaking: put ! before the colon and a BREAKING CHANGE: footer in the body" >&2
+	echo >&2
+	echo "  see CONTRIBUTING.md" >&2
+	exit 1
+fi
+
+if [ "${#header}" -gt 72 ]; then
+	echo "commit-msg: header is ${#header} characters, the limit is 72." >&2
+	echo >&2
+	echo "  $header" >&2
+	echo >&2
+	echo "  Move the detail into the body — that is what it is for." >&2
+	exit 1
+fi
+
+exit 0
