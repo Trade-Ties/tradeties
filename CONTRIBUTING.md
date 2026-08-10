@@ -6,6 +6,10 @@ landed, so the examples are real.
 Setup, prerequisites and how to run the app live in the [README](README.md). This file
 covers everything from a working checkout to a commit merged into `main`.
 
+**New here?** [ONBOARDING.md](ONBOARDING.md) is the same ground as a checklist — the steps in
+order, without the reasoning. Follow it for your first few changes and read this one when you
+want to know why a step is there.
+
 **Merging into `main` is not shipping.** It reaches the test environment, not customers.
 What happens afterwards — the promotion to `production`, hotfixes, rollback — is in
 [BRANCHING.md](BRANCHING.md).

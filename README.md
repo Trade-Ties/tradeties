@@ -69,6 +69,7 @@ cd backend && ./mvnw verify
 
 | Document | Answers |
 | --- | --- |
+| [ONBOARDING.md](ONBOARDING.md) | **start here** — the step-by-step checklist from a fresh clone to a merged pull request |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | how to split a change, write the commit, and get it into `main` |
 | [BRANCHING.md](BRANCHING.md) | how what is on `main` reaches customers — the two branches, the promotion, rollback |
 
