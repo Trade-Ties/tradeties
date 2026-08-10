@@ -1,0 +1,464 @@
+name: Promote to production
+
+# THE DEPLOY BUTTON.  Actions → "Promote to production" → Run workflow.
+#
+# This replaces the promotion pull request. The reason is not convenience: a
+# pull request cannot express "deploy commit X", only "merge branch Y". A button
+# takes a SHA, and taking a SHA is what makes every guarantee below checkable
+# before anything moves.
+#
+# The order is deliberate and is the whole point of putting it in one workflow:
+#
+#   verify (cheap, no approval)  →  human approval  →  verify again  →
+#   move branch  →  deploy  →  smoke test  →  tag
+#
+# Two separate workflows triggered by the same push cannot express that order —
+# they start independently, and a deployment can be under way while the check
+# that should have stopped it is still running. `needs:` is what makes the
+# sequence real.
+#
+# The second verification is not distrust of the first. An approval takes as
+# long as a human takes, and main, production and CI history can all move inside
+# that window. Everything verify established is a fact before the pause and only
+# a claim after it.
+
+on:
+  workflow_dispatch:
+    inputs:
+      summary:
+        description: "What ships, in customer terms. Goes into the release notes."
+        required: true
+        type: string
+      tested:
+        description: "I exercised this against the TEST environment, not only CI"
+        required: true
+        type: boolean
+        default: false
+      migrations:
+        description: "Schema change: none | expand (additive, old code still runs) | contract (destructive, rollback needs care)"
+        required: true
+        type: choice
+        default: none
+        options:
+          - none
+          - expand
+          - contract
+      sha:
+        description: "Commit on main to promote. Leave empty for the current tip of main."
+        required: false
+        type: string
+
+# One promotion at a time, and never cancel one in flight — a half-finished
+# production deployment is worse than a queued one.
+#
+# Know the limit of what this buys. GitHub keeps exactly ONE run pending per
+# group: press the button three times and the second run is replaced by the
+# third rather than both running in turn. This is a mutex, not a FIFO queue. It
+# is the right shape for deliberate, occasional promotions, but do not read it
+# as a promise that every run eventually happens.
+concurrency:
+  group: promote-production
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  # Everything that can be answered without touching production. Runs before the
+  # approval so the reviewer is never asked to approve something that would fail
+  # a second later.
+  verify:
+    name: verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      # Reading ci.yml's run history for this commit. A job-level block replaces
+      # the workflow-level one outright, so contents has to be repeated here.
+      actions: read
+    outputs:
+      sha: ${{ steps.resolve.outputs.sha }}
+      short: ${{ steps.resolve.outputs.short }}
+      log: ${{ steps.resolve.outputs.log }}
+      production: ${{ steps.resolve.outputs.production }}
+      resume: ${{ steps.resolve.outputs.resume }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Fetch both branches
+        run: |
+          git fetch --no-tags origin \
+            +refs/heads/main:refs/remotes/origin/main \
+            +refs/heads/production:refs/remotes/origin/production
+
+      # A checkbox is not evidence. It is a signature — it puts a name and a
+      # timestamp on the claim, in the run log, where it can be read back later.
+      - name: The test-environment claim must be affirmative
+        run: |
+          if [ "${{ inputs.tested }}" != "true" ]; then
+            echo "::error::Tick the test-environment box. CI proves the code builds, not that it behaves."
+            exit 1
+          fi
+
+      - name: Resolve and check the commit
+        id: resolve
+        env:
+          INPUT_SHA: ${{ inputs.sha }}
+          DEPLOY_ENABLED: ${{ vars.PRODUCTION_DEPLOY_ENABLED }}
+        run: |
+          set -eu
+          git fetch --tags --quiet
+
+          if [ -z "$INPUT_SHA" ]; then
+            sha=$(git rev-parse origin/main)
+            echo "::warning::No commit given — resolving to the current tip of main, $sha. That is whatever main is right now, not necessarily what you exercised against the test environment. Check it below before approving."
+          else
+            sha=$(git rev-parse --verify "${INPUT_SHA}^{commit}")
+          fi
+
+          production=$(git rev-parse origin/production)
+
+          # 1. It must be ON THE MAINLINE. This is the invariant the whole model
+          #    rests on: nothing reaches customers that did not go through the
+          #    test environment.
+          #
+          #    "Reachable from main" is too weak a reading of that, and the gap
+          #    is not theoretical. Merging a pull request makes every commit of
+          #    the feature branch reachable from main, so a commit from inside a
+          #    branch passes an ancestor test. It can also be a clean
+          #    fast-forward from production, and its pull-request CI reported
+          #    against that exact SHA, so the check below would find it green.
+          #    Promoting it would put production on a tree main never had, with
+          #    everything else on the mainline missing.
+          #
+          #    The first-parent history is exactly the set of commits main's tip
+          #    has ever been: merge commits and direct commits, and nothing that
+          #    only ever lived on a branch.
+          if ! git rev-list --first-parent origin/main | grep -Fxq "$sha"; then
+            if git merge-base --is-ancestor "$sha" origin/main; then
+              echo "::error::$sha is reachable from main but is not on its first-parent history — it is a commit from inside a feature branch, not a state main was ever in. Promote the merge commit that brought it in."
+            else
+              echo "::error::$sha is not on main. Merge it into main first."
+            fi
+            exit 1
+          fi
+
+          # 2. It must move production FORWARD. Rolling back is a deployment
+          #    action, not a branch action — see BRANCHING.md. Rewinding the
+          #    branch would also lose the record of what was once approved.
+          if ! git merge-base --is-ancestor "$production" "$sha"; then
+            echo "::error::$sha is not a fast-forward from production. To roll back, redeploy an older release tag."
+            exit 1
+          fi
+
+          # 3. production already sitting on it means one of two things, and only
+          #    one of them is an error.
+          #
+          #    The branch moves before the deploy and the tag is written last, so
+          #    "branch is there, no release tag" is precisely the fingerprint of
+          #    a run that died in between — the deploy failed, the smoke test
+          #    failed, the runner vanished. Re-running is how that gets finished.
+          #    Refusing it unconditionally, as this once did, would leave the
+          #    button permanently rejecting the one commit it half-shipped, at
+          #    the exact moment someone needs it most.
+          resume=false
+          if [ "$sha" = "$production" ]; then
+            tags=$(git tag --points-at "$sha" --list 'release-*' | tr '\n' ' ')
+            if [ "$DEPLOY_ENABLED" != "true" ]; then
+              echo "::error::production is already at $sha. Nothing to promote."
+              exit 1
+            elif [ -n "$tags" ]; then
+              echo "::error::production is already at $sha and it is tagged $tags— that release finished. Nothing to promote."
+              exit 1
+            fi
+            resume=true
+            echo "::warning::production is already at $sha but carries no release tag, so an earlier promotion of it did not finish. Resuming: deploy, smoke test and tag will run again, the branch stays where it is. The deploy step must be idempotent for this to be safe."
+          fi
+
+          {
+            echo "sha=$sha"
+            echo "short=$(git rev-parse --short "$sha")"
+            echo "production=$production"
+            echo "resume=$resume"
+            echo "log<<PROMOTE_EOF"
+            if [ "$resume" = "true" ]; then
+              echo "- (resumed — production was already at this commit; the change list is in the interrupted run)"
+            else
+              git log --first-parent --pretty='- %s' "$production".."$sha"
+            fi
+            echo "PROMOTE_EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      # Belt and braces over the branch ruleset. A required status check governs
+      # pull requests; it says nothing about an arbitrary SHA someone typed into
+      # the box above. So ask the API directly what ran on this commit.
+      #
+      # Asked of the WORKFLOW, not of check names. "frontend is green" only says
+      # that something called frontend passed — any workflow, any installed app
+      # and any event can produce a check by that name, and there is nothing in
+      # the name tying the two jobs to one run. Pinning the question to a push
+      # run of .github/workflows/ci.yml on main is what makes the answer mean
+      # "this commit was tested as the tip of the mainline", which is the only
+      # claim worth anything here.
+      #
+      # commit-convention is deliberately absent: it is pull-request-only and
+      # reports "skipped" on a push, which is not the same as "passed".
+      - name: CI must be green on this exact commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SHA: ${{ steps.resolve.outputs.sha }}
+        run: |
+          set -eu
+          run_id=$(gh api \
+            "repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/runs?head_sha=$SHA&event=push&per_page=100" \
+            --jq '[.workflow_runs[]
+                   | select(.head_branch == "main" and .conclusion == "success")]
+                  | sort_by(.run_started_at) | last | .id // empty')
+
+          if [ -z "$run_id" ]; then
+            echo "::error::No successful push run of ci.yml on main for $SHA."
+            echo "::notice::A pull-request run does not count. It reports against the branch head, and the merge commit that actually lands on main is a SHA no pull-request run ever saw."
+            exit 1
+          fi
+          echo "ci.yml run $run_id succeeded on $SHA"
+
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run_id/jobs?per_page=100" > jobs.json
+
+          status=0
+          for name in frontend backend; do
+            conclusion=$(jq -r --arg n "$name" \
+              '[.jobs[] | select(.name == $n)] | last | .conclusion // "never ran"' \
+              jobs.json)
+            echo "$name: $conclusion"
+            if [ "$conclusion" != "success" ]; then
+              echo "::error::job '$name' is '$conclusion' in run $run_id, not success."
+              status=1
+            fi
+          done
+          exit $status
+
+      # The approver is shown a "review pending deployment" prompt and almost
+      # nothing else — in particular not which commit an empty SHA field
+      # resolved to. Put the decision in the run summary, one click away.
+      - name: What the approval is for
+        env:
+          SHA: ${{ steps.resolve.outputs.sha }}
+          PRODUCTION: ${{ steps.resolve.outputs.production }}
+          CHANGES: ${{ steps.resolve.outputs.log }}
+          SUMMARY: ${{ inputs.summary }}
+          MIGRATIONS: ${{ inputs.migrations }}
+        run: |
+          {
+            echo "### Awaiting approval"
+            echo
+            printf '%s\n\n' "$SUMMARY"
+            printf '**Promoting:** `%s`\n' "$SHA"
+            printf '**production is at:** `%s`\n' "$PRODUCTION"
+            printf '**Schema change:** %s\n' "$MIGRATIONS"
+            printf '\n## Changes\n\n%s\n' "$CHANGES"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  # Everything that touches production. The `environment` key is what makes
+  # GitHub pause here for a human, and it is also what writes the deployment
+  # record — the only artefact that answers "what is actually running", as
+  # opposed to "what was approved".
+  promote:
+    name: promote
+    needs: verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment:
+      name: production
+    permissions:
+      contents: write # moving the branch and creating the release tag
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      # The far side of the human gate. Everything verify checked was true
+      # before the pause; main can have been rewritten during it, production can
+      # have been moved by a bypass actor, and the SHA that was a fast-forward
+      # an hour ago need not be one now. Re-checking costs seconds.
+      - name: Nothing moved while we waited
+        env:
+          SHA: ${{ needs.verify.outputs.sha }}
+          EXPECTED: ${{ needs.verify.outputs.production }}
+        run: |
+          set -eu
+          git fetch --no-tags origin \
+            +refs/heads/main:refs/remotes/origin/main \
+            +refs/heads/production:refs/remotes/origin/production
+
+          if ! git rev-list --first-parent origin/main | grep -Fxq "$SHA"; then
+            echo "::error::$SHA is no longer on main's first-parent history. main was rewritten during the approval."
+            exit 1
+          fi
+
+          now=$(git rev-parse origin/production)
+          if [ "$now" != "$EXPECTED" ]; then
+            echo "::error::production moved during the approval — it was $EXPECTED when this was verified and is $now now. Press the button again so the decision is made against the branch as it actually stands."
+            exit 1
+          fi
+
+          if ! git merge-base --is-ancestor "$now" "$SHA"; then
+            echo "::error::$SHA is no longer a fast-forward from production."
+            exit 1
+          fi
+
+      # A fast-forward, never a merge. production therefore holds no commit of
+      # its own — not even a merge commit — so its tree is by construction the
+      # tree of a commit that CI tested. There is no "evil merge" to detect,
+      # because there is no merge.
+      #
+      # --force-with-lease is not here to force anything past the ruleset. It is
+      # a compare-and-swap: it names the SHA production was when this promotion
+      # was decided, and the push is refused outright if the branch is not still
+      # exactly there. That closes the last gap — the seconds between the check
+      # above and the push itself.
+      - name: Move production to the approved commit
+        if: needs.verify.outputs.resume != 'true'
+        env:
+          SHA: ${{ needs.verify.outputs.sha }}
+          EXPECTED: ${{ needs.verify.outputs.production }}
+        run: |
+          set -eu
+          git push --force-with-lease="refs/heads/production:$EXPECTED" \
+            origin "$SHA:refs/heads/production"
+          echo "::notice::production is now at $SHA"
+
+      # The invariant promotion-guard.yml exists to police, asserted here on the
+      # promotion path itself.
+      #
+      # It has to be here, because the guard cannot see this push. Pushes made
+      # with the automatic GITHUB_TOKEN deliberately do not trigger further
+      # workflow runs, so promotion-guard.yml never fires for a promotion — it
+      # only ever sees pushes from outside this workflow, which is exactly the
+      # tripwire it is for. Relying on it to cover this path would have been
+      # relying on a job that never runs.
+      - name: production is on the mainline
+        env:
+          SHA: ${{ needs.verify.outputs.sha }}
+        run: |
+          set -eu
+          git fetch --no-tags origin \
+            +refs/heads/main:refs/remotes/origin/main \
+            +refs/heads/production:refs/remotes/origin/production
+
+          tip=$(git rev-parse origin/production)
+          if [ "$tip" != "$SHA" ]; then
+            echo "::error::production is at $tip, not at the approved $SHA."
+            exit 1
+          fi
+          if ! git rev-list --first-parent origin/main | grep -Fxq "$tip"; then
+            echo "::error::production is at $tip, which is not on main's first-parent history."
+            exit 1
+          fi
+          echo "production is at $tip, which is on main's mainline. Invariant holds."
+
+      # ─────────────────────────────────────────────────────────────────────
+      # THE ONE STEP THAT IS NOT REAL YET.
+      #
+      # Fill this in and set the repository variable PRODUCTION_DEPLOY_ENABLED
+      # to "true". Everything around it — approval, ordering, tagging, the
+      # deployment record — already works and does not change.
+      #
+      # Deploy the ARTEFACT, do not rebuild from source here. Rebuilding can
+      # produce a different image than the one the test environment ran, from a
+      # moved base image or an unpinned transitive dependency, and then the
+      # thing you tested is not the thing customers get. See BRANCHING.md,
+      # "Build once, promote the digest".
+      #
+      # Make it idempotent. verify deliberately allows a promotion to be re-run
+      # when the branch moved but no release was ever tagged, because that is
+      # the state an interrupted run leaves behind and someone has to be able to
+      # finish it. That recovery is only safe if deploying the same digest twice
+      # is a no-op rather than a second migration.
+      # ─────────────────────────────────────────────────────────────────────
+      - name: Deploy
+        if: vars.PRODUCTION_DEPLOY_ENABLED == 'true'
+        env:
+          SHA: ${{ needs.verify.outputs.sha }}
+        run: |
+          echo "::error::PRODUCTION_DEPLOY_ENABLED is set but no deploy step is implemented."
+          exit 1
+
+      - name: Smoke test
+        if: vars.PRODUCTION_DEPLOY_ENABLED == 'true'
+        run: |
+          echo "::error::No smoke test implemented. A successful deploy is not yet a successful release."
+          exit 1
+
+      - name: Record that nothing was deployed
+        if: vars.PRODUCTION_DEPLOY_ENABLED != 'true'
+        env:
+          SHA: ${{ needs.verify.outputs.sha }}
+          CHANGES: ${{ needs.verify.outputs.log }}
+        run: |
+          echo "::warning::No deployment ran. production now points at the approved commit; no infrastructure was updated and no release was tagged."
+          {
+            echo "### Approved, not released"
+            echo
+            echo "\`PRODUCTION_DEPLOY_ENABLED\` is not set, so the deploy and smoke-test steps were skipped."
+            echo
+            printf '`production` now points at `%s`, which means **approved for production**.\n' "$SHA"
+            echo "**No customer-facing system changed, and no \`release-*\` tag was written** — a release tag names something that shipped, and nothing shipped."
+            echo
+            echo "> The GitHub deployment record for this run was created automatically by the \`production\` environment key, which is what produced the approval prompt. Here it records the approval, not a deployment. Nothing is running."
+            echo
+            printf '## Approved changes\n\n%s\n' "$CHANGES"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      # Last, so the tag can only ever name something that got this far. A tag
+      # created before the deploy would name a release that may never have
+      # shipped, and the rollback list is exactly the place that must not lie.
+      #
+      # Which is the same reason it does not run at all while deployment is
+      # disabled. Every tag written then would name a release that provably
+      # never shipped, and `git tag --list 'release-*'` is the first line of the
+      # rollback runbook in BRANCHING.md.
+      - name: Tag the release
+        if: vars.PRODUCTION_DEPLOY_ENABLED == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SHA: ${{ needs.verify.outputs.sha }}
+          SUMMARY: ${{ inputs.summary }}
+          MIGRATIONS: ${{ inputs.migrations }}
+          CHANGES: ${{ needs.verify.outputs.log }}
+          RESUMED: ${{ needs.verify.outputs.resume }}
+        run: |
+          set -eu
+          git fetch --tags --quiet
+
+          # Date-based: nobody outside this repository depends on a version
+          # number, and during an incident the question is always "when did this
+          # ship". The counter separates several promotions on one day; the
+          # concurrency group above keeps two runs from picking the same one.
+          day=$(date -u +%Y-%m-%d)
+          n=1
+          while git rev-parse -q --verify "refs/tags/release-$day.$n" >/dev/null 2>&1; do
+            n=$((n + 1))
+          done
+          tag="release-$day.$n"
+
+          {
+            printf '%s\n\n' "$SUMMARY"
+            printf '**Commit:** `%s`\n' "$SHA"
+            printf '**Schema change:** %s\n' "$MIGRATIONS"
+            printf '**Deployed:** yes, smoke test passed\n'
+            if [ "$RESUMED" = "true" ]; then
+              printf '**Resumed:** an earlier promotion of this commit moved the branch but never finished.\n'
+            fi
+            printf '\n## Changes\n\n%s\n' "$CHANGES"
+            printf '\nPromoted by @%s.\n' "$GITHUB_ACTOR"
+          } > notes.md
+
+          gh release create "$tag" --target "$SHA" --title "$tag" --notes-file notes.md
+
+          {
+            echo "### Released \`$tag\`"
+            echo
+            cat notes.md
+          } >> "$GITHUB_STEP_SUMMARY"

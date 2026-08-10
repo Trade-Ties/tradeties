@@ -1,0 +1,44 @@
+# Who must approve a change to what.
+#
+# DELIBERATELY INERT while this repository has one contributor. GitHub never
+# requests a review from the author of a pull request, so with a single
+# maintainer every rule below would either do nothing or, combined with
+# "Require review from Code Owners", lock the only person out of their own
+# repository. CONTRIBUTING.md makes the same point about review in general:
+# self-merging is a consequence of the head count and expires with it.
+#
+# The ownership map is worth writing down now anyway — it is the part that takes
+# thought, and it is the same map whether or not it is enforced yet.
+#
+# TO ACTIVATE, when the second person gets write access:
+#   1. Replace @Trade-Ties/maintainers with a real GitHub team or user. An
+#      owner without write access to this repository makes the entry invalid,
+#      and GitHub applies it silently as if it were not there.
+#   2. Uncomment the rules.
+#   3. In the main ruleset, set required approvals to 1 and turn on
+#      "Require review from Code Owners".
+#
+# Last match wins — order matters, most specific goes last.
+
+# Default owner for everything not matched below.
+# *                     @Trade-Ties/maintainers
+
+# The API contract. The one file both builds read, and the only place where a
+# careless edit breaks the frontend and the backend at the same time. This is
+# the highest-value line in the file — everything else is ordinary code.
+# /api/                 @Trade-Ties/maintainers
+
+# /backend/             @Trade-Ties/maintainers
+# /frontend/            @Trade-Ties/maintainers
+
+# Deployment topology, TLS termination and the record of what a deployment
+# needs. A mistake here is not caught by any test.
+# /infra/               @Trade-Ties/maintainers
+
+# The rules themselves: CI, branch rulesets, the commit hook, and the documents
+# that describe how code reaches customers. Changing these changes every future
+# change.
+# /.github/             @Trade-Ties/maintainers
+# /.githooks/           @Trade-Ties/maintainers
+# /CONTRIBUTING.md      @Trade-Ties/maintainers
+# /BRANCHING.md         @Trade-Ties/maintainers

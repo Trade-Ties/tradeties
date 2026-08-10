@@ -4,7 +4,11 @@ How changes get into `main`, and why that way. Written after the first vertical 
 landed, so the examples are real.
 
 Setup, prerequisites and how to run the app live in the [README](README.md). This file
-covers everything from a working checkout to a merged commit.
+covers everything from a working checkout to a commit merged into `main`.
+
+**Merging into `main` is not shipping.** It reaches the test environment, not customers.
+What happens afterwards — the promotion to `production`, hotfixes, rollback — is in
+[BRANCHING.md](BRANCHING.md).
 
 ---
 
@@ -18,8 +22,12 @@ git config core.hooksPath .githooks
 
 `.githooks/commit-msg` checks the header against the convention below — type, scope, the
 72-character limit. It is dependency-free and deliberately checks only what a machine can
-judge. Whether the body explains *why* stays a human's job. `--no-verify` bypasses it, for
-the rare case you mean to.
+judge. Whether the body explains *why* stays a human's job.
+
+`--no-verify` bypasses it locally, but CI runs **this same file** over every commit in the
+pull request, so a bypassed header comes back as a red check. One definition of the
+convention, enforced in both places — the point of reusing the hook rather than configuring a
+second linter that could drift from it.
 
 **Know what "green" means here** before you commit anything: see
 [every commit builds](#the-second-mandatory-rule-every-commit-builds).
@@ -30,27 +38,24 @@ the rare case you mean to.
 
 ```bash
 git switch main
-git pull --ff-only                  # if a remote is configured
+git pull --ff-only
 git switch -c feat/<topic>          # feature work never goes straight to main
 # ... work ...
 git add <one logical group>
 git diff --cached                   # ALWAYS read the diff before committing
 git commit -F <message-file>        # repeat per logical group
-
-git switch main
-git pull --ff-only
-git merge --no-ff --no-commit feat/<topic>
-# verify the build here — see "every commit builds"
-git commit -F <merge-message-file>
-git branch -d feat/<topic>
+git push -u origin feat/<topic>
+# open a pull request against main, wait for CI, merge with a merge commit
 ```
 
 `--ff-only` keeps `git pull` from quietly inventing a merge commit when the histories have
 diverged. If it refuses, deal with the divergence deliberately.
 
-**Exception:** a single-file `docs:` or `chore:` change that touches no code and needs no
-build may go straight to `main`. Anything that could break a build, or that spans more than
-one commit, goes on a branch.
+**`main` no longer accepts a direct push.** The ruleset rejects it, and that includes the
+single-file `docs:` change this file used to exempt. The exemption was a judgement call about
+risk, and a ruleset cannot make judgement calls — an escape hatch wide enough for a typo fix
+is wide enough for everything else. Branch and open a pull request for that too; it costs
+about thirty seconds.
 
 Three questions answer everything else:
 
@@ -118,17 +123,22 @@ mock the token, so `verify` runs on a bare checkout with Docker. The frontend re
 `--frozen-lockfile` fails when `package.json` and `pnpm-lock.yaml` disagree — the check a CI
 would run, and the reason a dependency change and its lockfile update belong in one commit.
 
-**Verify again after the merge, before committing it.** Every commit on the branch can pass
-while the merge with a moved `main` fails — a semantic conflict git cannot see, because the
-textual merge succeeded. If it does:
+**Verify again after `main` moves under you.** Every commit on the branch can pass while the
+combination with a moved `main` fails — a semantic conflict git cannot see, because the
+textual merge succeeded. The `main` ruleset requires the branch to be up to date, so you meet
+this before the merge rather than after it:
 
 ```bash
-git merge --abort
+git switch feat/<topic>
+git merge main                      # or press "Update branch" on the pull request
 ```
 
-then fix the topic branch and merge again.
+then run both builds again on the result before pushing.
 
-There is no CI (deliberately deferred). Nothing enforces any of this but you.
+**CI now runs both commands on every pull request** — see
+[BRANCHING.md](BRANCHING.md#what-ci-takes-over-from-you) for exactly which of the rituals
+above it takes off your hands, and which stay yours. Keep running them locally first anyway:
+CI answers in minutes what your own machine answers now.
 
 ---
 
@@ -230,31 +240,33 @@ together. With it:
 So the merge commit is the atomic unit the monorepo promises, while the commits underneath
 keep the granularity that review and `git bisect` need. You do not have to choose.
 
-Always `--no-ff`. A fast-forward merge produces no merge commit and loses all of this.
+Always a merge commit. A fast-forward loses all of this, and a squash loses the commits
+underneath it as well — which is why **Create a merge commit** is the only merge method the
+repository leaves enabled, in the settings and again in the ruleset.
 
-`git merge` has no `-F`, so use two steps when the message comes from a file:
-
-```bash
-git merge --no-ff --no-commit feat/<topic>
-git commit -F <merge-message-file>
-```
+GitHub's merge dialog takes the message. The second field is a full body, not a subtitle:
+paste the same text you would have passed to `git commit -F`.
 
 ---
 
 ## Review and merge
 
-Today this repo has one contributor, and the workflow above reflects that: you merge your own
-topic branch into `main`.
+Every change is a pull request, including yours. What a second contributor adds is not the
+pull request — it is the approval on it.
 
-**That changes the moment a second person commits.** Self-merging is defensible only while
-nobody else is exposed to a mistake on `main`. With more than one contributor the topic
-branch becomes a pull request, and someone other than the author approves it before it lands.
+The `main` ruleset therefore requires **zero** approvals today. GitHub never lets you approve
+your own pull request, so requiring one would lock the only maintainer out of their own
+repository. The pull request earns its keep without an approver anyway: CI gates it, the
+template asks the questions worth asking, and the merge leaves a page that says why the
+feature exists.
 
-Everything else in this file stays exactly as it is — the split, the invariant, the merge
-commit. Only the merge itself gains a second pair of eyes.
+**Raise it to one the day a second person gets write access**, and activate
+[`.github/CODEOWNERS`](.github/CODEOWNERS) in the same sitting — both steps are in
+[BRANCHING.md](BRANCHING.md#one-time-setup). Everything else stays exactly as it is: the
+split, the invariant, the merge commit.
 
-Do not read the solo workflow as this project's position on review. It is a consequence of
-the head count, and it expires with it.
+Do not read the zero as this project's position on review. It is a consequence of the head
+count, and it expires with it.
 
 ---
 

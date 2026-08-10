@@ -64,3 +64,15 @@ Two entry points, and they behave differently by design:
 ```bash
 cd backend && ./mvnw verify
 ```
+
+## Contributing
+
+| Document | Answers |
+| --- | --- |
+| [CONTRIBUTING.md](CONTRIBUTING.md) | how to split a change, write the commit, and get it into `main` |
+| [BRANCHING.md](BRANCHING.md) | how what is on `main` reaches customers — the two branches, the promotion, rollback |
+
+Two branches matter. `main` is integration and feeds the test environment; `production` is
+the latest commit approved for customers. Work happens on a feature branch, reaches `main`
+through a pull request, and reaches customers only when someone presses **Promote to
+production** under Actions. Merging is not shipping.

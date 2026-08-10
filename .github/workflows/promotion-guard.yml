@@ -1,0 +1,122 @@
+name: Promotion guard
+
+# One invariant, checked whenever production is moved from outside the button:
+#
+#   the tip of production is a commit on main's first-parent history
+#
+# That single sentence covers everything. Because promotion is a fast-forward,
+# production holds no commit of its own — not a hotfix, not a revert, not even a
+# merge commit. Its tip IS a commit main's tip once was, so its file tree is by
+# construction the tree CI tested. There is no separate "did a merge quietly
+# change a file" question to ask, because there is no merge to hide it in.
+#
+# First-parent, not merely reachable. Merging a pull request makes every commit
+# of the feature branch reachable from main, so an ancestor test would accept a
+# commit from inside a branch — a tree main itself never had. promote.yml checks
+# the same stronger condition before it pushes; the two must not drift apart.
+#
+# WHAT THIS DOES NOT SEE
+#
+# Not promotions. promote.yml pushes with the automatic GITHUB_TOKEN, and pushes
+# made with that token deliberately do not trigger further workflow runs, so
+# this never fires for a normal promotion. That is not a gap being tolerated:
+# promote.yml asserts the same invariant inline, after its own push, precisely
+# because this job cannot. Do not delete that step on the assumption this covers
+# it.
+#
+# What is left for this job is the case it was always really for: production
+# being moved by someone or something other than the button — an admin using the
+# ruleset bypass, a personal access token, an app. It runs after the fact and
+# cannot prevent anything. Prevention is the ruleset plus the checks inside
+# promote.yml. This is the tripwire.
+
+on:
+  push:
+    branches: [production]
+
+permissions:
+  contents: read
+
+jobs:
+  on-main:
+    name: on-main
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      issues: write # a failure has to become an alarm, see below
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: The tip of production must be on main's mainline
+        env:
+          TIP: ${{ github.sha }}
+        run: |
+          git fetch --no-tags origin +refs/heads/main:refs/remotes/origin/main
+
+          if git rev-list --first-parent origin/main | grep -Fxq "$TIP"; then
+            echo "production is at $TIP, which is on main's mainline. Invariant holds."
+            exit 0
+          fi
+
+          if git merge-base --is-ancestor "$TIP" origin/main; then
+            echo "::error::production is at $TIP, which is reachable from main but is NOT on its first-parent history."
+            echo
+            echo "That is a commit from inside a feature branch — a state main itself was never in."
+            echo "Customers are running a tree that no merge on main ever produced, missing whatever else has landed."
+            echo "Move production to the merge commit that brought this branch into main."
+            exit 1
+          fi
+
+          echo "::error::production is at $TIP, which is NOT on main."
+          echo
+          echo "Commits on production that main does not have:"
+          git log --oneline "$TIP" ^origin/main
+          echo
+          echo "Customers are running code the test environment never saw."
+          echo "Port it to main, or move production back to a commit that is on main."
+          exit 1
+
+      # A red run is not an alarm. Whether anyone hears about a failed workflow
+      # depends on each person's notification settings, and the failure mode this
+      # job exists for — someone bypassing the ruleset at 23:00 — is exactly the
+      # one where nobody is watching the Actions tab.
+      #
+      # An issue is the smallest thing that survives not being looked at
+      # immediately: it notifies watchers, it stays open until someone closes it,
+      # and it is somewhere to write down what was done about it. Wire the repo's
+      # real incident channel in here as well once there is one.
+      - name: Raise an issue, because a red run is not an alarm
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TIP: ${{ github.sha }}
+          RUN: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          WHO: ${{ github.actor }}
+        run: |
+          set -eu
+
+          # One issue per incident, not one per push. A bypassed push is rarely
+          # a single push, and ten identical issues are read as noise.
+          open=$(gh issue list --state open --limit 50 --json number,title \
+            --jq '[.[] | select(.title | startswith("production is off the mainline"))] | first | .number // empty')
+
+          if [ -n "$open" ]; then
+            gh issue comment "$open" --body "Still failing: production is at \`$TIP\`, pushed by @$WHO. [Run]($RUN)"
+            echo "::notice::commented on existing issue #$open"
+            exit 0
+          fi
+
+          {
+            printf '`production` is at `%s`, which is not on main'"'"'s first-parent history.\n\n' "$TIP"
+            printf 'The branch was moved by something other than the Promote button — @%s pushed it.\n' "$WHO"
+            printf 'Whatever moved it got past the `production` ruleset, so this is an incident, not a chore.\n\n'
+            printf -- '- What is actually running: Settings → Environments → `production`\n'
+            printf -- '- What went wrong: [the guard run](%s)\n' "$RUN"
+            printf -- '- What to do about it: BRANCHING.md, "Rollback"\n'
+          } > body.md
+
+          gh issue create --title "production is off the mainline" --body-file body.md
