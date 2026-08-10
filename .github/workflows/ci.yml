@@ -1,0 +1,142 @@
+name: CI
+
+# The quality gate for main. Runs on every pull request and again on main's tip
+# after the merge. That second run matters more than it looks: promote.yml
+# refuses to promote a commit unless `frontend` and `backend` are green on that
+# exact SHA, and a merge commit is a SHA no pull-request run ever saw.
+#
+# production is deliberately absent from both triggers. Promotion is a
+# fast-forward, so production's tip is a commit that already ran here — building
+# it again would test the same SHA twice and prove nothing.
+#
+# Deliberately NO paths filter. A required status check that never runs is
+# reported as pending forever and blocks the pull request permanently, so a job
+# listed as required must fire on every single pull request.
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  merge_group:
+
+# Keyed by ref for pull requests, but by SHA for pushes to main.
+#
+# A pull request only ever needs its newest run, so a new push cancels the run it
+# supersedes instead of queueing behind it. A push to main must NOT be cancelled
+# by the next merge: promote.yml refuses to promote a commit without a successful
+# push run on that exact SHA, and a cancelled run is not a successful one. Keyed
+# by ref, merging two pull requests in quick succession would cancel the first
+# merge commit's run and leave that commit permanently unpromotable. Keying by
+# SHA gives every mainline commit a group of its own, with nothing to collide
+# with.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event_name == 'push' && github.sha || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  frontend:
+    name: frontend
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    # next build evaluates modules that @workos-inc/authkit-nextjs guards on
+    # startup, so the build needs these present — not valid, just present.
+    # Every value here is a placeholder and reaches nothing.
+    env:
+      WORKOS_API_KEY: sk_test_ci_placeholder
+      WORKOS_CLIENT_ID: client_ci_placeholder
+      WORKOS_COOKIE_PASSWORD: ci-placeholder-cookie-password-at-least-32-chars
+      NEXT_PUBLIC_WORKOS_REDIRECT_URI: http://localhost:3000/callback
+      API_BASE_URL: http://localhost:8080
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: pnpm/action-setup@v4 # reads the packageManager field in package.json
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: pnpm
+
+      # Fails when package.json and pnpm-lock.yaml disagree — the check that
+      # makes a dependency change and its lockfile update one commit.
+      - run: pnpm install --frozen-lockfile
+
+      # lib/api/schema.d.ts is generated and gitignored, so it does not exist in
+      # a fresh checkout. Generate before linting, or eslint resolves nothing.
+      # This step also proves api/openapi.yaml still parses.
+      - name: Generate the typed API client from the contract
+        run: pnpm --filter @tradeties/frontend generate:api
+
+      - run: pnpm lint
+
+      - run: pnpm build # next build type-checks as it goes
+
+  backend:
+    name: backend
+    runs-on: ubuntu-latest
+    # Generous, because Testcontainers pulls and starts a PostgreSQL image. Still
+    # far below the 6h default: a hung container should free the runner in
+    # minutes, not at the end of the working day.
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: 25
+          cache: maven
+
+      # ubuntu-latest ships a running Docker daemon, which is what
+      # Testcontainers needs to provision PostgreSQL for the test run.
+      - name: mvnw verify
+        working-directory: backend
+        run: ./mvnw -B -ntp verify
+
+  commit-convention:
+    name: commit-convention
+    # Only a pull request has a commit range to check.
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0 # the hook needs real history, not a shallow clone
+
+      # Reuses .githooks/commit-msg verbatim rather than reimplementing the
+      # convention here. One definition, enforced locally and in CI.
+      #
+      # Read out of the BASE commit, not out of the checkout. The checkout is the
+      # pull request's own tree, so a pull request that edits the hook would be
+      # judged by its own edited copy — it could weaken the convention and admit
+      # its own commit messages in the same change. The base branch is protected;
+      # the head branch is anyone's.
+      - name: Check every commit header against .githooks/commit-msg
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -u
+          hook="$RUNNER_TEMP/commit-msg"
+          if ! git show "$BASE:.githooks/commit-msg" > "$hook"; then
+            echo "::error::.githooks/commit-msg does not exist at the base commit $BASE."
+            exit 1
+          fi
+          base=$(git merge-base "$BASE" "$HEAD")
+          status=0
+          for sha in $(git rev-list --no-merges "$base".."$HEAD"); do
+            git log -1 --format=%B "$sha" > "$RUNNER_TEMP/commit-msg.txt"
+            if ! sh "$hook" "$RUNNER_TEMP/commit-msg.txt"; then
+              echo "::error::rejected: $(git log -1 --format='%h %s' "$sha")"
+              status=1
+            fi
+          done
+          if [ "$status" -ne 0 ]; then
+            echo "::notice::Fix with git rebase -i and reword the offending commits."
+          fi
+          exit $status
