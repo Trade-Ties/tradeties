@@ -29,6 +29,20 @@ servers:
 tags:
   - name: identity
     description: The authenticated principal and its role in the marketplace.
+  - name: reference
+    description: Catalogues the client renders but never owns. Public, and stable.
+  - name: business
+    description: |
+      The tradesperson's own business. Every operation here resolves the business
+      from the access token — the id is never a path variable, so there is no id
+      for a caller to swap for someone else's.
+  - name: availability
+    description: |
+      When a business works, and the rules that turn that into bookable slots.
+      Its own tag rather than a corner of `business`, because the generator makes
+      one interface per tag and these tables belong to their own module — the
+      calendar is where appointments, time off and working hours have to agree
+      with each other, and that agreement is not the profile's business.
 
 security:
   - workosAuthKit: []
@@ -90,6 +104,831 @@ paths:
         "401":
           $ref: "#/components/responses/Unauthorized"
 
+  # -------------------------------------------------------------------------
+  # Reference data.
+  #
+  # Public on purpose: all three are catalogues with nothing private in them, and
+  # the customer-side search will need the trades too. The root `security` block
+  # applies a token requirement to every operation, so these three opt out of it
+  # explicitly with `security: []`.
+  # -------------------------------------------------------------------------
+
+  /api/v1/trades:
+    get:
+      tags: [reference]
+      operationId: listTrades
+      security: []
+      summary: The trade catalogue.
+      description: |
+        Every active trade, already in the order it should be presented. Feeds the
+        trade tiles during onboarding and, later, the search facet.
+
+        **Inactive trades are never returned.** A trade taken off the market stays
+        in the database because existing profiles point at it, but it must not be
+        offered as a new choice.
+      responses:
+        "200":
+          description: Active trades, in presentation order.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Trade"
+
+  /api/v1/us-states:
+    get:
+      tags: [reference]
+      operationId: listUsStates
+      security: []
+      summary: The states a business can operate and hold a licence in.
+      description: |
+        The 50 states plus DC, alphabetically by name. Served rather than hard-coded
+        in the client so the list exists once: the same table backs the foreign key
+        on the profile address and on every licence.
+      responses:
+        "200":
+          description: States, alphabetically by name.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/UsState"
+
+  /api/v1/time-zones:
+    get:
+      tags: [reference]
+      operationId: listTimeZones
+      security: []
+      summary: The time zones a business can operate in.
+      description: |
+        Every IANA zone in the United States, the seven that cover almost everybody
+        first and the exceptions after them — which is why this is ordered rather
+        than alphabetical.
+
+        Served rather than hard-coded in the client for the same reason as the
+        states: the same table backs the foreign key on the profile, so the list the
+        wizard offers and the values the server accepts cannot drift apart.
+
+        `code` is what the profile stores, and it is deliberately an IANA id and not
+        a UTC offset. Working hours are local wall clock — "Mondays from 8" still
+        means 8 after the daylight saving switch — and only a named zone knows when
+        that switch happens.
+      responses:
+        "200":
+          description: Time zones, most-used first.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/UsTimeZone"
+
+  # -------------------------------------------------------------------------
+  # The business profile — onboarding steps 1 and 2.
+  # -------------------------------------------------------------------------
+
+  /api/v1/me/business:
+    get:
+      tags: [business]
+      operationId: getMyBusiness
+      summary: The caller's business profile.
+      description: |
+        **404 here is a normal answer, not a failure.** It means the caller has
+        registered as a tradesperson but has not got through onboarding step 2 yet,
+        so no profile exists. The wizard uses exactly that to choose between
+        starting at step 1 and resuming at `onboardingCompletedStep`.
+      responses:
+        "200":
+          description: The profile, in whatever state onboarding left it.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BusinessProfile"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+    post:
+      tags: [business]
+      operationId: createMyBusiness
+      summary: Create the business profile as a draft.
+      description: |
+        Carries onboarding steps 1 **and** 2 together, and cannot be split: the
+        address, the time zone and the service radius are all mandatory, so nothing
+        is persistable until step 2 is complete. Step 1 therefore lives in the
+        browser until this call succeeds.
+
+        Created as `DRAFT` — not searchable, not bookable, until the profile is
+        published at the end of the wizard.
+
+        **409 if the caller already has a business.** One account, one business.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateBusinessRequest"
+      responses:
+        "201":
+          description: The created draft.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BusinessProfile"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
+
+    put:
+      tags: [business]
+      operationId: updateMyBusiness
+      summary: Correct steps 1 and 2 later.
+      description: |
+        **Full replacement, not a merge.** The body carries the complete step 1 and 2
+        state; an omitted optional field is cleared, not left alone. The client has
+        just read the profile, so it always has everything it needs to send.
+
+        A merge (`PATCH`) was the obvious alternative and was rejected: distinguishing
+        "field absent" from "field explicitly null" requires `JsonNullable` wrappers
+        across every model, and `openApiNullable` is deliberately off in this build.
+        Without that distinction a merge silently cannot clear a description, and a
+        contract that promises what the generated code cannot express is worse than
+        the extra bytes on the wire. Replacement also matches every other write in
+        this API.
+
+        **`version` is required and must match.** Otherwise two browser tabs editing
+        the same profile would both save and the later one would silently win.
+
+        **Changing `timeZone` needs `timeZoneChangeConfirmed: true`**, once the business has
+        working hours. Those are stored as local wall clock and therefore do not move — Monday
+        08:00 stays 08:00 — but the instants behind them do, and with them every free slot the
+        business offers. Usually that is exactly the point: the two ordinary reasons to change
+        the zone are a correction and a move. It is asked once anyway, because nothing in this
+        form shows that step 2 reaches into step 7.
+
+        Without the flag the answer is `409` carrying
+        `type: urn:tradeties:problem:unconfirmed-time-zone-change`; send the same body again
+        with the flag set. A business with no working hours has nothing to move and is never
+        asked.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateBusinessRequest"
+      responses:
+        "200":
+          description: The updated profile, with the incremented `version`.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BusinessProfile"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+
+  /api/v1/me/business/slug-available:
+    get:
+      tags: [business]
+      operationId: checkSlugAvailability
+      summary: Is this URL segment still free?
+      description: |
+        The live check behind the URL field in step 1.
+
+        Behind the token although it reveals nothing but a yes or no: left public it
+        would let anyone enumerate which businesses exist by guessing names. Any
+        registered tradesperson can still probe it, which is a far smaller surface
+        than the open internet.
+
+        **A `true` is not a reservation.** Two callers can hold the same answer at
+        the same moment; the unique index decides, and whoever creates second gets
+        a 409.
+      parameters:
+        - name: slug
+          in: query
+          required: true
+          schema:
+            $ref: "#/components/schemas/Slug"
+      responses:
+        "200":
+          description: Whether the slug can currently be taken.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SlugAvailability"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/v1/me/business/readiness:
+    get:
+      tags: [business]
+      operationId: getMyProfileReadiness
+      summary: What still stands between this profile and customers.
+      description: |
+        The checklist of onboarding step 9, computed by the server.
+
+        It has to be: every condition reads from more than one table, and two of them —
+        "exactly one primary trade" and "every hourly service has a rate" — are precisely
+        the rules the schema cannot hold on its own. A client that reproduced them would be
+        a second implementation to keep in step.
+
+        Answering when nothing is finished is normal. A brand-new draft gets the full list
+        with everything failing, which is what the wizard renders as an empty checklist.
+      responses:
+        "200":
+          description: Every condition, passed or not.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProfileReadiness"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/me/business/publish:
+    post:
+      tags: [business]
+      operationId: publishMyBusiness
+      summary: Make the profile visible to customers.
+      description: |
+        Moves the profile from `DRAFT` to `PUBLISHED`, and with it into the search.
+
+        **The checklist is re-evaluated here, in the same transaction that sets the status.**
+        Reading `readiness` first is what the wizard does to grey out the button, but it is
+        not what makes publishing safe — between that read and this call a service can be
+        deactivated or a trade dropped. A 422 carries the failing checks, so the client can
+        show the same list it would have shown a moment earlier.
+
+        Already published is not an error: the answer is the profile, unchanged. A suspended
+        profile is a different matter, exactly as on `unpublish` — that state is not the
+        holder's to leave in either direction, and publishing is the other way out of it. It
+        answers 409, and it does so before the checklist runs: the suspension is the reason,
+        and a 422 listing what to fix would read as "do this and you are back online".
+      responses:
+        "200":
+          description: The published profile.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BusinessProfile"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          description: The profile is not ready. The body lists what is missing.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProfileReadiness"
+
+  /api/v1/me/business/unpublish:
+    post:
+      tags: [business]
+      operationId: unpublishMyBusiness
+      summary: Take the profile back out of the search.
+      description: |
+        Back to `DRAFT`. Without this, going offline would be a support ticket — and a
+        business that closes for three weeks, or stops trading, has a legitimate reason to.
+
+        **Accepted appointments are untouched.** This removes the profile from the search;
+        it does not cancel anything, and the customers who already have a booking still have
+        one. Cancelling is a separate act with a separate fee rule.
+
+        Already a draft is not an error. A suspended profile is a different matter — that
+        state is not the holder's to leave.
+      responses:
+        "200":
+          description: The profile, now a draft.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BusinessProfile"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+
+  # -------------------------------------------------------------------------
+  # Onboarding steps 3 to 8 — the parts of the business that hang off the
+  # profile.
+  #
+  # Two shapes appear below, and which one a resource gets follows from what it
+  # is. A set that is edited as one form is replaced with PUT; a repeatable list
+  # whose entries have their own identity gets create, replace and delete.
+  #
+  # Every write is a REPLACEMENT, never a merge, for the reason spelled out on
+  # `PUT /api/v1/me/business`: with `openApiNullable` off, the generated models
+  # cannot tell an absent field from an explicit null, so a merge could not clear
+  # anything.
+  #
+  # The paths that carry an id carry a SERVICE or LICENCE id, never a business
+  # id. The server resolves them together with the owner, so someone else's id
+  # returns 404 rather than granting access.
+  # -------------------------------------------------------------------------
+
+  /api/v1/me/business/trades:
+    get:
+      tags: [business]
+      operationId: getMyTrades
+      summary: The trades this business holds.
+      responses:
+        "200":
+          description: The primary trade and any additional ones.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BusinessTrades"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+    put:
+      tags: [business]
+      operationId: setMyTrades
+      summary: Choose the trades — onboarding step 3.
+      description: |
+        The whole selection at once, because it is submitted as one form: one radio group
+        for the primary trade and a checkbox group beside it.
+
+        `primaryTradeId` is required here although the database only enforces *at most* one
+        primary trade. That looseness is for a draft mid-edit; this endpoint is the form
+        being submitted, and a submitted step 3 has exactly one.
+
+        A trade that is not in the catalogue, or is inactive, is a 400.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BusinessTradesRequest"
+      responses:
+        "200":
+          description: The resulting selection, resolved to full trades.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BusinessTrades"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/me/business/services:
+    get:
+      tags: [business]
+      operationId: listMyServices
+      summary: The services on offer — onboarding step 4.
+      responses:
+        "200":
+          description: Services in presentation order.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Service"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+    post:
+      tags: [business]
+      operationId: addMyService
+      summary: Add a service.
+      description: |
+        Appended to the end of the list; ordering is changed with
+        `PUT /api/v1/me/business/services/order`, not by supplying a number here.
+
+        A `tradeId` must be one the business actually holds — the database checks that
+        through a composite foreign key rather than trusting the client. Omit it for work
+        that spans trades.
+
+        Names are unique per business, case-insensitively: "Clog removal" and "CLOG REMOVAL"
+        are the same entry to everyone except a byte comparison.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ServiceInput"
+      responses:
+        "201":
+          description: The created service.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Service"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+
+  /api/v1/me/business/services/order:
+    put:
+      tags: [business]
+      operationId: reorderMyServices
+      summary: Reorder the list after a drag.
+      description: |
+        The complete list of service ids in their new order — one request instead of one per
+        moved row, which is what a drag-and-drop otherwise produces.
+
+        Must name every active service exactly once. A partial list would leave the
+        remainder in an order nobody chose.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ServiceOrder"
+      responses:
+        "200":
+          description: The services in their new order.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Service"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/me/business/services/{serviceId}:
+    parameters:
+      - name: serviceId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    put:
+      tags: [business]
+      operationId: replaceMyService
+      summary: Replace a service.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ServiceUpdate"
+      responses:
+        "200":
+          description: The updated service.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Service"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+
+    delete:
+      tags: [business]
+      operationId: removeMyService
+      summary: Remove a service.
+      description: |
+        **May deactivate rather than delete.** A service that past or pending appointments
+        point at cannot disappear without tearing up the history, so once bookings exist
+        this sets `active` to false and the entry stops being offered. Either way it is gone
+        from the customer's view, which is what the caller asked for — but a later `GET` can
+        still return it with `active: false`.
+      responses:
+        "204":
+          description: Removed, or deactivated where history prevents removal.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/me/business/pricing:
+    get:
+      tags: [business]
+      operationId: getMyPricing
+      summary: Rates and terms — onboarding step 5.
+      description: |
+        **404 until step 5 has been saved once.** Unlike the booking policy, this row is not
+        created with the profile: `travelFeeMode` and `materialPricingMode` have no
+        defensible default, and a row carrying "travel included, material included" would be
+        a statement about money that nobody made.
+      responses:
+        "200":
+          description: The current rates and terms.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Pricing"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+    put:
+      tags: [business]
+      operationId: setMyPricing
+      summary: Set rates and terms.
+      description: |
+        Creates the block the first time and replaces it afterwards, which is why `version`
+        is optional: omit it to say "there should be nothing here yet", send it to say
+        "replace what I read". Either statement being wrong is a 409.
+
+        **Switching a mode clears the fields it no longer governs.** Changing
+        `travelFeeMode` from `FLAT` to `PER_MILE` must not leave the old flat fee behind to
+        resurface later, and the database rejects the combination outright. Because the write
+        is a replacement, simply leaving the field out does the right thing.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PricingInput"
+      responses:
+        "200":
+          description: The stored rates and terms.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Pricing"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+
+  /api/v1/me/business/licenses:
+    get:
+      tags: [business]
+      operationId: listMyLicenses
+      summary: Licences held — onboarding step 6.
+      description: An empty list is a valid answer; licences are optional.
+      responses:
+        "200":
+          description: Licences, newest expiry first.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/License"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+    post:
+      tags: [business]
+      operationId: addMyLicense
+      summary: Add a licence.
+      description: |
+        Licensing is per state, and a tradesperson near a state line legally works in two —
+        hence a list rather than a pair of fields. The combination of state and licence
+        number is unique per business.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LicenseInput"
+      responses:
+        "201":
+          description: The created licence.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/License"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+
+  /api/v1/me/business/licenses/{licenseId}:
+    parameters:
+      - name: licenseId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    put:
+      tags: [business]
+      operationId: replaceMyLicense
+      summary: Replace a licence.
+      description: |
+        **Editing state, number or type withdraws the verification.** `verifiedAt` confirms
+        one exact combination; if any part of it changes, the server clears the mark in the
+        same write. An unverified licence must not wear the previous one's seal.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LicenseUpdate"
+      responses:
+        "200":
+          description: The updated licence.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/License"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+
+    delete:
+      tags: [business]
+      operationId: removeMyLicense
+      summary: Remove a licence.
+      description: Nothing references a licence, so this really deletes.
+      responses:
+        "204":
+          description: Removed.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/me/business/working-hours:
+    get:
+      tags: [availability]
+      operationId: getMyWorkingHours
+      summary: The working week — onboarding step 7.
+      description: |
+        Always seven days. A day with no blocks is closed, which is a different statement
+        from a day that has not been configured — and the reason the answer is not simply
+        the rows that happen to exist.
+      responses:
+        "200":
+          description: Monday to Sunday, in order.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkingHours"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+    put:
+      tags: [availability]
+      operationId: setMyWorkingHours
+      summary: Set the working week.
+      description: |
+        The whole week at once, and not by the block. Blocks are validated against each
+        other — 08:00–12:00 and 11:00–15:00 on the same day is a rejection — so accepting
+        them one at a time would let a client build an invalid week in valid steps.
+
+        **Local wall clock, not instants.** "Mondays from 8" still means 8 after the
+        daylight saving switch. The zone comes from the profile, and changing it there moves
+        the whole calendar.
+
+        A lunch break is two blocks, not a field: `08:00–12:00` and `13:00–18:00`. Blocks
+        that touch, like `08:00–12:00` and `12:00–18:00`, are adjacent rather than
+        overlapping and are allowed.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/WorkingHours"
+      responses:
+        "200":
+          description: The stored week.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkingHours"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/me/business/booking-policy:
+    get:
+      tags: [availability]
+      operationId: getMyBookingPolicy
+      summary: Booking rules — onboarding step 8.
+      description: |
+        Never 404 for an existing business — though not because the row always exists. It is
+        provisioned on the first calendar write, not with the profile. Until then this answers
+        with the defaults at `version` 0, which is exactly what would be written if the first
+        `PUT` arrived now. "Not configured yet" and "configured to the defaults" are the same
+        answer here, unlike on pricing, because every field has a defensible default.
+      responses:
+        "200":
+          description: The current booking rules.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BookingPolicy"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+    put:
+      tags: [availability]
+      operationId: setMyBookingPolicy
+      summary: Set the booking rules.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BookingPolicyInput"
+      responses:
+        "200":
+          description: The stored booking rules.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BookingPolicy"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+
 components:
   securitySchemes:
     workosAuthKit:
@@ -101,6 +940,44 @@ components:
   responses:
     Unauthorized:
       description: Missing or invalid access token.
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problem"
+
+    BadRequest:
+      description: The payload violates the schema or a field constraint.
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problem"
+
+    Forbidden:
+      description: |
+        Authenticated, but not as a tradesperson. Registering through the portal grants
+        the role; a customer account reaching a business endpoint directly has not been
+        through that, and creating a business without the role would leave an owner who
+        cannot act on it.
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problem"
+
+    NotFound:
+      description: |
+        The addressed resource does not exist **for this caller**. Owner endpoints
+        query by owner rather than checking ownership afterwards, so someone else's
+        resource is indistinguishable from a missing one — deliberately. A 403 would
+        confirm that the thing exists.
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problem"
+
+    Conflict:
+      description: |
+        The write lost a race or would break a uniqueness rule: a slug taken in the
+        meantime, a second business for one account, or a stale `version`.
       content:
         application/problem+json:
           schema:
@@ -155,9 +1032,1078 @@ components:
         - BUSINESS_MEMBER
         - PLATFORM_ADMIN
 
+    Trade:
+      type: object
+      description: One entry of the trade catalogue.
+      required: [id, code, displayName]
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: |
+            What later calls submit when a business picks its trades. Stable across
+            deployments — the catalogue is seeded with fixed ids precisely so these
+            references survive a re-seed.
+        code:
+          type: string
+          description: |
+            The machine name. Useful to the client for keying an icon off; it is not
+            what gets submitted.
+          maxLength: 64
+          examples: ["PLUMBER"]
+        displayName:
+          type: string
+          maxLength: 120
+          examples: ["Plumber"]
+
+    UsState:
+      type: object
+      required: [code, name]
+      properties:
+        code:
+          $ref: "#/components/schemas/UsStateCode"
+        name:
+          type: string
+          maxLength: 64
+          examples: ["Colorado"]
+
+    UsStateCode:
+      type: string
+      description: Two-letter USPS state code, upper case. Includes `DC`.
+      pattern: '^[A-Z]{2}$'
+      minLength: 2
+      maxLength: 2
+      examples: ["CO"]
+
+    UsTimeZone:
+      type: object
+      description: |
+        Named `UsTimeZone` rather than `TimeZone` because the short name is taken by
+        `java.util.TimeZone`, and a generated model that shadows it compiles.
+      required: [code, displayName]
+      properties:
+        code:
+          $ref: "#/components/schemas/TimeZoneId"
+        displayName:
+          type: string
+          description: Grouped by the name Americans use, with the exception named where one exists.
+          maxLength: 80
+          examples: ["Mountain Time"]
+
+    TimeZoneId:
+      type: string
+      description: |
+        An IANA zone id, and one this marketplace serves — the server checks it against
+        `GET /api/v1/time-zones` and answers 400 for anything else.
+
+        **No pattern, on purpose.** There is no expression that separates
+        `America/Denver` from `Europe/Zurich123`, so a pattern here would look like
+        validation while accepting the second. The list is the validation.
+      maxLength: 64
+      examples: ["America/Denver"]
+
+    Slug:
+      type: string
+      description: |
+        The public URL segment: `tradeties.com/pro/{slug}`. Lower case letters,
+        digits and single hyphens. Generated from the display name in the wizard,
+        then checked for availability.
+      pattern: '^[a-z0-9]+(-[a-z0-9]+)*$'
+      maxLength: 80
+      examples: ["joes-plumbing"]
+
+    Address:
+      type: object
+      description: |
+        A US postal address. Its own schema rather than inline properties because
+        the job site will use the same shape.
+      required: [street1, city, state, postalCode]
+      properties:
+        street1:
+          type: string
+          minLength: 1
+          maxLength: 200
+          examples: ["123 Main St"]
+        street2:
+          type: [string, "null"]
+          maxLength: 200
+          examples: ["Suite 4"]
+        city:
+          type: string
+          minLength: 1
+          maxLength: 100
+          examples: ["Denver"]
+        state:
+          $ref: "#/components/schemas/UsStateCode"
+        postalCode:
+          type: string
+          description: ZIP or ZIP+4.
+          pattern: '^\d{5}(-\d{4})?$'
+          maxLength: 10
+          examples: ["80202"]
+
+    Coordinates:
+      type: object
+      description: |
+        Where the business sits on the map. Derived from the address by the server;
+        the client sends them back only when the tradesperson has dragged the pin to
+        correct the result.
+
+        Latitude and longitude always travel together — a half-located business
+        would drop silently out of every radius search.
+      required: [latitude, longitude]
+      properties:
+        latitude:
+          type: number
+          format: double
+          minimum: -90
+          maximum: 90
+        longitude:
+          type: number
+          format: double
+          minimum: -180
+          maximum: 180
+
+    BusinessStatus:
+      type: string
+      description: |
+        `DRAFT` while onboarding runs — invisible to customers. `PUBLISHED` once the
+        completeness check passes. `SUSPENDED` replaces deletion: accepted
+        appointments and fees point at a business, so it leaves the search rather
+        than the database.
+      enum:
+        - DRAFT
+        - PUBLISHED
+        - SUSPENDED
+
+    BusinessProfile:
+      type: object
+      description: |
+        The caller's own business.
+
+        **No id.** The client never needs one: every operation on this business is
+        addressed as `/api/v1/me/business/...` and resolved from the token. Handing
+        out an id it cannot use would only invite someone to build a path from it
+        later.
+      required:
+        - slug
+        - legalName
+        - displayName
+        - phone
+        - email
+        - address
+        - timeZone
+        - serviceRadiusMiles
+        - status
+        - onboardingCompletedStep
+        - version
+      properties:
+        slug:
+          $ref: "#/components/schemas/Slug"
+        legalName:
+          type: string
+          description: The registered name, including the legal form.
+          maxLength: 200
+          examples: ["Joe's Plumbing LLC"]
+        displayName:
+          type: string
+          description: What customers see. Usually the legal name without the form.
+          maxLength: 200
+          examples: ["Joe's Plumbing"]
+        description:
+          type: [string, "null"]
+          maxLength: 2000
+        websiteUrl:
+          # A string with a pattern, deliberately not `format: uri`. That format makes the
+          # generator emit java.net.URI, which cannot carry the @Size the length needs —
+          # the combination compiles, generates and then throws on every single write.
+          # The pattern also validates more than the format did, which was only a hint.
+          type: [string, "null"]
+          pattern: '^https?://.+'
+          maxLength: 2048
+        phone:
+          type: string
+          description: |
+            E.164. The **business** contact, not the login — someone signs in with a
+            private address and publishes the dispatch line.
+          pattern: '^\+[1-9]\d{1,14}$'
+          maxLength: 16
+          examples: ["+13035550101"]
+        email:
+          type: string
+          format: email
+          description: The business contact address. May differ from the login.
+          maxLength: 320
+        address:
+          $ref: "#/components/schemas/Address"
+        coordinates:
+          oneOf:
+            - $ref: "#/components/schemas/Coordinates"
+            - type: "null"
+          description: Null when the address could not be geocoded.
+        timeZone:
+          allOf:
+            - $ref: "#/components/schemas/TimeZoneId"
+          description: |
+            Working hours are stored as local wall clock and resolved through this —
+            changing it moves the whole calendar.
+        serviceRadiusMiles:
+          type: integer
+          format: int32
+          minimum: 1
+          maximum: 500
+        status:
+          $ref: "#/components/schemas/BusinessStatus"
+        onboardingCompletedStep:
+          type: integer
+          format: int32
+          readOnly: true
+          minimum: 2
+          maximum: 9
+          description: |
+            The furthest wizard step saved so far, so the wizard can resume where it
+            stopped. Starts at 2, because the profile cannot exist before then.
+
+            **Set by the server, never by the client.** Each endpoint knows which
+            step it serves, which makes the value unfakeable and keeps it out of
+            every request body.
+        version:
+          type: integer
+          format: int64
+          readOnly: true
+          description: Optimistic lock. Send it back on `PATCH`.
+
+    CreateBusinessRequest:
+      type: object
+      description: Onboarding steps 1 and 2, submitted together.
+      required:
+        - slug
+        - legalName
+        - displayName
+        - phone
+        - email
+        - address
+        - timeZone
+        - serviceRadiusMiles
+      properties:
+        slug:
+          $ref: "#/components/schemas/Slug"
+        legalName:
+          type: string
+          minLength: 1
+          maxLength: 200
+        displayName:
+          type: string
+          minLength: 1
+          maxLength: 200
+        description:
+          type: [string, "null"]
+          maxLength: 2000
+        websiteUrl:
+          # A string with a pattern, deliberately not `format: uri`. That format makes the
+          # generator emit java.net.URI, which cannot carry the @Size the length needs —
+          # the combination compiles, generates and then throws on every single write.
+          # The pattern also validates more than the format did, which was only a hint.
+          type: [string, "null"]
+          pattern: '^https?://.+'
+          maxLength: 2048
+        phone:
+          type: string
+          pattern: '^\+[1-9]\d{1,14}$'
+          maxLength: 16
+        email:
+          type: string
+          format: email
+          maxLength: 320
+        address:
+          $ref: "#/components/schemas/Address"
+        coordinates:
+          oneOf:
+            - $ref: "#/components/schemas/Coordinates"
+            - type: "null"
+          description: |
+            Omit to let the server geocode the address. Send them only to override
+            the result after the pin has been dragged.
+        timeZone:
+          $ref: "#/components/schemas/TimeZoneId"
+        serviceRadiusMiles:
+          type: integer
+          format: int32
+          minimum: 1
+          maximum: 500
+
+    UpdateBusinessRequest:
+      type: object
+      description: |
+        The complete step 1 and 2 state, replacing what is stored. Same shape as
+        `CreateBusinessRequest` plus the `version` being replaced — written out
+        rather than composed with `allOf`, because the generated Java is then a
+        plain class instead of a hierarchy.
+      required:
+        - version
+        - slug
+        - legalName
+        - displayName
+        - phone
+        - email
+        - address
+        - timeZone
+        - serviceRadiusMiles
+      properties:
+        version:
+          type: integer
+          format: int64
+          description: The `version` last read. A mismatch is a 409, not a silent overwrite.
+        slug:
+          $ref: "#/components/schemas/Slug"
+        legalName:
+          type: string
+          minLength: 1
+          maxLength: 200
+        displayName:
+          type: string
+          minLength: 1
+          maxLength: 200
+        description:
+          type: [string, "null"]
+          maxLength: 2000
+        websiteUrl:
+          # A string with a pattern, deliberately not `format: uri`. That format makes the
+          # generator emit java.net.URI, which cannot carry the @Size the length needs —
+          # the combination compiles, generates and then throws on every single write.
+          # The pattern also validates more than the format did, which was only a hint.
+          type: [string, "null"]
+          pattern: '^https?://.+'
+          maxLength: 2048
+        phone:
+          type: string
+          pattern: '^\+[1-9]\d{1,14}$'
+          maxLength: 16
+        email:
+          type: string
+          format: email
+          maxLength: 320
+        address:
+          $ref: "#/components/schemas/Address"
+        coordinates:
+          oneOf:
+            - $ref: "#/components/schemas/Coordinates"
+            - type: "null"
+        timeZone:
+          $ref: "#/components/schemas/TimeZoneId"
+        serviceRadiusMiles:
+          type: integer
+          format: int32
+          minimum: 1
+          maximum: 500
+        timeZoneChangeConfirmed:
+          type: boolean
+          default: false
+          description: |
+            Only ever read when `timeZone` differs from the stored one and the business has
+            working hours. It says "yes, move my calendar" — see the operation description.
+
+            Not part of the profile and never returned: it describes this request, not the
+            business. Which is why it sits here rather than on `BusinessProfile`, the same way
+            `version` does.
+
+    SlugAvailability:
+      type: object
+      required: [slug, available]
+      properties:
+        slug:
+          $ref: "#/components/schemas/Slug"
+        available:
+          type: boolean
+
+    # -----------------------------------------------------------------------
+    # Scalars that carry a rule
+    # -----------------------------------------------------------------------
+
+    MoneyAmount:
+      type: string
+      description: |
+        A decimal amount, as a **string**.
+
+        Not a JSON number: those are IEEE-754 doubles in every browser, and money that has
+        been through a double is money that eventually disagrees with the invoice.
+
+        **The width is the column, not a guess.** `NUMERIC(19,4)` is precision nineteen minus
+        scale four: fifteen digits before the point and four after, and twenty characters is
+        exactly that plus the point itself. Anything wider is not a large amount, it is an
+        amount this system cannot store — and it belongs in a 400 rather than arriving as a
+        constraint violation five layers down, where whichever `catch` sits nearest reports
+        it as something else entirely. `PercentAmount` is derived from `NUMERIC(5,2)` the
+        same way.
+
+        The pattern also rules out a leading minus. No amount in this API is ever negative,
+        and every one of them has a `>= 0` check in the schema to match.
+
+        **The pattern is the format, not the whole bound.** Every field carrying an amount
+        also has a magnitude ceiling the server enforces — $2,000 an hour, $50 a mile,
+        $250,000 for a flat service price. They are set far above anything a US trade
+        charges and aimed at the misplaced decimal point, not at the expensive job. They
+        cannot live in this schema, because a string has no per-field `maximum`; they answer
+        400 and name both the amount and the ceiling that refused it.
+      pattern: '^\d{1,15}(\.\d{1,4})?$'
+      maxLength: 20
+      examples: ["189.00"]
+
+    PercentAmount:
+      type: string
+      description: A percentage as a string, for the same reason as MoneyAmount. `NUMERIC(5,2)`.
+      pattern: '^\d{1,3}(\.\d{1,2})?$'
+      maxLength: 6
+      examples: ["15.00"]
+
+    TimeOfDay:
+      type: string
+      description: |
+        A local wall-clock time, `HH:mm` in 24-hour form.
+
+        Deliberately **not** `format: time`, which in OpenAPI means a full time *with an
+        offset* — the generated type would then carry a zone, and working hours have none.
+        "Mondays from 8" is a rule, not a moment; the profile's time zone turns it into one.
+
+        `24:00` is the end of the day, and the only value above `23:59`. ISO 8601 has it for
+        exactly this purpose, and a day that runs to midnight needs it: `23:59` would give
+        away the last minute, and `00:00` as an end would mean the start of the same day.
+        A block therefore ends at `24:00` and the next day's begins at `00:00`, with nothing
+        between them.
+
+        One value the schema cannot rule out on its own: `24:00` as a *start*. Every such
+        block is refused anyway, because a block must end after it starts and there is no
+        legal value above `24:00` — saying it in the schema would need a second type for
+        starts and buys nothing.
+      pattern: '^(([01]\d|2[0-3]):[0-5]\d|24:00)$'
+      examples: ["08:00"]
+
+    # -----------------------------------------------------------------------
+    # Step 3 — trades
+    # -----------------------------------------------------------------------
+
+    BusinessTrades:
+      type: object
+      description: Resolved to full trades, so the client does not have to join against the catalogue.
+      required: [additional]
+      properties:
+        primary:
+          oneOf:
+            - $ref: "#/components/schemas/Trade"
+            - type: "null"
+          description: Null only for a draft that has not been through step 3.
+        additional:
+          type: array
+          items:
+            $ref: "#/components/schemas/Trade"
+
+    BusinessTradesRequest:
+      type: object
+      required: [primaryTradeId, additionalTradeIds]
+      properties:
+        primaryTradeId:
+          type: string
+          format: uuid
+        additionalTradeIds:
+          type: array
+          description: Must not contain the primary trade again.
+          items:
+            type: string
+            format: uuid
+
+    # -----------------------------------------------------------------------
+    # Step 4 — services
+    # -----------------------------------------------------------------------
+
+    ServicePricingMode:
+      type: string
+      description: |
+        `FLAT` and `STARTING_AT` need a price. `QUOTE_ONLY` means "not before I have seen it"
+        and must therefore not carry one. `HOURLY` is the special case: a price is optional
+        there and overrides the general hourly rate, which is what an emergency call-out at
+        a higher tariff needs.
+      enum:
+        - FLAT
+        - STARTING_AT
+        - HOURLY
+        - QUOTE_ONLY
+
+    Service:
+      type: object
+      required: [id, name, estimatedDurationMinutes, pricingMode, active, sortOrder, version]
+      properties:
+        id:
+          type: string
+          format: uuid
+        tradeId:
+          type: [string, "null"]
+          format: uuid
+          description: Null for work that spans trades.
+        name:
+          type: string
+          minLength: 1
+          maxLength: 160
+          examples: ["Clog removal"]
+        description:
+          type: [string, "null"]
+          maxLength: 2000
+        estimatedDurationMinutes:
+          type: integer
+          format: int32
+          description: |
+            The time reserved in the calendar, which is not the time billed. 15 minutes to
+            8 hours, in a grid the client presents in quarter hours.
+          minimum: 15
+          maximum: 480
+        pricingMode:
+          $ref: "#/components/schemas/ServicePricingMode"
+        price:
+          oneOf:
+            - $ref: "#/components/schemas/MoneyAmount"
+            - type: "null"
+        active:
+          type: boolean
+          description: A deactivated service keeps its history but is no longer offered.
+        sortOrder:
+          type: integer
+          format: int32
+          readOnly: true
+          description: Changed through the order endpoint, never by writing this field.
+        version:
+          type: integer
+          format: int64
+          readOnly: true
+
+    ServiceInput:
+      type: object
+      required: [name, estimatedDurationMinutes, pricingMode]
+      properties:
+        tradeId:
+          type: [string, "null"]
+          format: uuid
+        name:
+          type: string
+          minLength: 1
+          maxLength: 160
+        description:
+          type: [string, "null"]
+          maxLength: 2000
+        estimatedDurationMinutes:
+          type: integer
+          format: int32
+          minimum: 15
+          maximum: 480
+        pricingMode:
+          $ref: "#/components/schemas/ServicePricingMode"
+        price:
+          oneOf:
+            - $ref: "#/components/schemas/MoneyAmount"
+            - type: "null"
+        active:
+          type: boolean
+          default: true
+
+    ServiceUpdate:
+      type: object
+      description: A ServiceInput plus the version being replaced.
+      required: [version, name, estimatedDurationMinutes, pricingMode]
+      properties:
+        version:
+          type: integer
+          format: int64
+        tradeId:
+          type: [string, "null"]
+          format: uuid
+        name:
+          type: string
+          minLength: 1
+          maxLength: 160
+        description:
+          type: [string, "null"]
+          maxLength: 2000
+        estimatedDurationMinutes:
+          type: integer
+          format: int32
+          minimum: 15
+          maximum: 480
+        pricingMode:
+          $ref: "#/components/schemas/ServicePricingMode"
+        price:
+          oneOf:
+            - $ref: "#/components/schemas/MoneyAmount"
+            - type: "null"
+        active:
+          type: boolean
+          default: true
+
+    ServiceOrder:
+      type: object
+      required: [serviceIds]
+      properties:
+        serviceIds:
+          type: array
+          description: Every active service exactly once, in the order they should appear.
+          minItems: 1
+          items:
+            type: string
+            format: uuid
+
+    # -----------------------------------------------------------------------
+    # Step 5 — rates and terms
+    # -----------------------------------------------------------------------
+
+    TravelFeeMode:
+      type: string
+      description: |
+        The mode governs both travel fields, not just its own. Switching from `FLAT` to
+        `PER_MILE` has to leave the old flat fee behind for good — the database rejects a
+        row that keeps it.
+      enum:
+        - INCLUDED
+        - FLAT
+        - PER_MILE
+
+    MaterialPricingMode:
+      type: string
+      description: |
+        Material is not an amount, it is a model. What can be fixed up front is not what
+        material costs but how it is billed — a plain "material cost" field would be either
+        always empty or always wrong.
+      enum:
+        - INCLUDED
+        - AT_COST
+        - COST_PLUS_MARKUP
+        - NOT_PROVIDED
+
+    Pricing:
+      type: object
+      required:
+        - currency
+        - minimumBillableMinutes
+        - billingIncrementMinutes
+        - serviceCallFeeWaivedIfHired
+        - travelFeeMode
+        - materialPricingMode
+        - cancellationFee
+        - cancellationNoticeHours
+        - version
+      properties:
+        currency:
+          type: string
+          readOnly: true
+          description: USD. Present so a later market does not have to change the shape.
+          minLength: 3
+          maxLength: 3
+        hourlyRate:
+          oneOf:
+            - $ref: "#/components/schemas/MoneyAmount"
+            - type: "null"
+        minimumBillableMinutes:
+          type: integer
+          format: int32
+          description: The "one hour minimum" every US trade quotes.
+          minimum: 1
+        billingIncrementMinutes:
+          type: integer
+          format: int32
+          minimum: 1
+        serviceCallFee:
+          oneOf:
+            - $ref: "#/components/schemas/MoneyAmount"
+            - type: "null"
+          description: The "$89 service call fee", charged for turning up.
+        serviceCallFeeWaivedIfHired:
+          type: boolean
+          description: Only meaningful with a fee — waiving one that does not exist is not a statement.
+        travelFeeMode:
+          $ref: "#/components/schemas/TravelFeeMode"
+        travelFlatFee:
+          oneOf:
+            - $ref: "#/components/schemas/MoneyAmount"
+            - type: "null"
+        travelRatePerMile:
+          oneOf:
+            - $ref: "#/components/schemas/MoneyAmount"
+            - type: "null"
+        freeTravelRadiusMiles:
+          type: [integer, "null"]
+          format: int32
+          minimum: 0
+        materialPricingMode:
+          $ref: "#/components/schemas/MaterialPricingMode"
+        materialMarkupPercent:
+          oneOf:
+            - $ref: "#/components/schemas/PercentAmount"
+            - type: "null"
+        cancellationFee:
+          $ref: "#/components/schemas/MoneyAmount"
+        cancellationNoticeHours:
+          type: integer
+          format: int32
+          description: |
+            Hours, not "one day": 24 answers "may I still cancel" with a subtraction, where
+            "the day before" has to be interpreted first.
+          minimum: 0
+          maximum: 720
+        version:
+          type: integer
+          format: int64
+          readOnly: true
+
+    PricingInput:
+      type: object
+      required:
+        - minimumBillableMinutes
+        - billingIncrementMinutes
+        - serviceCallFeeWaivedIfHired
+        - travelFeeMode
+        - materialPricingMode
+        - cancellationFee
+        - cancellationNoticeHours
+      properties:
+        version:
+          type: [integer, "null"]
+          format: int64
+          description: |
+            Omit on the first write, when no rates exist yet. Send the version last read to
+            replace them. Either statement being wrong is a 409.
+        hourlyRate:
+          oneOf:
+            - $ref: "#/components/schemas/MoneyAmount"
+            - type: "null"
+        minimumBillableMinutes:
+          type: integer
+          format: int32
+          minimum: 1
+        billingIncrementMinutes:
+          type: integer
+          format: int32
+          minimum: 1
+        serviceCallFee:
+          oneOf:
+            - $ref: "#/components/schemas/MoneyAmount"
+            - type: "null"
+        serviceCallFeeWaivedIfHired:
+          type: boolean
+        travelFeeMode:
+          $ref: "#/components/schemas/TravelFeeMode"
+        travelFlatFee:
+          oneOf:
+            - $ref: "#/components/schemas/MoneyAmount"
+            - type: "null"
+        travelRatePerMile:
+          oneOf:
+            - $ref: "#/components/schemas/MoneyAmount"
+            - type: "null"
+        freeTravelRadiusMiles:
+          type: [integer, "null"]
+          format: int32
+          minimum: 0
+        materialPricingMode:
+          $ref: "#/components/schemas/MaterialPricingMode"
+        materialMarkupPercent:
+          oneOf:
+            - $ref: "#/components/schemas/PercentAmount"
+            - type: "null"
+        cancellationFee:
+          $ref: "#/components/schemas/MoneyAmount"
+        cancellationNoticeHours:
+          type: integer
+          format: int32
+          minimum: 0
+          maximum: 720
+
+    # -----------------------------------------------------------------------
+    # Step 6 — licences
+    # -----------------------------------------------------------------------
+
+    License:
+      type: object
+      required: [id, state, licenseNumber, version]
+      properties:
+        id:
+          type: string
+          format: uuid
+        state:
+          $ref: "#/components/schemas/UsStateCode"
+        licenseNumber:
+          type: string
+          minLength: 1
+          maxLength: 64
+        licenseType:
+          type: [string, "null"]
+          maxLength: 120
+          examples: ["Master Plumber"]
+        issuedOn:
+          type: [string, "null"]
+          format: date
+        expiresOn:
+          type: [string, "null"]
+          format: date
+          description: Must not be before the issue date.
+        verifiedAt:
+          type: [string, "null"]
+          format: date-time
+          readOnly: true
+          description: |
+            Set by TradeTies, never by the client, and cleared automatically whenever the
+            state, number or type of this licence changes.
+        version:
+          type: integer
+          format: int64
+          readOnly: true
+
+    LicenseInput:
+      type: object
+      required: [state, licenseNumber]
+      properties:
+        state:
+          $ref: "#/components/schemas/UsStateCode"
+        licenseNumber:
+          type: string
+          minLength: 1
+          maxLength: 64
+        licenseType:
+          type: [string, "null"]
+          maxLength: 120
+        issuedOn:
+          type: [string, "null"]
+          format: date
+        expiresOn:
+          type: [string, "null"]
+          format: date
+
+    LicenseUpdate:
+      type: object
+      description: A LicenseInput plus the version being replaced.
+      required: [version, state, licenseNumber]
+      properties:
+        version:
+          type: integer
+          format: int64
+        state:
+          $ref: "#/components/schemas/UsStateCode"
+        licenseNumber:
+          type: string
+          minLength: 1
+          maxLength: 64
+        licenseType:
+          type: [string, "null"]
+          maxLength: 120
+        issuedOn:
+          type: [string, "null"]
+          format: date
+        expiresOn:
+          type: [string, "null"]
+          format: date
+
+    # -----------------------------------------------------------------------
+    # Step 7 — the working week
+    # -----------------------------------------------------------------------
+
+    TimeBlock:
+      type: object
+      description: |
+        One continuous stretch of work. Must end on the same day it starts, where the end of
+        that day is `24:00`.
+
+        A lunch break is two blocks, `08:00–12:00` and `13:00–18:00`. Round the clock is one
+        block, `00:00–24:00`. A night shift is two blocks on two days, `22:00–24:00` and
+        `00:00–02:00`, which meet without a gap.
+      required: [startsAt, endsAt]
+      properties:
+        startsAt:
+          $ref: "#/components/schemas/TimeOfDay"
+        endsAt:
+          $ref: "#/components/schemas/TimeOfDay"
+
+    WorkingDay:
+      type: object
+      required: [dayOfWeek, blocks]
+      properties:
+        dayOfWeek:
+          type: integer
+          format: int32
+          description: ISO-8601 — 1 is Monday, 7 is Sunday.
+          minimum: 1
+          maximum: 7
+        blocks:
+          type: array
+          description: Empty means closed that day. Blocks must not overlap each other.
+          items:
+            $ref: "#/components/schemas/TimeBlock"
+
+    WorkingHours:
+      type: object
+      required: [days]
+      properties:
+        days:
+          type: array
+          description: |
+            Always all seven days, Monday first, whether open or not — and **each day exactly
+            once**.
+
+            Two stretches of work on one day are two entries in that day's `blocks`, never two
+            entries here. `08:00–12:00` plus `13:00–17:00` on Monday is one `WorkingDay` with
+            two blocks.
+
+            The repeat cannot be expressed as a schema rule: `minItems`/`maxItems` only count,
+            and `uniqueItems` compares whole objects, so two different Mondays are two distinct
+            items and pass it. The server enforces it instead and answers 400.
+          minItems: 7
+          maxItems: 7
+          items:
+            $ref: "#/components/schemas/WorkingDay"
+
+    # -----------------------------------------------------------------------
+    # Step 8 — booking rules
+    # -----------------------------------------------------------------------
+
+    BookingPolicy:
+      type: object
+      required:
+        - bookingHorizonDays
+        - minLeadTimeHours
+        - slotGranularityMinutes
+        - appointmentBufferMinutes
+        - version
+      properties:
+        bookingHorizonDays:
+          type: integer
+          format: int32
+          description: How far ahead a customer may book.
+          minimum: 1
+          maximum: 730
+        minLeadTimeHours:
+          type: integer
+          format: int32
+          description: The earliest a booking may start, counted from now.
+          minimum: 0
+          maximum: 8760
+        maxAcceptedAppointmentsPerDay:
+          type: [integer, "null"]
+          format: int32
+          description: |
+            Null means unlimited. Counted over the *business's* local calendar day, not UTC —
+            in America/Denver a UTC day would move the boundary into the afternoon.
+          minimum: 1
+        slotGranularityMinutes:
+          type: integer
+          format: int32
+          description: The grid start times fall on.
+          enum: [15, 30, 60]
+        appointmentBufferMinutes:
+          type: integer
+          format: int32
+          description: Travel time held free between two jobs.
+          minimum: 0
+        version:
+          type: integer
+          format: int64
+          readOnly: true
+
+    BookingPolicyInput:
+      type: object
+      description: |
+        `version` is required, unlike on pricing — not because the row always exists, but
+        because `GET` always answers with a version. The defaults it serves before the row is
+        provisioned carry 0, and a freshly provisioned row is at 0 as well, so a client that
+        read before writing always has the right number to send. Those two zeros have to stay
+        in step: `BookingRules.defaults()` holds one and Hibernate's initial version is the
+        other.
+      required:
+        - version
+        - bookingHorizonDays
+        - minLeadTimeHours
+        - slotGranularityMinutes
+        - appointmentBufferMinutes
+      properties:
+        version:
+          type: integer
+          format: int64
+        bookingHorizonDays:
+          type: integer
+          format: int32
+          minimum: 1
+          maximum: 730
+        minLeadTimeHours:
+          type: integer
+          format: int32
+          minimum: 0
+          maximum: 8760
+        maxAcceptedAppointmentsPerDay:
+          type: [integer, "null"]
+          format: int32
+          minimum: 1
+        slotGranularityMinutes:
+          type: integer
+          format: int32
+          enum: [15, 30, 60]
+        appointmentBufferMinutes:
+          type: integer
+          format: int32
+          minimum: 0
+
+    # -----------------------------------------------------------------------
+    # Step 9 — publishing
+    # -----------------------------------------------------------------------
+
+    ReadinessCheckCode:
+      type: string
+      description: |
+        A stable name per condition, so the client can attach its own wording and its own
+        link into the wizard rather than parsing `detail`.
+
+        One condition from the model is deliberately absent: that the address has been
+        geocoded. It belongs here — a profile without coordinates appears in no radius
+        search — but geocoding is not built, and shipping a check nobody can satisfy would
+        mean nobody can publish. It joins this enum when the provider is decided, which is
+        an additive change.
+      enum:
+        - PRIMARY_TRADE
+        - AT_LEAST_ONE_SERVICE
+        - HOURLY_SERVICES_HAVE_A_RATE
+        - PRICING_SET
+        - WORKING_HOURS_SET
+
+    ReadinessCheck:
+      type: object
+      required: [code, passed, detail]
+      properties:
+        code:
+          $ref: "#/components/schemas/ReadinessCheckCode"
+        passed:
+          type: boolean
+        detail:
+          type: string
+          description: What to do about it, phrased for the tradesperson rather than for a log.
+          maxLength: 300
+
+    ProfileReadiness:
+      type: object
+      description: |
+        Always the complete list, passing and failing alike — a checklist that only showed
+        problems could not be ticked off.
+      required: [ready, checks]
+      properties:
+        ready:
+          type: boolean
+          description: True only when every check passed.
+        checks:
+          type: array
+          items:
+            $ref: "#/components/schemas/ReadinessCheck"
+
     Problem:
       type: object
-      description: RFC 9457 problem detail, as produced by Spring's ProblemDetail.
+      description: |
+        RFC 9457 problem detail, as produced by Spring's ProblemDetail.
+
+        `type` is `about:blank` unless a problem is one a client has to tell apart from the
+        others sharing its status code. Exactly one is today:
+        `urn:tradeties:problem:unconfirmed-time-zone-change`, because the wizard has to answer
+        that 409 with a dialogue and a resend rather than with a sentence. Match on `type`,
+        never on `detail` — the wording is written for people and will be reworded.
       properties:
         type:
           type: string

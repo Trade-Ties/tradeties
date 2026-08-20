@@ -4,6 +4,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.annotation.Order;
+import org.springframework.http.HttpMethod;
 import org.springframework.security.config.Customizer;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
@@ -49,12 +50,24 @@ class SecurityConfig {
 	/**
 	 * Catch-all chain: every other request needs a valid WorkOS access token.
 	 * Denying by default means a new endpoint is never accidentally public.
+	 *
+	 * <p>The three reference catalogues are the deliberate exception: they are lists of trades, of
+	 * US states and of time zones, and the customer-side search will read them without a token.
+	 * Listed one path at a time rather than as {@code /api/v1/reference/**}, so that opening the
+	 * next one is a decision somebody has to write down here.
+	 *
+	 * <p>These same three carry {@code security: []} in {@code api/openapi.yaml}. That declaration
+	 * documents the exception; this line is what actually makes it.
 	 */
 	@Bean
 	@Order(2)
 	SecurityFilterChain apiFilterChain(HttpSecurity http) throws Exception {
 		return http
-				.authorizeHttpRequests(auth -> auth.anyRequest().authenticated())
+				.authorizeHttpRequests(auth -> auth
+						.requestMatchers(HttpMethod.GET,
+								"/api/v1/trades", "/api/v1/us-states", "/api/v1/time-zones")
+						.permitAll()
+						.anyRequest().authenticated())
 				.oauth2ResourceServer(oauth2 -> oauth2.jwt(Customizer.withDefaults()))
 				.sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
 				// No cookies, no sessions — a bearer-token API cannot be CSRF'd.

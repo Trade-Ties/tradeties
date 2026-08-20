@@ -32,6 +32,13 @@ spring:
     enabled: true
     locations: classpath:db/migration
 
+  # The contract answers every error with application/problem+json (RFC 9457). Without
+  # this, Spring renders its own error shape and the Problem schema would be a promise
+  # the API does not keep.
+  mvc:
+    problemdetails:
+      enabled: true
+
   jackson:
     default-property-inclusion: non_null
     time-zone: UTC
