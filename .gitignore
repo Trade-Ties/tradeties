@@ -12,9 +12,10 @@
 *.log
 pnpm-debug.log*
 
-# Local-only notes — architecture decisions & rationale, kept out of the repo.
-# Same .local convention as infra/**/*.local.yml below.
-*.local.md
+# Local-only notes and local-only config — architecture decisions, rationale,
+# scratch SQL, per-machine Compose overrides. Any file with a `.local.` segment
+# in its name stays out of the repo, at any depth.
+*.local.*
 
 # Backend (Spring Boot / Maven)
 # Build output, incl. OpenAPI sources generated into target/generated-sources.
@@ -27,7 +28,6 @@ backend/out/
 
 # Infra (Docker / Traefik)
 infra/**/.env
-infra/**/*.local.yml
 
 # IDEs & editors
 .idea/
