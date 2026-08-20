@@ -3,6 +3,7 @@ package com.tradeties.identity.internal;
 import java.util.Optional;
 
 import com.tradeties.identity.MarketplaceUser;
+import com.tradeties.identity.MarketplaceUsers;
 import com.tradeties.identity.RegistrationIntent;
 
 import org.springframework.dao.DataIntegrityViolationException;
@@ -17,7 +18,7 @@ import org.springframework.transaction.annotation.Transactional;
  * modules — {@code ModularityTests} fails the build if one reaches in here.
  */
 @Service
-public class IdentityService {
+public class IdentityService implements MarketplaceUsers {
 
 	private final UserAccountRepository repository;
 	private final UserRegistration registration;
@@ -31,6 +32,7 @@ public class IdentityService {
 	 * @return the registered user behind this WorkOS id, or empty if they have authenticated
 	 *         but never registered. Empty is a normal answer, not an error.
 	 */
+	@Override
 	@Transactional(readOnly = true)
 	public Optional<MarketplaceUser> findByWorkosUserId(String workosUserId) {
 		return repository.findByWorkosUserId(workosUserId).map(UserAccount::toMarketplaceUser);
