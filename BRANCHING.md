@@ -102,13 +102,15 @@ machine tells you now.
 
 **Actions → Promote to production → Run workflow.**
 
-Four fields, then an approval, then it runs. [`promote.yml`](.github/workflows/promote.yml)
-is the only thing in this repository with permission to move `production`.
+Four fields, then it runs — with an approval in the middle where the plan provides one, see
+[what this plan cannot enforce](#what-this-plan-cannot-enforce).
+[`promote.yml`](.github/workflows/promote.yml) is the only thing in this repository with
+permission to move `production`.
 
 | Field | What it is for |
 | --- | --- |
 | **Summary** | What ships, in customer terms. Becomes the release notes. |
-| **Tested** | A signature, not a checkbox — it puts your name and a timestamp on the claim that you exercised this against the test environment. CI proves the code builds, not that it behaves. |
+| **Tested** | A signature, not a checkbox — it puts your name and a timestamp on the claim. CI proves the code builds, not that it behaves. While there is no test environment there is nothing to exercise: tick it and write that into the summary, so the release notes carry the truth the checkbox is too blunt to hold. |
 | **Migrations** | `none`, `expand` or `contract`. See [migrations](#migrations-expand-then-contract) — this is the field that decides whether a rollback is available. |
 | **Commit** | Leave empty for the tip of `main`. Fill it in to ship a specific commit and hold back everything merged after it. |
 
@@ -128,12 +130,15 @@ check that should have stopped it is still running. `needs:` is what makes a seq
    of the feature branch reachable, so the weaker test would accept a commit from *inside* a
    branch — a tree `main` itself never had, missing whatever else has landed since it forked.
    Promote the merge commit, not something out of the branch it merged.
-2. **approval** — GitHub pauses on the `production` environment. This is the human gate, and
-   with one maintainer it is the *only* one; nothing else about the day required a second
-   confirmation of the same decision.
+2. **approval** — GitHub pauses on the `production` environment, where the plan provides
+   deployment protection rules. Where it does, this is the human gate, and with one maintainer
+   it is the *only* one; nothing else about the day required a second confirmation of the same
+   decision. Where it does not, pressing the button was that gate, and the run goes straight
+   on to step 3.
 3. **verify again** — an approval takes as long as a human takes, and `main` and `production`
    can both move inside that window. Everything step 1 established is a fact before the pause
-   and only a claim after it.
+   and only a claim after it. Where there was no pause it costs seconds and proves the same
+   thing.
 4. **move the branch** — a fast-forward push, and a compare-and-swap: it names the SHA
    `production` was when the decision was made and is refused if the branch is no longer
    exactly there. Not a merge.
@@ -196,6 +201,11 @@ incident, that record is evidence.
 git tag --list 'release-*' --sort=-creatordate | head -5
 ```
 
+**That list is empty until deployment is enabled**, because the button writes no `release-*`
+tag while nothing ships. An empty list is therefore not a missing tag — it is the correct
+answer to "what has been released", and it is why the fallback at the end of this section is
+currently the whole procedure rather than a footnote to it.
+
 The runbook:
 
 1. **Identify** the failing version and confirm the last release that demonstrably worked.
@@ -244,9 +254,9 @@ verification, tagging, the deployment record — is real and does not change whe
 filled.
 
 One thing in the interface does lie in the meantime, and cannot be made not to: referencing
-the `production` environment is what produces the approval prompt, and GitHub writes a
-deployment record for it automatically. While deployment is off, that record marks the
-approval, not a deployment. The run summary says this; the Environments page cannot.
+the `production` environment makes GitHub write a deployment record automatically. While
+deployment is off, that record marks a promotion, not a deployment. The run summary says so;
+the Environments page cannot.
 
 Three things to get right when filling it in, in this order:
 
@@ -259,7 +269,7 @@ expensive way to lose the value of a test environment. This needs a Dockerfile f
 `frontend` and `backend`, which is also why it cannot be done today.
 
 **2. Two GitHub Environments** (Settings → Environments), `test` and `production`, with a
-required reviewer on `production`. Give them genuinely separate resources, not just separate
+required reviewer on `production` once the plan allows one. Give them genuinely separate
 values: WorkOS applications and redirect URLs, databases and database users, storage buckets,
 webhook endpoints and secrets, mail/SMS provider or its sandbox, domains and cookie names,
 queues and workers, monitoring channels. `WORKOS_COOKIE_PASSWORD` in particular **must**
@@ -309,6 +319,29 @@ the workflows must exist on `main` before any check can be marked as required �
 check that has never reported is stuck pending and blocks every pull request, with no error
 message explaining why.
 
+### What this plan cannot enforce
+
+Three of the steps below need a paid plan on a private repository. Each has a fallback that
+keeps the model intact, and every fallback trades the same thing: prevention for detection.
+Check which ones you have before you start, so you know which version of the setup you are
+following.
+
+| Wanted | Needs | Fallback |
+| --- | --- | --- |
+| **Required reviewers** on the `production` environment — the pause in the middle of the button | Pro, Team or Enterprise, for a private repository | Pressing the button *is* the human gate. Restrict **Deployment branches and tags** to `main` instead, so no workflow on another branch can claim the environment or the secrets it will hold. |
+| **Evaluate mode** on a ruleset — active but only logging what it would have blocked | Enterprise | Activate directly. A ruleset is not a one-way door: `Disabled` is one click away, and the imported rulesets carry an admin bypass until you remove it. |
+| **Restrict updates** on `production` with GitHub Actions on the bypass list — only the button may move the branch | the GitHub Actions app must be selectable as a bypass actor, which a free private repository does not offer | Nothing to undo: [`production.json`](.github/rulesets/production.json) does not carry the rule, for the reason given in step 6. **Block force pushes** and **Restrict deletions** still hold, and [`promotion-guard.yml`](.github/workflows/promotion-guard.yml) turns any move that did not come from the button into an issue. |
+
+None of this weakens the invariants. What it weakens is whether the wrong move is stopped
+beforehand or reported afterwards — and while one person has write access and that same
+person presses the button, it is the same person on both sides of the door.
+
+Concretely, for the third row: **an ordinary `git push` to `production` by anybody with write
+access is accepted.** A force push and a deletion are not. The push is reported afterwards, as
+an issue, by the promotion guard. That is the one sentence worth carrying out of this section,
+because it is the move the rest of the model is built to make impossible and, on this plan, it
+is merely made visible.
+
 ### 1. Land this configuration on `main`
 
 Ordinary branch and merge, per CONTRIBUTING.md. Do not add the rulesets yet.
@@ -334,9 +367,21 @@ git push -u origin production
 
 ### 4. Settings → Environments → New environment: `production`
 
-Add **yourself as a required reviewer**. This is the pause in the middle of the Promote
-workflow, and without it the button runs straight through. It is also what makes GitHub write
-the deployment record that answers "what is actually running".
+Two things to set here, and only one of them may be available to you.
+
+**Deployment branches and tags → Selected branches → `main`.** Do this whatever your plan. It
+stops a workflow on any other branch from claiming this environment, and later from reaching
+the secrets it will hold. It must be `main` and not `production`: the Promote button is
+dispatched from `main`, even though what it moves is `production`.
+
+**Required reviewers → yourself**, if a *Deployment protection rules* section exists at all.
+That is the pause in the middle of the Promote workflow. If the section is missing, see
+[what this plan cannot enforce](#what-this-plan-cannot-enforce) — the button still works, it
+simply does not stop to ask.
+
+Either way GitHub writes the deployment record, which is what answers "what is actually
+running". That comes from the `environment:` key in the workflow, not from the protection
+rules.
 
 Create `test` too while you are here, even though nothing deploys to it yet.
 
@@ -351,23 +396,31 @@ there, do not type it by hand, find out why the job did not run.
 Import [`.github/rulesets/main.json`](.github/rulesets/main.json) and
 [`.github/rulesets/production.json`](.github/rulesets/production.json).
 
-**Set both to "Evaluate" first, not "Active".** Evaluate mode logs what *would* have been
-blocked without blocking it. Open a throwaway pull request, read the rule insights, and only
-then switch to Active. Locking yourself out of your own repository is a fifteen-minute
-problem, but it is fifteen minutes you get to have at the worst possible moment otherwise.
+**Set both to "Evaluate" first, if the option is there.** Evaluate mode logs what *would* have
+been blocked without blocking it: open a throwaway pull request, read the rule insights, then
+switch to Active. It is Enterprise-only. Without it, go straight to Active and let the next
+real pull request be the test — the admin bypass in the imported rulesets is the safety net,
+and `Disabled` is one click away if something does go wrong.
 
-**Then, on the `production` ruleset, add GitHub Actions to the bypass list.** Bypass list →
-Add bypass → GitHub Actions. Without it the Promote button cannot push, because
-`production`'s **Restrict updates** rule blocks every actor that is not on that list — which
-is precisely how humans are kept out. The exported JSON cannot carry this entry; the app ID
-differs per installation.
+**Then, if GitHub Actions is offered as a bypass actor, add *Restrict updates* by hand** — the
+rule itself, and Bypass list → Add bypass → GitHub Actions, in one sitting.
+
+[`production.json`](.github/rulesets/production.json) deliberately does not carry that rule,
+and the reason is that it could not carry the other half either: the exported JSON has no place
+for the bypass entry, because the app id differs per installation. A ruleset that restricts
+updates without the button on its bypass list blocks **the button**, so importing the rule on
+its own would leave the repository unable to promote until somebody finished the job by hand.
+The two only mean anything together, so they are added together or not at all.
+
+If GitHub Actions is not offered — a free private repository does not offer it — leave it, and
+read [what this plan cannot enforce](#what-this-plan-cannot-enforce) for what that costs.
 
 What the two rulesets contain:
 
 | Rule | `main` | `production` | Why |
 | --- | --- | --- | --- |
 | Require a pull request | yes | — | `production` is not written by pull request at all |
-| Restrict updates | — | **yes** | only bypass actors may move the branch: GitHub Actions, i.e. the Promote button, plus admin break-glass |
+| Restrict updates | — | **not in the file — added by hand where the plan allows it** | only bypass actors may then move the branch: GitHub Actions, i.e. the Promote button, plus admin break-glass. Left out of the export because the JSON cannot carry the matching bypass entry, and the rule without it locks the button out — see step 6 |
 | Required approvals | **0** | — | GitHub never lets you approve your own pull request. With one maintainer, 1 would lock you out. Raise it the day someone else gets write access — see [`.github/CODEOWNERS`](.github/CODEOWNERS) |
 | Allowed merge method | merge only | — | mirrors step 3, and rulesets outrank repository settings |
 | Required checks | `frontend`, `backend`, `commit-convention` | — | on `production` the equivalent check lives inside `promote.yml`, where it can inspect a specific SHA |

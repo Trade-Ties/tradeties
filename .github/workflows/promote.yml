@@ -30,7 +30,7 @@ on:
         required: true
         type: string
       tested:
-        description: "I exercised this against the TEST environment, not only CI"
+        description: "I exercised this against the TEST environment — or the summary says why that was not possible"
         required: true
         type: boolean
         default: false
@@ -406,7 +406,7 @@ jobs:
             printf '`production` now points at `%s`, which means **approved for production**.\n' "$SHA"
             echo "**No customer-facing system changed, and no \`release-*\` tag was written** — a release tag names something that shipped, and nothing shipped."
             echo
-            echo "> The GitHub deployment record for this run was created automatically by the \`production\` environment key, which is what produced the approval prompt. Here it records the approval, not a deployment. Nothing is running."
+            echo "> The GitHub deployment record for this run was created automatically by the \`production\` environment key. Here it records a promotion, not a deployment. Nothing is running."
             echo
             printf '## Approved changes\n\n%s\n' "$CHANGES"
           } >> "$GITHUB_STEP_SUMMARY"
