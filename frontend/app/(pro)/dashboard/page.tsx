@@ -1,7 +1,7 @@
 import { portalSession } from "@/lib/portal/session";
 
 export default async function DashboardPage() {
-  const { user, marketplaceUser } = await portalSession();
+  const { user } = await portalSession();
 
   return (
     <div className="mx-auto w-full max-w-5xl px-6 py-16">
