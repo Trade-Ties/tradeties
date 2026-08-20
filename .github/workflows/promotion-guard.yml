@@ -26,9 +26,20 @@ name: Promotion guard
 #
 # What is left for this job is the case it was always really for: production
 # being moved by someone or something other than the button — an admin using the
-# ruleset bypass, a personal access token, an app. It runs after the fact and
-# cannot prevent anything. Prevention is the ruleset plus the checks inside
-# promote.yml. This is the tripwire.
+# ruleset bypass, a personal access token, an app, or simply anybody with write
+# access running `git push`. It runs after the fact and cannot prevent anything.
+#
+# That last case deserves naming, because it is not hypothetical. Stopping an
+# ordinary push needs the ruleset's "Restrict updates" rule, which cannot be
+# imported: it only works with GitHub Actions on its bypass list, the exported
+# JSON has no place for that entry, and a free private repository cannot select
+# GitHub Actions as a bypass actor at all. So production.json leaves the rule
+# out, and on that plan a plain fast-forward push to production is accepted and
+# this job is the only thing that will say so. See "What this plan cannot
+# enforce" in BRANCHING.md.
+#
+# Prevention, where it exists, is the ruleset plus the checks inside promote.yml.
+# This is the tripwire for everything the ruleset does not reach.
 
 on:
   push:
