@@ -8,9 +8,11 @@ import java.util.UUID;
 import com.tradeties.business.BusinessDetails;
 import com.tradeties.business.BusinessStatus;
 import com.tradeties.business.CalendarReadiness;
+import com.tradeties.business.LiveProfileNotReadyException;
 import com.tradeties.business.ProfileNotReadyException;
 import com.tradeties.business.ProfileReadiness;
 import com.tradeties.business.ProfileSuspendedException;
+import com.tradeties.business.UnconfirmedUnpublishException;
 import com.tradeties.business.ReadinessCheck;
 import com.tradeties.business.ReadinessCheckCode;
 import com.tradeties.business.ServicePricingMode;
@@ -115,7 +117,74 @@ public class PublishService {
 		return Optional.of(businesses.saveAndFlush(business).toDetails());
 	}
 
-	private ProfileReadiness evaluate(UUID businessId) {
+	/**
+	 * Whether a change about to be made could take this profile off the market — asked before it.
+	 *
+	 * <p>Only a live profile that currently passes the checklist has anything to lose: a draft is
+	 * not bookable yet, and one already failing the checklist is already not being offered, so
+	 * neither is made worse by the change. Pair it with {@link #requireStillBookable}.
+	 */
+	boolean isBookable(UUID businessId, BusinessStatus status) {
+		return status == BusinessStatus.PUBLISHED && evaluate(businessId).ready();
+	}
+
+	/**
+	 * Refuses the change just made if it has taken a live profile below the checklist.
+	 *
+	 * <p>Here rather than at each caller because more than one write can do it: giving up a trade
+	 * takes the services filed under it, and deleting or deactivating the last service does the
+	 * same thing by a shorter route. Every one of them owes the same guard, and a hand-rolled copy
+	 * is the one that forgets a condition.
+	 *
+	 * <p>Called after every write the change makes, so the checklist reads the profile as it would
+	 * stand. Throwing rolls the transaction back, which is what puts back whatever was removed.
+	 *
+	 * @param wasBookable what {@link #isBookable} answered before the change
+	 * @throws LiveProfileNotReadyException if it was bookable and no longer is
+	 */
+	void requireStillBookable(UUID businessId, boolean wasBookable) {
+		if (!wasBookable) {
+			return;
+		}
+
+		ProfileReadiness after = evaluate(businessId);
+		if (!after.ready()) {
+			throw new LiveProfileNotReadyException(after);
+		}
+	}
+
+	/**
+	 * Takes the profile off the market when the change just made left it below the checklist, and
+	 * declines to do it unasked.
+	 *
+	 * <p>The other answer to the question {@link #requireStillBookable} refuses outright, for the
+	 * one change that is a deliberate removal rather than a side effect — see
+	 * {@link UnconfirmedUnpublishException} for which change gets which.
+	 *
+	 * <p>Called after the write, so the checklist reads the profile as it would stand. Throwing
+	 * rolls the transaction back, which is what puts the service and the status back.
+	 *
+	 * @param wasBookable what {@link #isBookable} answered before the change
+	 * @param confirmed the holder's answer to "this takes your profile off the marketplace"
+	 * @throws UnconfirmedUnpublishException if it was needed and not given
+	 */
+	void unpublishIfNoLongerBookable(BusinessProfile business, boolean wasBookable, boolean confirmed) {
+		if (!wasBookable || evaluate(business.id()).ready()) {
+			return;
+		}
+		if (!confirmed) {
+			throw new UnconfirmedUnpublishException();
+		}
+
+		business.unpublish();
+		businesses.saveAndFlush(business);
+	}
+
+	/**
+	 * Package-private rather than private: the two guards above are asked around another service's
+	 * change, and a second copy of these five conditions is the copy that goes stale.
+	 */
+	ProfileReadiness evaluate(UUID businessId) {
 		List<ServiceOffering> activeServices =
 				services.findByBusinessIdAndActiveTrueOrderBySortOrderAscCreatedAtAsc(businessId);
 		Optional<BusinessPricing> pricingTerms = pricing.findById(businessId);
@@ -132,7 +201,7 @@ public class PublishService {
 	}
 
 	private ReadinessCheck primaryTrade(UUID businessId) {
-		long primaries = trades.countByIdBusinessIdAndPrimaryIsTrue(businessId);
+		long primaries = trades.countByIdBusinessIdAndPrimaryIsTrueAndDeletedAtIsNull(businessId);
 
 		return primaries == 1
 				? ReadinessCheck.passed(ReadinessCheckCode.PRIMARY_TRADE, "A main trade is chosen.")

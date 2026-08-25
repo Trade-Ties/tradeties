@@ -21,16 +21,21 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 class BusinessExceptionHandler {
 
 	/**
-	 * The only RFC 9457 {@code type} this module hands out, because this is the one 409 a client has
-	 * to tell apart from the rest: it is answered by asking the tradesperson and sending the request
-	 * again, not by showing the message. A client matching on {@code detail} instead would break the
-	 * first time somebody reworded a sentence written for people.
+	 * A {@code type} of its own, because this 409 is answered by asking the tradesperson and sending
+	 * the request again rather than by showing the message. A client matching on {@code detail}
+	 * instead would break the first time somebody reworded a sentence written for people.
 	 *
-	 * <p>A URN rather than an https URL, because nothing is served at the other end and a URL would
-	 * promise that something is.
+	 * <p>A URN rather than an https URL, because nothing is served at the other end.
 	 */
 	private static final URI UNCONFIRMED_TIME_ZONE_CHANGE =
 			URI.create("urn:tradeties:problem:unconfirmed-time-zone-change");
+
+	/**
+	 * A {@code type} of its own for the same reason {@link #UNCONFIRMED_TIME_ZONE_CHANGE} has one:
+	 * the client answers this by asking a question and sending the request again.
+	 */
+	private static final URI UNCONFIRMED_UNPUBLISH =
+			URI.create("urn:tradeties:problem:unconfirmed-unpublish");
 
 	@ExceptionHandler(BusinessAlreadyExistsException.class)
 	ProblemDetail handleAlreadyExists(BusinessAlreadyExistsException exception) {
@@ -43,10 +48,10 @@ class BusinessExceptionHandler {
 	}
 
 	/**
-	 * A version conflict this module raised itself, so the message is one we wrote and goes out as
-	 * it stands. That is the difference from {@link #handleConcurrentWrite}, and the whole reason
-	 * {@link StaleVersionException} exists — this module raises version conflicts about five
-	 * different things, and one shared sentence was right for only one of them.
+	 * A version conflict this module raised itself, so the message is one written here and goes out
+	 * as it stands. That is the difference from {@link #handleConcurrentWrite}, and the reason
+	 * {@link StaleVersionException} exists: this module raises version conflicts about five
+	 * different things, and one shared sentence fits only one of them.
 	 */
 	@ExceptionHandler(StaleVersionException.class)
 	ProblemDetail handleStaleVersion(StaleVersionException exception) {
@@ -103,8 +108,26 @@ class BusinessExceptionHandler {
 		return problem;
 	}
 
+	@ExceptionHandler(UnconfirmedUnpublishException.class)
+	ProblemDetail handleUnconfirmedUnpublish(UnconfirmedUnpublishException exception) {
+		ProblemDetail problem = conflict(exception.getMessage());
+		problem.setTitle("Unconfirmed unpublish");
+		problem.setType(UNCONFIRMED_UNPUBLISH);
+		return problem;
+	}
+
 	@ExceptionHandler(ProfileSuspendedException.class)
 	ProblemDetail handleSuspended(ProfileSuspendedException exception) {
+		return conflict(exception.getMessage());
+	}
+
+	/**
+	 * A conflict rather than the 422 below, although both are about the checklist. This one
+	 * refuses a write that was not asking to publish, and the whole answer is the sentence — see
+	 * {@link LiveProfileNotReadyException} for why the two are not one exception.
+	 */
+	@ExceptionHandler(LiveProfileNotReadyException.class)
+	ProblemDetail handleLiveProfileNotReady(LiveProfileNotReadyException exception) {
 		return conflict(exception.getMessage());
 	}
 

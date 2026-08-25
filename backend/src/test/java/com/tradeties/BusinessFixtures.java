@@ -1,10 +1,15 @@
 package com.tradeties;
 
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.jwt;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import java.util.List;
 import java.util.UUID;
+
+import com.jayway.jsonpath.JsonPath;
 
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -22,7 +27,6 @@ public final class BusinessFixtures {
 	private BusinessFixtures() {
 	}
 
-	/** Registers {@code subject} as a tradesperson and gives them a business at {@code slug}. */
 	public static RequestPostProcessor businessFor(MockMvc mockMvc, String subject, String slug) throws Exception {
 		RequestPostProcessor token = jwt().jwt(t -> t.subject(subject).claim("email", subject + "@example.com"));
 
@@ -38,6 +42,44 @@ public final class BusinessFixtures {
 				.andExpect(status().isCreated());
 
 		return token;
+	}
+
+	/**
+	 * Claims one trade as the primary one and returns its id.
+	 *
+	 * <p>Here rather than in each suite because a service now requires a trade, and most tests
+	 * that create one are not about trades at all — they need step 3 answered so that step 4 can
+	 * be reached, in one line and with an id they can file the service under.
+	 *
+	 * @param code a trade code from the reference catalogue, e.g. {@code "PLUMBER"}
+	 * @return the catalogue id of that trade, which the business now holds as its primary
+	 */
+	public static String claimPrimaryTrade(MockMvc mockMvc, RequestPostProcessor token, String code)
+			throws Exception {
+
+		String tradeId = tradeId(mockMvc, code);
+
+		mockMvc.perform(put("/api/v1/me/business/trades").with(token)
+						.contentType(MediaType.APPLICATION_JSON)
+						.content("""
+								{"primaryTradeId":"%s","additionalTradeIds":[]}""".formatted(tradeId)))
+				.andExpect(status().isOk());
+
+		return tradeId;
+	}
+
+	/** Reads an id out of the live catalogue rather than hard-coding one from the migration. */
+	public static String tradeId(MockMvc mockMvc, String code) throws Exception {
+		String body = mockMvc.perform(get("/api/v1/trades"))
+				.andExpect(status().isOk())
+				.andReturn().getResponse().getContentAsString();
+
+		List<String> ids = JsonPath.read(body, "$[?(@.code=='" + code + "')].id");
+		if (ids.isEmpty()) {
+			throw new IllegalStateException("No trade " + code + " in the catalogue");
+		}
+
+		return ids.getFirst();
 	}
 
 	/**
@@ -62,6 +104,136 @@ public final class BusinessFixtures {
 				  "timeZone": "America/Denver",
 				  "serviceRadiusMiles": 25
 				}""".formatted(extraFields, slug);
+	}
+
+	/**
+	 * A service body for step 4, with {@code extraFields} spliced in ahead of the trade — e.g.
+	 * {@code "\"version\": 99,"} for the tests that submit a stale version.
+	 *
+	 * <p>Here rather than in each suite for the reason {@link #claimPrimaryTrade} is: a new
+	 * required field would otherwise cost an edit in every hand-written copy of this body.
+	 *
+	 * @param tradeId null to leave the field out entirely, for the tests about it being required
+	 * @param price null for a mode that carries no amount
+	 */
+	public static String serviceJson(String extraFields, String name, String tradeId,
+			String pricingMode, String price) {
+
+		return """
+				{
+				  %s
+				  %s
+				  "name": "%s",
+				  "estimatedDurationMinutes": 60,
+				  "pricingMode": "%s"%s
+				}""".formatted(
+				extraFields,
+				tradeId == null ? "" : "\"tradeId\": \"" + tradeId + "\",",
+				name,
+				pricingMode,
+				price == null ? "" : ",\n  \"price\": \"" + price + "\"");
+	}
+
+	/**
+	 * Claims {@code PLUMBER} and files one quote-only service under it, for the suites whose
+	 * subject is a service's id, its position or its removal rather than which trade it sits under.
+	 *
+	 * <p>The claim is repeated per call rather than hoisted, because the endpoint replaces the
+	 * whole selection with the same one trade: sending it again is the same state, and having it
+	 * here means no test has to remember to set it up.
+	 *
+	 * @return the id of the service created
+	 */
+	public static String givenAService(MockMvc mockMvc, RequestPostProcessor token, String name)
+			throws Exception {
+
+		String plumber = claimPrimaryTrade(mockMvc, token, "PLUMBER");
+
+		String body = mockMvc.perform(post("/api/v1/me/business/services").with(token)
+						.contentType(MediaType.APPLICATION_JSON)
+						.content(serviceJson("", name, plumber, "QUOTE_ONLY", null)))
+				.andExpect(status().isCreated())
+				.andReturn().getResponse().getContentAsString();
+
+		return JsonPath.read(body, "$.id");
+	}
+
+	/**
+	 * The same business taken all the way to publishable: a primary trade, a week of working
+	 * hours, one service and a set of rates, so that every line of the checklist passes.
+	 *
+	 * <p>Here rather than in one suite because two of them now start from it — the checklist and
+	 * the slug freeze — and a second copy is the one that quietly stops matching the checklist it
+	 * is supposed to satisfy.
+	 */
+	public static RequestPostProcessor publishableBusinessFor(MockMvc mockMvc, String subject,
+			String slug) throws Exception {
+
+		RequestPostProcessor token = businessFor(mockMvc, subject, slug);
+		String plumber = claimTradeAndHours(mockMvc, token);
+
+		mockMvc.perform(post("/api/v1/me/business/services").with(token)
+						.contentType(MediaType.APPLICATION_JSON)
+						.content(serviceJson("", "Clog removal", plumber, "STARTING_AT", "149.00")))
+				.andExpect(status().isCreated());
+
+		setPricing(mockMvc, token, null);
+
+		return token;
+	}
+
+	/**
+	 * Steps 3 and 8 — the two the checklist wants that say nothing about a service.
+	 *
+	 * @return the id of the trade now claimed, which the services filed afterwards sit under
+	 */
+	public static String claimTradeAndHours(MockMvc mockMvc, RequestPostProcessor token)
+			throws Exception {
+
+		String plumber = claimPrimaryTrade(mockMvc, token, "PLUMBER");
+
+		StringBuilder days = new StringBuilder();
+		for (int day = 1; day <= 7; day++) {
+			days.append(day == 1 ? "" : ",")
+					.append("{\"dayOfWeek\":").append(day).append(",\"blocks\":")
+					.append(day == 1 ? "[{\"startsAt\":\"09:00\",\"endsAt\":\"17:00\"}]" : "[]")
+					.append("}");
+		}
+
+		mockMvc.perform(put("/api/v1/me/business/working-hours").with(token)
+						.contentType(MediaType.APPLICATION_JSON)
+						.content("{\"days\":[" + days + "]}"))
+				.andExpect(status().isOk());
+
+		return plumber;
+	}
+
+	/**
+	 * Sets rates, creating them the first time and replacing them afterwards. Which of the two it
+	 * is has to come from the status: a business without rates answers 404 with a problem body,
+	 * which is neither blank nor carries a version.
+	 */
+	public static void setPricing(MockMvc mockMvc, RequestPostProcessor token, String hourlyRate)
+			throws Exception {
+
+		var response = mockMvc.perform(get("/api/v1/me/business/pricing").with(token))
+				.andReturn().getResponse();
+
+		Integer version = response.getStatus() == 200
+				? JsonPath.read(response.getContentAsString(), "$.version")
+				: null;
+
+		mockMvc.perform(put("/api/v1/me/business/pricing").with(token)
+						.contentType(MediaType.APPLICATION_JSON)
+						.content("""
+								{%s%s"minimumBillableMinutes":60,"billingIncrementMinutes":15,
+								 "serviceCallFeeWaivedIfHired":false,"travelFeeMode":"INCLUDED",
+								 "materialPricingMode":"INCLUDED","cancellationFee":"50.00",
+								 "cancellationNoticeHours":24}"""
+								.formatted(
+										version == null ? "" : "\"version\":" + version + ",",
+										hourlyRate == null ? "" : "\"hourlyRate\":\"" + hourlyRate + "\",")))
+				.andExpect(status().isOk());
 	}
 
 	/**

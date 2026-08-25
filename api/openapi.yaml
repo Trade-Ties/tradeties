@@ -473,7 +473,7 @@ paths:
     put:
       tags: [business]
       operationId: setMyTrades
-      summary: Choose the trades — onboarding step 3.
+      summary: Select the trades — onboarding step 3.
       description: |
         The whole selection at once, because it is submitted as one form: one radio group
         for the primary trade and a checkbox group beside it.
@@ -483,6 +483,22 @@ paths:
         being submitted, and a submitted step 3 has exactly one.
 
         A trade that is not in the catalogue, or is inactive, is a 400.
+
+        **Dropping a trade removes the services filed under it.** A service sits under
+        exactly one trade, so a selection that no longer names it leaves the service nowhere
+        to be. The trades that stay keep their services.
+
+        Removed means gone from every answer here, not destroyed: both the trade and its
+        services are stamped with the moment they left and kept. A service an appointment
+        names is deactivated instead, on the same rule `DELETE /services/{id}` follows.
+        Re-selecting a trade later takes it back — its services stay removed, because taking
+        the trade back says nothing about them.
+
+        **A published profile cannot be left unbookable.** If the selection would drop the
+        last service a live profile has, nothing is applied and the answer is a 409 naming
+        what would have broken. Unpublish first if that is the intent. A profile that
+        already fails the checklist is not held to this — there would be nowhere left to fix
+        it from.
       requestBody:
         required: true
         content:
@@ -504,6 +520,8 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
 
   /api/v1/me/business/services:
     get:
@@ -532,9 +550,9 @@ paths:
         Appended to the end of the list; ordering is changed with
         `PUT /api/v1/me/business/services/order`, not by supplying a number here.
 
-        A `tradeId` must be one the business actually holds — the database checks that
-        through a composite foreign key rather than trusting the client. Omit it for work
-        that spans trades.
+        `tradeId` is required and must be one the business actually holds — the database
+        checks that through a composite foreign key rather than trusting the client. There
+        is no service without a trade.
 
         Names are unique per business, case-insensitively: "Clog removal" and "CLOG REMOVAL"
         are the same entry to everyone except a byte comparison.
@@ -643,6 +661,27 @@ paths:
         this sets `active` to false and the entry stops being offered. Either way it is gone
         from the customer's view, which is what the caller asked for — but a later `GET` can
         still return it with `active: false`.
+
+        **Removing the last bookable service of a published profile takes it off the
+        market.** The profile goes back to `DRAFT` — nothing else is lost, and publishing
+        again is one call. Because that is a decision rather than a side effect it is put to
+        the holder rather than taken: without `unpublishConfirmed` the removal is refused
+        with `urn:tradeties:problem:unconfirmed-unpublish` and nothing is changed. Ask, then
+        send the same request again with the flag.
+
+        This is deliberately the opposite answer to the one `PUT /trades` gives. Giving up a
+        trade is not a request to stop trading, so that operation refuses outright; deleting
+        the only thing anybody can book is a decision about exactly that.
+      parameters:
+        - name: unpublishConfirmed
+          in: query
+          required: false
+          schema:
+            type: boolean
+            default: false
+          description: |
+            The caller's answer to "this takes your profile off the marketplace". Only read
+            when the removal would actually do so.
       responses:
         "204":
           description: Removed, or deactivated where history prevents removal.
@@ -652,6 +691,8 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
 
   /api/v1/me/business/pricing:
     get:
@@ -1530,15 +1571,23 @@ components:
 
     Service:
       type: object
-      required: [id, name, estimatedDurationMinutes, pricingMode, active, sortOrder, version]
+      required: [id, tradeId, name, estimatedDurationMinutes, pricingMode, active, sortOrder, version]
       properties:
         id:
           type: string
           format: uuid
         tradeId:
-          type: [string, "null"]
+          type: string
           format: uuid
-          description: Null for work that spans trades.
+          description: |
+            The one trade this service sits under. Never empty, and for every service you can
+            still book, always a trade the business holds: giving up a trade removes the
+            services filed under it.
+
+            The one exception is a service an appointment already names. That one is
+            deactivated rather than removed — the row is the record of the job — so it stays in
+            this list with `active: false` and goes on naming the trade it was filed under,
+            whether or not the business still holds it.
         name:
           type: string
           minLength: 1
@@ -1576,10 +1625,10 @@ components:
 
     ServiceInput:
       type: object
-      required: [name, estimatedDurationMinutes, pricingMode]
+      required: [tradeId, name, estimatedDurationMinutes, pricingMode]
       properties:
         tradeId:
-          type: [string, "null"]
+          type: string
           format: uuid
         name:
           type: string
@@ -1606,13 +1655,13 @@ components:
     ServiceUpdate:
       type: object
       description: A ServiceInput plus the version being replaced.
-      required: [version, name, estimatedDurationMinutes, pricingMode]
+      required: [version, tradeId, name, estimatedDurationMinutes, pricingMode]
       properties:
         version:
           type: integer
           format: int64
         tradeId:
-          type: [string, "null"]
+          type: string
           format: uuid
         name:
           type: string

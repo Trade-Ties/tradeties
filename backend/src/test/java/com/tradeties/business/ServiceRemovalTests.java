@@ -1,14 +1,14 @@
 package com.tradeties.business;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import java.util.UUID;
 
-import com.jayway.jsonpath.JsonPath;
 import com.tradeties.BusinessFixtures;
 import com.tradeties.TestcontainersConfiguration;
 
@@ -21,15 +21,20 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
 import org.springframework.context.annotation.Primary;
 import org.springframework.http.MediaType;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.RequestPostProcessor;
 
 /**
  * Removing a service, both ways out.
  *
- * <p>A service nothing points at is deleted. One an appointment names must not vanish — it
- * takes the history of every job that used it with it — so it is deactivated instead, and the
- * caller's intent is satisfied either way.
+ * <p>A service nothing points at is removed from the catalogue. One an appointment names must
+ * stay visible — it takes the history of every job that used it with it — so it is deactivated
+ * instead, listed with {@code active: false}, and the caller's intent is satisfied either way.
+ *
+ * <p>Neither path destroys the row. Removal stamps {@code deleted_at} and the service drops out
+ * of every read; deactivation leaves it in the list saying so. The two are different answers to
+ * "can somebody still see this", not to "does it still exist".
  *
  * <p><strong>The second path is why this class exists.</strong> "Try the delete, catch the
  * foreign key violation, deactivate instead" cannot work — PostgreSQL aborts the whole
@@ -48,8 +53,11 @@ class ServiceRemovalTests {
 	@Autowired
 	SettableServiceUsage usage;
 
+	@Autowired
+	JdbcTemplate jdbc;
+
 	@Test
-	void aServiceNothingPointsAtIsDeleted() throws Exception {
+	void aServiceNothingPointsAtLeavesTheCatalogue() throws Exception {
 		usage.answer(false);
 
 		RequestPostProcessor token = businessFor("user_delete_unused", "delete-unused");
@@ -61,6 +69,13 @@ class ServiceRemovalTests {
 		mockMvc.perform(get("/api/v1/me/business/services").with(token))
 				.andExpect(status().isOk())
 				.andExpect(jsonPath("$.length()").value(0));
+
+		// Gone from the answer above, still in the table. Asked of PostgreSQL directly, because
+		// every read path through the application is filtered and cannot tell the two apart.
+		assertEquals(1, jdbc.queryForObject("""
+				SELECT count(*) FROM business_service WHERE id = ?::uuid AND deleted_at IS NOT NULL""",
+				Integer.class, serviceId),
+				"removal destroyed the row instead of stamping it");
 	}
 
 	/**
@@ -76,6 +91,33 @@ class ServiceRemovalTests {
 
 		mockMvc.perform(delete("/api/v1/me/business/services/" + serviceId).with(token))
 				.andExpect(status().isNoContent());
+
+		mockMvc.perform(get("/api/v1/me/business/services").with(token))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.length()").value(1))
+				.andExpect(jsonPath("$[0].id").value(serviceId))
+				.andExpect(jsonPath("$[0].active").value(false));
+	}
+
+	/**
+	 * The same question on the other path that removes services.
+	 *
+	 * <p>Giving up a trade retires everything filed under it, and it owes the same rule: an
+	 * appointment's history must not depend on which screen the removal was made from.
+	 */
+	@Test
+	void aServiceSomethingPointsAtSurvivesItsTradeBeingGivenUp() throws Exception {
+		usage.answer(true);
+
+		RequestPostProcessor token = businessFor("user_trade_gone_booked", "trade-gone-booked");
+		String serviceId = createService(token, "Already booked");
+
+		mockMvc.perform(put("/api/v1/me/business/trades").with(token)
+						.contentType(MediaType.APPLICATION_JSON)
+						.content("""
+								{"primaryTradeId":"%s","additionalTradeIds":[]}"""
+								.formatted(BusinessFixtures.tradeId(mockMvc, "ROOFER"))))
+				.andExpect(status().isOk());
 
 		mockMvc.perform(get("/api/v1/me/business/services").with(token))
 				.andExpect(status().isOk())
@@ -136,16 +178,9 @@ class ServiceRemovalTests {
 		}
 	}
 
+	/** Claims a trade first: a service requires one, and none of these tests is about which. */
 	private String createService(RequestPostProcessor token, String name) throws Exception {
-		String body = mockMvc.perform(post("/api/v1/me/business/services").with(token)
-						.contentType(MediaType.APPLICATION_JSON)
-						.content("""
-								{"name":"%s","estimatedDurationMinutes":60,"pricingMode":"QUOTE_ONLY"}"""
-								.formatted(name)))
-				.andExpect(status().isCreated())
-				.andReturn().getResponse().getContentAsString();
-
-		return JsonPath.read(body, "$.id");
+		return BusinessFixtures.givenAService(mockMvc, token, name);
 	}
 
 	private RequestPostProcessor businessFor(String subject, String slug) throws Exception {

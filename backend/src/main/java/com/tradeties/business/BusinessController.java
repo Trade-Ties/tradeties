@@ -29,7 +29,6 @@ import com.tradeties.generated.model.ServiceInput;
 import com.tradeties.generated.model.ServiceOrder;
 import com.tradeties.generated.model.ServiceUpdate;
 import com.tradeties.generated.model.SlugAvailability;
-import com.tradeties.generated.model.Trade;
 import com.tradeties.generated.model.UpdateBusinessRequest;
 import com.tradeties.identity.CurrentMarketplaceUser;
 import com.tradeties.identity.MarketplaceUser;
@@ -159,9 +158,10 @@ class BusinessController implements BusinessApi {
 	}
 
 	@Override
-	public ResponseEntity<Void> removeMyService(UUID serviceId) {
+	public ResponseEntity<Void> removeMyService(UUID serviceId, Boolean unpublishConfirmed) {
 
-		if (!serviceCatalogService.removeForOwner(requireTradesperson().id(), serviceId)) {
+		if (!serviceCatalogService.removeForOwner(requireTradesperson().id(), serviceId,
+				Boolean.TRUE.equals(unpublishConfirmed))) {
 			throw noSuchService();
 		}
 

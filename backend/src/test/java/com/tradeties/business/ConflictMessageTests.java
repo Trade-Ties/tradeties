@@ -73,19 +73,18 @@ class ConflictMessageTests {
 	@Test
 	void aStaleServiceVersionNamesTheService() throws Exception {
 		RequestPostProcessor token = businessFor("user_msg_service", "msg-service");
+		String plumber = BusinessFixtures.claimPrimaryTrade(mockMvc, token, "PLUMBER");
 
 		String serviceId = JsonPath.read(mockMvc.perform(post("/api/v1/me/business/services").with(token)
 						.contentType(MediaType.APPLICATION_JSON)
-						.content("""
-								{"name":"Drain snake","estimatedDurationMinutes":60,"pricingMode":"QUOTE_ONLY"}"""))
+						.content(BusinessFixtures.serviceJson("", "Drain snake", plumber, "QUOTE_ONLY", null)))
 				.andExpect(status().isCreated())
 				.andReturn().getResponse().getContentAsString(), "$.id");
 
 		mockMvc.perform(put("/api/v1/me/business/services/" + serviceId).with(token)
 						.contentType(MediaType.APPLICATION_JSON)
-						.content("""
-								{"version":99,"name":"Renamed","estimatedDurationMinutes":60,
-								 "pricingMode":"QUOTE_ONLY"}"""))
+						.content(BusinessFixtures.serviceJson("\"version\": 99,", "Renamed", plumber,
+								"QUOTE_ONLY", null)))
 				.andExpect(status().isConflict())
 				.andExpect(jsonPath("$.detail")
 						.value("This service changed since you loaded it. Reload and apply your edit again."));
@@ -112,10 +111,9 @@ class ConflictMessageTests {
 	}
 
 	/**
-	 * The expensive one. `version` is optional on `PricingInput` because the first write has
-	 * none, so forgetting it later is an easy mistake — and the answer used to be "reload the
-	 * profile", which fixes nothing. The client has to be told to fetch the rates and send
-	 * theirs.
+	 * `version` is optional on `PricingInput` because the first write has none, so forgetting it
+	 * later is an easy mistake — and "reload the profile" would fix nothing. The client has to be
+	 * told to fetch the rates and send theirs.
 	 */
 	@Test
 	void aMissingPricingVersionSaysToSendOne() throws Exception {
