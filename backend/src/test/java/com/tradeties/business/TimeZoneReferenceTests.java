@@ -60,7 +60,7 @@ class TimeZoneReferenceTests {
 		List<String> codes = jdbcTemplate.queryForList(
 				"SELECT code FROM time_zone ORDER BY sort_order", String.class);
 
-		assertEquals(29, codes.size(), "every IANA zone in the United States, territories aside");
+		assertEquals(6, codes.size(), "the six zones the marketplace serves");
 
 		for (String code : codes) {
 			assertDoesNotThrow(() -> ZoneId.of(code), "seeded zone " + code + " is not resolvable");
@@ -72,18 +72,18 @@ class TimeZoneReferenceTests {
 	void theListIsServedWithoutAToken() throws Exception {
 		mockMvc.perform(get("/api/v1/time-zones"))
 				.andExpect(status().isOk())
-				.andExpect(jsonPath("$.length()").value(29))
-				// Ordered, not alphabetical — alphabetical would open the select with Adak.
+				.andExpect(jsonPath("$.length()").value(6))
+				// Ordered east to west, not alphabetical — alphabetical would open with Alaska.
 				.andExpect(jsonPath("$[0].code").value("America/New_York"))
 				.andExpect(jsonPath("$[0].displayName").value("Eastern Time"))
-				.andExpect(jsonPath("$[28].code").value("America/Adak"));
+				.andExpect(jsonPath("$[5].code").value("Pacific/Honolulu"));
 	}
 
 	@Test
 	void aBusinessCanBeCreatedWithASeededZone() throws Exception {
-		mockMvc.perform(createBusiness("user_zone_ok", "zone-ok", "America/Phoenix"))
+		mockMvc.perform(createBusiness("user_zone_ok", "zone-ok", "Pacific/Honolulu"))
 				.andExpect(status().isCreated())
-				.andExpect(jsonPath("$.timeZone").value("America/Phoenix"));
+				.andExpect(jsonPath("$.timeZone").value("Pacific/Honolulu"));
 	}
 
 	/**
