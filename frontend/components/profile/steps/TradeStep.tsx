@@ -1,76 +1,95 @@
-import { Checkbox } from "@/components/ui/checkbox";
-import { FieldRow } from "../FieldRow";
-import { TRADE_CATEGORIES } from "../constants";
-import type { StepProps, TradeInfo } from "../types";
+import {
+  AutocompleteField,
+  CheckboxField,
+  CheckboxGrid,
+  Field,
+  useFieldIds,
+} from "@/components/ui/field";
+import type { ReferenceData } from "@/lib/api/reference";
+import { tradeOptions } from "../reference";
+import type { StepProps, TradesForm } from "../types";
 
-export function TradeStep({ data, update }: StepProps<TradeInfo>) {
-  const otherTrades = TRADE_CATEGORIES.filter((t) => t !== data.primaryTrade);
+interface TradeStepProps extends StepProps<TradesForm> {
+  reference: ReferenceData;
+}
 
-  const selectPrimary = (trade: string) => {
-    update({
-      primaryTrade: trade,
-      // if it was previously picked as an "additional" trade, drop it from there
-      additionalTrades: data.additionalTrades.filter((t) => t !== trade),
-    });
-  };
+export function TradeStep({ data, update, reference }: TradeStepProps) {
+  const options = tradeOptions(reference);
 
-  const toggleAdditional = (trade: string) => {
-    const has = data.additionalTrades.includes(trade);
+  /**
+   * The trade being replaced keeps its claim, as an additional one.
+   *
+   * Naming a different main trade says which one to be found under first. It does not say the
+   * old one has been given up — but the two slots are the whole selection, so leaving it out of
+   * both retires it on the next save, and the services filed under it go with it. One pick from
+   * a dropdown, and nothing on the screen said so.
+   */
+  const selectPrimary = (tradeId: string) => {
+    if (tradeId === data.primaryTradeId) return;
+
+    // The contract refuses the primary repeated among the additional ids, in either direction.
+    const kept = data.additionalTradeIds.filter(
+      (t) => t !== tradeId && t !== data.primaryTradeId
+    );
+
     update({
       ...data,
-      additionalTrades: has
-        ? data.additionalTrades.filter((t) => t !== trade)
-        : [...data.additionalTrades, trade],
+      primaryTradeId: tradeId,
+      additionalTradeIds:
+        data.primaryTradeId === "" ? kept : [...kept, data.primaryTradeId],
     });
   };
 
-  return (
-    <div className="space-y-6">
-      <FieldRow
-        label="Primary trade *"
-        hint="Choose the one that best describes your main business"
-      >
-        <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-          {TRADE_CATEGORIES.map((trade) => {
-            const selected = data.primaryTrade === trade;
-            return (
-              <button
-                key={trade}
-                type="button"
-                onClick={() => selectPrimary(trade)}
-                className={[
-                  "rounded-lg border-2 px-3 py-2.5 text-sm font-medium text-left transition-colors",
-                  selected
-                    ? "border-primary bg-primary/5 text-foreground"
-                    : "border-muted text-muted-foreground hover:border-muted-foreground/50",
-                ].join(" ")}
-              >
-                {trade}
-              </button>
-            );
-          })}
-        </div>
-      </FieldRow>
+  const toggleAdditional = (tradeId: string) => {
+    const has = data.additionalTradeIds.includes(tradeId);
+    update({
+      ...data,
+      additionalTradeIds: has
+        ? data.additionalTradeIds.filter((t) => t !== tradeId)
+        : [...data.additionalTradeIds, tradeId],
+    });
+  };
 
-      <FieldRow label="Additional trades" hint="Optional — anything else you also offer">
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-          {otherTrades.map((trade) => {
-            const checked = data.additionalTrades.includes(trade);
+  // Only the label id: the boxes carry their own wording, and the grid is what needs naming.
+  const { labelId } = useFieldIds(false);
+
+  return (
+    <>
+      <AutocompleteField
+        label="Primary trade"
+        required
+        hint="The one that best describes your main business."
+        placeholder="Search"
+        options={options}
+        value={data.primaryTradeId}
+        onValueChange={selectPrimary}
+      />
+
+      <Field
+        label="Additional trades"
+        labelId={labelId}
+        hint="Anything else you also offer. These, and your primary trade, are what a service can be filed under."
+      >
+        <CheckboxGrid labelledBy={labelId} className="pt-1">
+          {reference.trades.map((trade) => {
+            const isPrimary = trade.id === data.primaryTradeId;
             return (
-              <label
-                key={trade}
-                className="flex items-center gap-2 rounded-lg border p-2.5 text-sm cursor-pointer"
-              >
-                <Checkbox
-                  checked={checked}
-                  onCheckedChange={() => toggleAdditional(trade)}
-                />
-                {trade}
-              </label>
+              <CheckboxField
+                key={trade.id}
+                label={
+                  <>
+                    {trade.displayName}
+                    {isPrimary && <span className="text-xs">(primary)</span>}
+                  </>
+                }
+                checked={isPrimary || data.additionalTradeIds.includes(trade.id)}
+                disabled={isPrimary}
+                onCheckedChange={() => toggleAdditional(trade.id)}
+              />
             );
           })}
-        </div>
-      </FieldRow>
-    </div>
+        </CheckboxGrid>
+      </Field>
+    </>
   );
 }

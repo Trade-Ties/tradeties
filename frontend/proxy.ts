@@ -1,31 +1,28 @@
 import { authkitProxy } from "@workos-inc/authkit-nextjs";
 
 /**
- * Keeps the AuthKit session alive, hands it to server components, and performs the
- * redirect to sign-in.
+ * Keeps the AuthKit session alive, hands it to server components, and performs the redirect to
+ * sign-in.
  *
  * Next.js 16 renamed `middleware.ts` to `proxy.ts`; `authkitProxy` is the matching export.
  *
- * **Why the redirect happens here and not in the dashboard layout.** Starting a sign-in
- * writes a PKCE cookie, and Next.js only permits cookie writes from a proxy, a route
- * handler or a server action — never while rendering a server component. A layout that
- * tried to redirect an anonymous visitor would therefore throw instead of redirecting. The
- * proxy is one of the places allowed to do it, so authentication is gated here.
+ * The redirect happens here rather than in the dashboard layout because starting a sign-in
+ * writes a PKCE cookie, and Next.js permits cookie writes only from a proxy, a route handler or
+ * a server action — a layout that tried it would throw instead of redirecting.
  *
- * Authorization stays in `app/(pro)/dashboard/layout.tsx`, which asks our own backend
- * whether the signed-in person actually holds a business role. That is a pure read, so it
- * belongs where the data is used. Split by capability, not by taste:
- * *authenticated* here, *allowed* there.
+ * Authorization stays in `app/(pro)/dashboard/layout.tsx` and `app/(pro)/profile/create`, which
+ * ask the backend whether the signed-in person holds a business role: authenticated here,
+ * allowed there.
  *
- * **The matcher is load-bearing.** `withAuth()` reads the session from a header this proxy
- * sets, not from the cookie directly. A route calling `withAuth` without being matched here
- * sees no session at all. Any new route on the tradesperson side must be added below.
+ * The matcher is load-bearing. `withAuth()` reads the session from a header this proxy sets,
+ * not from the cookie, so a route calling `withAuth` without being matched below sees no
+ * session at all. Any new route on the tradesperson side must be added there. The server
+ * actions a page posts to are covered by the page's own entry, because an action is delivered
+ * to the path of the page that rendered it.
  *
- * **Scoped to `(pro)` on purpose.** Matching everything except static assets would drag the
- * public marketplace into AuthKit. Verified rather than assumed: with a broad matcher and
- * WorkOS credentials missing, `GET /` answers 500. Customers need no account, so their side
- * must not depend on the identity provider being configured or reachable — a WorkOS outage
- * should cost sign-ins, not the search page.
+ * Scoped to `(pro)` on purpose: matching everything except static assets drags the public
+ * marketplace into AuthKit, and with WorkOS credentials missing `GET /` then answers 500.
+ * Customers need no account, so a WorkOS outage must cost sign-ins rather than the search page.
  *
  * `/portal` is matched but exempt: it must render for anonymous visitors, yet it reads the
  * session to send an already-signed-in tradesperson straight to their dashboard.
@@ -41,5 +38,5 @@ export default authkitProxy({
 });
 
 export const config = {
-  matcher: ["/portal", "/dashboard/:path*"],
+  matcher: ["/portal", "/dashboard/:path*", "/profile/:path*"],
 };
