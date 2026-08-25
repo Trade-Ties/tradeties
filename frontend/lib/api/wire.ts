@@ -1,0 +1,30 @@
+import type { components } from "./schema";
+
+type Schemas = components["schemas"];
+
+export type BusinessProfile = Schemas["BusinessProfile"];
+export type CreateBusinessRequest = Schemas["CreateBusinessRequest"];
+export type UpdateBusinessRequest = Schemas["UpdateBusinessRequest"];
+export type Coordinates = Schemas["Coordinates"];
+export type SlugAvailability = Schemas["SlugAvailability"];
+export type Trade = Schemas["Trade"];
+export type BusinessTrades = Schemas["BusinessTrades"];
+export type BusinessTradesRequest = Schemas["BusinessTradesRequest"];
+export type Service = Schemas["Service"];
+export type ServiceInput = Schemas["ServiceInput"];
+export type ServiceUpdate = Schemas["ServiceUpdate"];
+export type ServiceOrder = Schemas["ServiceOrder"];
+export type ServicePricingMode = Schemas["ServicePricingMode"];
+export type Pricing = Schemas["Pricing"];
+export type PricingInput = Schemas["PricingInput"];
+export type TravelFeeMode = Schemas["TravelFeeMode"];
+export type MaterialPricingMode = Schemas["MaterialPricingMode"];
+export type License = Schemas["License"];
+export type LicenseInput = Schemas["LicenseInput"];
+export type LicenseUpdate = Schemas["LicenseUpdate"];
+export type WorkingHours = Schemas["WorkingHours"];
+export type BookingPolicy = Schemas["BookingPolicy"];
+export type BookingPolicyInput = Schemas["BookingPolicyInput"];
+export type ProfileReadiness = Schemas["ProfileReadiness"];
+export type UsState = Schemas["UsState"];
+export type UsTimeZone = Schemas["UsTimeZone"];
