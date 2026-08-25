@@ -172,8 +172,8 @@ fill in all four:
 | **How to test it** | the steps someone follows to see it work. "CI is green" is not a test plan |
 | **Risk** | what breaks if this is wrong, and who notices. "Low, UI only" is a fine answer when true |
 
-**Why** and **Contract impact** are the draft of your merge message — you will paste them
-again in step 7, so write them properly now.
+All four are the draft of your merge message — you will paste them again in step 7,
+headings included, so write them properly now.
 
 ---
 
@@ -215,8 +215,8 @@ and rebase are off on purpose.
 GitHub's merge dialog has two fields:
 
 - **Title** — describes the *feature*, not the edits.
-- **Second field** — a full body, not a subtitle. Paste your **Why** and **Contract impact**
-  here. If you split the change into several commits, say why.
+- **Second field** — a full body, not a subtitle. Paste all four sections from the pull
+  request, headings included. If you split the change into several commits, say why.
 
 No file names, no function names, no list of the commits. Those are one `git log` away. The
 merge message carries the part that is nowhere else.

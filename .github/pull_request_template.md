@@ -3,13 +3,14 @@ Feature branch -> main. This lands the change in the TEST environment, not at
 customers. Reaching customers is a separate, deliberate act: the "Promote to
 production" button under Actions — see BRANCHING.md.
 
-Why and Contract impact are the draft of the merge message — merge time is
-the worst possible moment to write one well, so write them here and paste
-them there. How to test it and Risk are scaffolding for the review; they do
-not survive it.
+All four sections are the draft of the merge message — merge time is the worst
+possible moment to write one well, so write them here and paste the whole thing
+there, headings included. None of it is review scaffolding: the test plan and
+the risk are exactly the part somebody needs weeks later, from git log, when
+the Promote button asks about a migration and nobody remembers.
 
 Every section below applies to every change. Contract impact always states one
-of its three lines; the rest is prose.
+of its three lines; the rest is prose, wrapped at 72 characters.
 -->
 
 ## Why
@@ -17,9 +18,11 @@ of its three lines; the rest is prose.
 <!--
 What was wrong or missing, and what is true instead once this lands. At feature
 altitude — the diff carries the edits, and file names belong nowhere near here.
+Name things by the role they play: "the promotion guard", "the branching
+guide", "the setup steps" — not the path they happen to sit at today.
 
-More than one commit? Say why it is more than one. The split is a decision,
-and git log --first-parent is where it gets questioned.
+More than one commit? Say why it is more than one, in its own paragraph. The
+split is a decision, and git log --first-parent is where it gets questioned.
 -->
 
 ## Contract impact
@@ -48,6 +51,9 @@ The steps a reviewer, or you in the test environment, follows to see this work.
 
 For a fix, name the test that fails without it. A bug that only prose says is
 fixed comes back.
+
+This section outlives the review: it is what a reader reproduces the day the
+change is suspected of something, long after the pull request is closed.
 -->
 
 ## Risk
@@ -66,3 +72,4 @@ decides whether a rollback exists.
 
 - [ ] Every commit builds on its own — no commit leaves `api/openapi.yaml` and its two consumers inconsistent
 - [ ] The merge title describes the feature, not the edits
+- [ ] The merge body is all four sections above, headings included
