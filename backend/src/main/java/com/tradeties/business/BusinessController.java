@@ -108,7 +108,7 @@ class BusinessController implements BusinessApi {
 
 		return ResponseEntity.ok(new SlugAvailability()
 				.slug(slug)
-				.available(businessService.isSlugAvailable(slug)));
+				.available(businessService.isSlugAvailableFor(requireTradesperson().id(), slug)));
 	}
 
 	@Override
@@ -520,6 +520,7 @@ class BusinessController implements BusinessApi {
 	private static BusinessProfile toWire(BusinessDetails details) {
 		return new BusinessProfile()
 				.slug(details.slug())
+				.slugLocked(details.slugLocked())
 				.legalName(details.legalName())
 				.displayName(details.displayName())
 				.description(details.description())

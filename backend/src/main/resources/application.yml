@@ -50,8 +50,6 @@ spring:
           # WorkOS AuthKit publishes a JWKS per client id. Kept instead of
           # issuer-uri only because the decoder is still built by hand in
           # SecurityConfig — discovery does exist, see the note below.
-
-          # explicitly in SecurityConfig instead.
           jwk-set-uri: https://api.workos.com/sso/jwks/${WORKOS_CLIENT_ID:missing-client-id}
 
 # The issuer is CLIENT-SCOPED — not a shared "https://api.workos.com" that every
@@ -66,6 +64,13 @@ spring:
 # sits in the WWW-Authenticate header. Override only for a custom auth domain.
 workos:
   issuer: https://api.workos.com/user_management/${WORKOS_CLIENT_ID:missing-client-id}
+
+# Where a published profile is served, as it is printed on a van and read out over the phone.
+# Only ever composed into messages written for a tradesperson — nothing routes on it. The wizard
+# builds its links from the same variable, as NEXT_PUBLIC_PROFILE_URL_PREFIX, because the two
+# appear a line apart: the URL field prints the prefix and the slug-locked 409 below it repeats.
+tradeties:
+  profile-url-prefix: ${PROFILE_URL_PREFIX:tradeties.com/pro/}
 
 server:
   # Traefik terminates TLS and sits in front of this service.

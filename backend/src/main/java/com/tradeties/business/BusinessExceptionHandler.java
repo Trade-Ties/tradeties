@@ -2,6 +2,7 @@ package com.tradeties.business;
 
 import java.net.URI;
 
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ProblemDetail;
@@ -37,6 +38,23 @@ class BusinessExceptionHandler {
 	private static final URI UNCONFIRMED_UNPUBLISH =
 			URI.create("urn:tradeties:problem:unconfirmed-unpublish");
 
+	private static final URI SLUG_LOCKED = URI.create("urn:tradeties:problem:slug-locked");
+
+	/**
+	 * Where a published profile lives, for the one message that has to name the whole address.
+	 *
+	 * <p>Configured rather than compiled into the domain: which host serves a profile is a
+	 * deployment's answer — staging, a rename, a per-environment domain. Here because this class is
+	 * the edge where a domain refusal becomes something written for a client. The wizard keeps its
+	 * own copy for composing links, which is the one thing these two cannot share.
+	 */
+	private final String profileUrlPrefix;
+
+	BusinessExceptionHandler(
+			@Value("${tradeties.profile-url-prefix}") String profileUrlPrefix) {
+		this.profileUrlPrefix = profileUrlPrefix;
+	}
+
 	@ExceptionHandler(BusinessAlreadyExistsException.class)
 	ProblemDetail handleAlreadyExists(BusinessAlreadyExistsException exception) {
 		return conflict(exception.getMessage());
@@ -45,6 +63,27 @@ class BusinessExceptionHandler {
 	@ExceptionHandler(SlugTakenException.class)
 	ProblemDetail handleSlugTaken(SlugTakenException exception) {
 		return conflict(exception.getMessage());
+	}
+
+	/**
+	 * A {@code type} of its own, because there is something for the client to do about it.
+	 *
+	 * <p>Reaching here means the client's {@code slugLocked} is stale — a second tab published
+	 * while this one was open. Told only in prose it cannot learn that, so it goes on holding the
+	 * refused slug and every later save of steps 1 and 2 is refused identically. Told by
+	 * {@code type}, it re-reads the profile and puts the stored URL back.
+	 *
+	 * <p>The stored slug stays in the sentence rather than becoming an extension member: the
+	 * message has to read on its own for any client, and the wizard has the value from the re-read.
+	 */
+	@ExceptionHandler(SlugLockedException.class)
+	ProblemDetail handleSlugLocked(SlugLockedException exception) {
+		ProblemDetail problem = conflict("Your profile URL was fixed when you published. "
+				+ profileUrlPrefix + exception.storedSlug()
+				+ " is the address your customers have, so it cannot be changed here.");
+		problem.setTitle("Profile URL is fixed");
+		problem.setType(SLUG_LOCKED);
+		return problem;
 	}
 
 	/**

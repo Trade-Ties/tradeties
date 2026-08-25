@@ -12,6 +12,7 @@ import com.tradeties.business.GeoPoint;
 import com.tradeties.business.OnboardingStep;
 import com.tradeties.business.PostalAddress;
 import com.tradeties.business.ProfileSuspendedException;
+import com.tradeties.business.SlugLockedException;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
@@ -115,6 +116,21 @@ class BusinessProfile {
 	@Column(name = "onboarding_completed_step", nullable = false)
 	private short onboardingCompletedStep;
 
+	/**
+	 * When this profile first went live, and null while it never has.
+	 *
+	 * <p>The reason it exists is the slug. That column is not really the holder's data — it is
+	 * {@code tradeties.com/pro/{slug}}, printed on a van and read out over the phone — and once a
+	 * copy of it is out in the world nothing here can correct it. So the URL stays editable exactly
+	 * as long as no copy can exist, which is exactly as long as the profile has never been
+	 * published.
+	 *
+	 * <p>{@code status} cannot stand in for this: {@link #unpublish()} puts a business that was live
+	 * for a year back to {@code DRAFT}, where it looks identical to one that never published.
+	 */
+	@Column(name = "first_published_at")
+	private Instant firstPublishedAt;
+
 	@Column(name = "created_at", nullable = false, updatable = false)
 	private Instant createdAt;
 
@@ -161,8 +177,11 @@ class BusinessProfile {
 	 * <p>{@code status} and {@code onboardingCompletedStep} are absent on purpose — neither is the
 	 * client's to move, and their absence is also what stops this call moving the marker
 	 * <em>backwards</em>.
+	 *
+	 * @throws SlugLockedException if the URL has been published and this would change it
 	 */
 	final void apply(BusinessInput input) {
+		requireSlugStillOpen(input.slug());
 		this.slug = input.slug();
 		this.legalName = input.legalName();
 		this.displayName = input.displayName();
@@ -202,6 +221,47 @@ class BusinessProfile {
 		return timeZone;
 	}
 
+	boolean slugLocked() {
+		return firstPublishedAt != null;
+	}
+
+	/**
+	 * The URL is the holder's to choose until somebody else holds a copy of it.
+	 *
+	 * <p>Sending the stored value back is not a change and is always allowed. It has to be: the
+	 * update is a full replacement, so the slug arrives on every write whether or not anyone
+	 * touched it.
+	 *
+	 * <p>Guarded on the transition rather than only in the service, like
+	 * {@link #requireNotSuspended()}: {@link #apply} is the only way this column moves, so a third
+	 * way in — an admin fix-up, a restore tool, an import — inherits the rule. {@code BusinessService}
+	 * also calls this directly, because it needs the answer <em>before</em> it puts the time zone
+	 * question, so a write changing both is not sent back to confirm a calendar move only to be
+	 * refused for the URL anyway.
+	 *
+	 * <p>Not a database constraint, although the rest of this table's rules are. A CHECK compares
+	 * columns within one row; this compares the new slug against the old one, which is a statement
+	 * about a transition. The row-local half of the rule — a published profile has a
+	 * {@code first_published_at} — <em>is</em> a constraint, and is one.
+	 *
+	 * @throws SlugLockedException if the URL is fixed and {@code proposed} is not it
+	 */
+	void requireSlugStillOpen(String proposed) {
+		if (slugLocked() && slugWouldMove(proposed)) {
+			throw new SlugLockedException(slug);
+		}
+	}
+
+	/**
+	 * Here rather than through a getter the service compares for itself, because it is the same
+	 * question {@link #requireSlugStillOpen} asks and the two must not part company. An update is a
+	 * full replacement, so the stored slug comes back unchanged on nearly every save of steps 1 and
+	 * 2 — which is what makes it worth asking before probing the slug index.
+	 */
+	boolean slugWouldMove(String proposed) {
+		return !slug.equals(proposed);
+	}
+
 	/**
 	 * Publishing completes the wizard, so the step marker goes with it. Publishing an already
 	 * published profile changes nothing and is not an error — the caller wanted it visible,
@@ -213,11 +273,17 @@ class BusinessProfile {
 		requireNotSuspended();
 		this.status = BusinessStatus.PUBLISHED;
 		this.onboardingCompletedStep = OnboardingStep.PUBLISHED.number();
+		// The first one only, and republishing must not move it: the slug became an address the day
+		// it first went out, not the last time somebody switched the profile back on.
+		if (this.firstPublishedAt == null) {
+			this.firstPublishedAt = Instant.now();
+		}
 	}
 
 	/**
 	 * Back to a draft. The step marker stays where it is: the wizard was completed, and going
-	 * offline does not undo that.
+	 * offline does not undo that. Neither does {@link #firstPublishedAt}: the links handed out
+	 * while the profile was live are still out there, so the slug stays locked.
 	 *
 	 * @throws ProfileSuspendedException if the profile is suspended
 	 */
@@ -247,6 +313,7 @@ class BusinessProfile {
 	BusinessDetails toDetails() {
 		return new BusinessDetails(
 				slug,
+				slugLocked(),
 				legalName,
 				displayName,
 				description,

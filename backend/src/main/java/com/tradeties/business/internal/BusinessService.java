@@ -93,12 +93,19 @@ public class BusinessService implements Businesses, OnboardingProgress {
 	}
 
 	/**
-	 * @return whether the slug can currently be taken. A snapshot, not a reservation —
-	 *         two callers may hold the same answer at once, and the unique index decides.
+	 * Answered for a caller rather than about the namespace in the abstract.
+	 *
+	 * <p>A business's own slug is not taken <em>from it</em>, so reporting it as unavailable to the
+	 * person who holds it would be a wrong answer rather than a conservative one. Asked here rather
+	 * than corrected by the client, which would be this rule re-implemented across the wire.
+	 *
+	 * @return whether the slug can currently be taken by this owner. A snapshot, not a
+	 *         reservation — two callers may hold the same answer at once, and the unique index
+	 *         decides.
 	 */
 	@Transactional(readOnly = true)
-	public boolean isSlugAvailable(String slug) {
-		return !repository.existsBySlug(slug);
+	public boolean isSlugAvailableFor(UUID ownerUserId, String slug) {
+		return !repository.existsBySlugAndOwnerUserIdNot(slug, ownerUserId);
 	}
 
 	/**
@@ -171,9 +178,19 @@ public class BusinessService implements Businesses, OnboardingProgress {
 					"Your profile changed since you loaded it. Reload and apply your edit again.");
 		}
 
+		// Asked here for its position in the order, not because this is where the rule lives: it
+		// belongs to the transition and is enforced inside `apply` a few lines down, whichever
+		// caller gets there. Ahead of the time zone question because a request that changes both
+		// would otherwise be sent back to confirm a calendar move and then refused anyway.
+		profile.requireSlugStillOpen(input.slug());
 		requireTimeZoneChangeConfirmed(profile, input, timeZoneChangeConfirmed);
 
-		if (repository.existsBySlugAndOwnerUserIdNot(input.slug(), ownerUserId)) {
+		// Only when the slug is actually moving. An update is a full replacement, so the stored
+		// slug arrives back unchanged on nearly every save of steps 1 and 2 — and for a published
+		// profile the line above has just proved it is identical. The unique index is what makes
+		// this safe to skip: a real collision still comes back as the violation caught below.
+		if (profile.slugWouldMove(input.slug())
+				&& repository.existsBySlugAndOwnerUserIdNot(input.slug(), ownerUserId)) {
 			throw new SlugTakenException(input.slug());
 		}
 
