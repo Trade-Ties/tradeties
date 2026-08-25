@@ -1,12 +1,12 @@
 package com.tradeties.business;
 
+import static org.hamcrest.Matchers.containsString;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
-
-import java.util.List;
 
 import com.jayway.jsonpath.JsonPath;
 import com.tradeties.BusinessFixtures;
@@ -27,6 +27,8 @@ import org.springframework.test.web.servlet.request.RequestPostProcessor;
  *
  * <p>Everything checked here reads from at least two tables, which is exactly why none of it
  * is a database constraint.
+ *
+ * <p>The profile URL is moved by the same call and is not here: see {@link SlugFreezeTests}.
  */
 @SpringBootTest
 @AutoConfigureMockMvc
@@ -126,24 +128,153 @@ class PublishTests {
 	@Test
 	void anHourlyServiceWithoutARateBlocksPublishingUntilOneExists() throws Exception {
 		RequestPostProcessor token = businessFor("user_hourly", "hourly");
-		setUpTradeAndHours(token);
+		String plumber = BusinessFixtures.claimTradeAndHours(mockMvc, token);
 
 		mockMvc.perform(post("/api/v1/me/business/services").with(token)
 						.contentType(MediaType.APPLICATION_JSON)
-						.content("""
-								{"name":"Call-out","estimatedDurationMinutes":60,"pricingMode":"HOURLY"}"""))
+						.content(BusinessFixtures.serviceJson("", "Call-out", plumber, "HOURLY", null)))
 				.andExpect(status().isCreated());
 
-		setPricing(token, null);
+		BusinessFixtures.setPricing(mockMvc, token, null);
 
 		mockMvc.perform(get("/api/v1/me/business/readiness").with(token))
 				.andExpect(check(2, "HOURLY_SERVICES_HAVE_A_RATE", false));
 
-		setPricing(token, "125.00");
+		BusinessFixtures.setPricing(mockMvc, token, "125.00");
 
 		mockMvc.perform(get("/api/v1/me/business/readiness").with(token))
 				.andExpect(check(2, "HOURLY_SERVICES_HAVE_A_RATE", true))
 				.andExpect(jsonPath("$.ready").value(true));
+	}
+
+	/**
+	 * The invariant a live profile carries: findable and bookable are one state.
+	 *
+	 * <p>Giving up a trade retires the services filed under it, and the last of those is the last
+	 * thing anybody could have booked. Refused rather than applied and quietly unpublished — going
+	 * dark is not what changing a trade asked for — and the transaction rolling back is what puts
+	 * the catalogue back.
+	 */
+	@Test
+	void aLiveProfileCannotBeLeftWithNothingToBook() throws Exception {
+		RequestPostProcessor token = completeBusinessFor("user_would_go_dark", "would-go-dark");
+
+		mockMvc.perform(post("/api/v1/me/business/publish").with(token)).andExpect(status().isOk());
+
+		mockMvc.perform(put("/api/v1/me/business/trades").with(token)
+						.contentType(MediaType.APPLICATION_JSON)
+						.content(onlyPrimary("ROOFER")))
+				.andExpect(status().isConflict())
+				.andExpect(jsonPath("$.detail").value(containsString("live")));
+
+		// `active` as well as the count, because the two ways a service can leave the catalogue
+		// leave different traces: a retired one drops out of this list, a deactivated one stays
+		// in it saying so. Counting alone would call a leaked deactivation a clean rollback.
+		mockMvc.perform(get("/api/v1/me/business/services").with(token))
+				.andExpect(jsonPath("$.length()").value(1))
+				.andExpect(jsonPath("$[0].active").value(true));
+		mockMvc.perform(get("/api/v1/me/business/trades").with(token))
+				.andExpect(jsonPath("$.primary.code").value("PLUMBER"));
+		mockMvc.perform(get("/api/v1/me/business").with(token))
+				.andExpect(jsonPath("$.status").value("PUBLISHED"));
+	}
+
+	/**
+	 * The other half of that rule, and why the checklist is read before the change as well as
+	 * after. A live profile already failing it is somebody on their way to putting it right, and
+	 * refusing their edits would leave them nowhere to do it from.
+	 */
+	@Test
+	void aLiveProfileAlreadyFailingTheChecklistIsNotHeldToIt() throws Exception {
+		RequestPostProcessor token = completeBusinessFor("user_already_dark", "already-dark");
+
+		mockMvc.perform(post("/api/v1/me/business/publish").with(token)).andExpect(status().isOk());
+
+		jdbcTemplate.update("""
+				UPDATE business_service SET active = FALSE
+				WHERE business_id = (SELECT id FROM business_profile WHERE slug = 'already-dark')""");
+
+		mockMvc.perform(put("/api/v1/me/business/trades").with(token)
+						.contentType(MediaType.APPLICATION_JSON)
+						.content(onlyPrimary("ROOFER")))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.primary.code").value("ROOFER"));
+	}
+
+	/**
+	 * Removing the last thing anybody can book is a decision about being listed at all, so it is
+	 * put to the holder rather than either refused or taken quietly.
+	 *
+	 * <p>Deliberately the opposite answer to the one a trade change gets two tests up. Giving up a
+	 * trade is not a request to stop trading; this is.
+	 */
+	@Test
+	void removingTheLastServiceOfALiveProfileIsAskedAboutFirst() throws Exception {
+		RequestPostProcessor token = completeBusinessFor("user_last_service", "last-service");
+
+		mockMvc.perform(post("/api/v1/me/business/publish").with(token)).andExpect(status().isOk());
+
+		mockMvc.perform(delete("/api/v1/me/business/services/" + onlyService(token)).with(token))
+				.andExpect(status().isConflict())
+				.andExpect(jsonPath("$.type").value("urn:tradeties:problem:unconfirmed-unpublish"))
+				.andExpect(jsonPath("$.detail").value(containsString("only service")));
+
+		// Refused whole: the question is not a half-applied removal.
+		mockMvc.perform(get("/api/v1/me/business/services").with(token))
+				.andExpect(jsonPath("$.length()").value(1))
+				.andExpect(jsonPath("$[0].active").value(true));
+		mockMvc.perform(get("/api/v1/me/business").with(token))
+				.andExpect(jsonPath("$.status").value("PUBLISHED"));
+	}
+
+	/** The same request with the answer attached, which is the whole of what the client adds. */
+	@Test
+	void confirmingTakesTheProfileOffTheMarketWithTheService() throws Exception {
+		RequestPostProcessor token = completeBusinessFor("user_confirms_offline", "confirms-offline");
+
+		mockMvc.perform(post("/api/v1/me/business/publish").with(token)).andExpect(status().isOk());
+
+		mockMvc.perform(delete("/api/v1/me/business/services/" + onlyService(token)).with(token)
+						.param("unpublishConfirmed", "true"))
+				.andExpect(status().isNoContent());
+
+		mockMvc.perform(get("/api/v1/me/business/services").with(token))
+				.andExpect(jsonPath("$.length()").value(0));
+		mockMvc.perform(get("/api/v1/me/business").with(token))
+				// A draft again, and everything else it holds is still there — publishing again is
+				// one call away, which is what the question promised.
+				.andExpect(jsonPath("$.status").value("DRAFT"));
+	}
+
+	/** The other half of the rule: it is the last one that is asked about, not any one. */
+	@Test
+	void removingOneOfSeveralServicesFromALiveProfileAsksNothing() throws Exception {
+		RequestPostProcessor token = completeBusinessFor("user_spare_service", "spare-service");
+		String plumber = BusinessFixtures.tradeId(mockMvc, "PLUMBER");
+
+		mockMvc.perform(post("/api/v1/me/business/services").with(token)
+						.contentType(MediaType.APPLICATION_JSON)
+						.content("""
+								{"tradeId":"%s","name":"Drain snake","estimatedDurationMinutes":60,
+								 "pricingMode":"QUOTE_ONLY"}""".formatted(plumber)))
+				.andExpect(status().isCreated());
+
+		mockMvc.perform(post("/api/v1/me/business/publish").with(token)).andExpect(status().isOk());
+
+		String first = JsonPath.read(mockMvc.perform(get("/api/v1/me/business/services").with(token))
+				.andReturn().getResponse().getContentAsString(), "$[0].id");
+
+		mockMvc.perform(delete("/api/v1/me/business/services/" + first).with(token))
+				.andExpect(status().isNoContent());
+
+		mockMvc.perform(get("/api/v1/me/business").with(token))
+				.andExpect(jsonPath("$.status").value("PUBLISHED"));
+	}
+
+	/** The id of the one service `completeBusinessFor` leaves behind. */
+	private String onlyService(RequestPostProcessor token) throws Exception {
+		return JsonPath.read(mockMvc.perform(get("/api/v1/me/business/services").with(token))
+				.andReturn().getResponse().getContentAsString(), "$[0].id");
 	}
 
 	@Test
@@ -202,46 +333,11 @@ class PublishTests {
 				.andExpect(jsonPath("$.status").value("SUSPENDED"));
 	}
 
-	/** Registers, creates the draft, and takes it all the way to publishable. */
-	private RequestPostProcessor completeBusinessFor(String subject, String slug) throws Exception {
-		RequestPostProcessor token = businessFor(subject, slug);
-		setUpTradeAndHours(token);
-
-		mockMvc.perform(post("/api/v1/me/business/services").with(token)
-						.contentType(MediaType.APPLICATION_JSON)
-						.content("""
-								{"name":"Clog removal","estimatedDurationMinutes":60,
-								 "pricingMode":"STARTING_AT","price":"149.00"}"""))
-				.andExpect(status().isCreated());
-
-		setPricing(token, null);
-
-		return token;
-	}
-
-	private void setUpTradeAndHours(RequestPostProcessor token) throws Exception {
-		String catalogue = mockMvc.perform(get("/api/v1/trades"))
-				.andReturn().getResponse().getContentAsString();
-		List<String> plumber = JsonPath.read(catalogue, "$[?(@.code=='PLUMBER')].id");
-
-		mockMvc.perform(put("/api/v1/me/business/trades").with(token)
-						.contentType(MediaType.APPLICATION_JSON)
-						.content("""
-								{"primaryTradeId":"%s","additionalTradeIds":[]}""".formatted(plumber.getFirst())))
-				.andExpect(status().isOk());
-
-		StringBuilder days = new StringBuilder();
-		for (int day = 1; day <= 7; day++) {
-			days.append(day == 1 ? "" : ",")
-					.append("{\"dayOfWeek\":").append(day).append(",\"blocks\":")
-					.append(day == 1 ? "[{\"startsAt\":\"09:00\",\"endsAt\":\"17:00\"}]" : "[]")
-					.append("}");
-		}
-
-		mockMvc.perform(put("/api/v1/me/business/working-hours").with(token)
-						.contentType(MediaType.APPLICATION_JSON)
-						.content("{\"days\":[" + days + "]}"))
-				.andExpect(status().isOk());
+	/** A whole step 3 naming one trade, which is what drops every other trade the business held. */
+	private String onlyPrimary(String code) throws Exception {
+		return """
+				{"primaryTradeId":"%s","additionalTradeIds":[]}"""
+				.formatted(BusinessFixtures.tradeId(mockMvc, code));
 	}
 
 	/**
@@ -261,30 +357,9 @@ class PublishTests {
 						org.hamcrest.Matchers.hasEntry("passed", (Object) expectedToPass)));
 	}
 
-	/**
-	 * Sets rates, creating them the first time and replacing them afterwards. Which of the
-	 * two it is has to come from the status: a business without rates answers 404 with a
-	 * problem body, which is neither blank nor carries a version.
-	 */
-	private void setPricing(RequestPostProcessor token, String hourlyRate) throws Exception {
-		var response = mockMvc.perform(get("/api/v1/me/business/pricing").with(token))
-				.andReturn().getResponse();
-
-		Integer version = response.getStatus() == 200
-				? JsonPath.read(response.getContentAsString(), "$.version")
-				: null;
-
-		mockMvc.perform(put("/api/v1/me/business/pricing").with(token)
-						.contentType(MediaType.APPLICATION_JSON)
-						.content("""
-								{%s%s"minimumBillableMinutes":60,"billingIncrementMinutes":15,
-								 "serviceCallFeeWaivedIfHired":false,"travelFeeMode":"INCLUDED",
-								 "materialPricingMode":"INCLUDED","cancellationFee":"50.00",
-								 "cancellationNoticeHours":24}"""
-								.formatted(
-										version == null ? "" : "\"version\":" + version + ",",
-										hourlyRate == null ? "" : "\"hourlyRate\":\"" + hourlyRate + "\",")))
-				.andExpect(status().isOk());
+	/** Registers, creates the draft, and takes it all the way to publishable. */
+	private RequestPostProcessor completeBusinessFor(String subject, String slug) throws Exception {
+		return BusinessFixtures.publishableBusinessFor(mockMvc, subject, slug);
 	}
 
 	private RequestPostProcessor businessFor(String subject, String slug) throws Exception {

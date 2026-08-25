@@ -20,19 +20,34 @@ import jakarta.persistence.PreUpdate;
 import jakarta.persistence.Table;
 import jakarta.persistence.Version;
 
+import org.hibernate.annotations.SoftDelete;
+import org.hibernate.annotations.SoftDeleteType;
+
 /**
- * One thing a business offers.
- *
- * <p>Named for what it is rather than after its table, because {@code Service} is both the
+ * Named for what it is rather than after its table, because {@code Service} is both the
  * generated wire type and a Spring stereotype.
  *
  * <p>{@code businessId} and {@code tradeId} are plain columns, not associations. The
  * composite foreign key on {@code (business_id, trade_id)} is what guarantees a service can
  * only sit under a trade the business actually holds; mapping that as a JPA relationship
  * would buy a lazy-loading problem and no extra safety.
+ *
+ * <p><strong>Removal is a stamp, not a delete.</strong> {@code @SoftDelete} makes Hibernate
+ * rewrite every {@code delete} as an update of {@code deleted_at} and add
+ * {@code deleted_at is null} to every query it builds — so the repository below reads as if
+ * the rows were gone, and they are not. That is deliberate over doing it by hand: a service
+ * row is the only record that this work was offered under this name at this price, and one
+ * forgotten {@code and deletedAt is null} in eight query methods is a catalogue leaking into
+ * a list nobody expected it in.
+ *
+ * <p>Not the same thing as {@code active}. A deactivated service is one the tradesperson has
+ * retired and can still see, listed with {@code active: false} so the appointments naming it
+ * stay readable. A removed one is gone from every answer. {@code ServiceCatalogService}
+ * chooses between them.
  */
 @Entity
 @Table(name = "business_service")
+@SoftDelete(strategy = SoftDeleteType.TIMESTAMP, columnName = "deleted_at")
 class ServiceOffering {
 
 	@Id
@@ -43,11 +58,11 @@ class ServiceOffering {
 	private UUID businessId;
 
 	/**
-	 * Null means the service spans trades. Also set to null by the database if the business
-	 * stops holding that trade — {@code ON DELETE SET NULL} on the composite key, which is
-	 * why dropping a trade does not take its services with it.
+	 * The one trade this service sits under, always one the business holds. Giving that trade
+	 * up retires the service with it — see {@code TradeSelectionService.replaceForOwner},
+	 * which stamps both rather than leaving a live service under a trade nobody claims.
 	 */
-	@Column(name = "trade_id")
+	@Column(name = "trade_id", nullable = false)
 	private UUID tradeId;
 
 	@Column(name = "name", nullable = false, length = 160)

@@ -6,9 +6,6 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import java.util.List;
-
-import com.jayway.jsonpath.JsonPath;
 import com.tradeties.BusinessFixtures;
 import com.tradeties.TestcontainersConfiguration;
 
@@ -146,23 +143,18 @@ class OnboardingProgressTests {
 	}
 
 	private void setTrades(RequestPostProcessor token) throws Exception {
-		String catalogue = mockMvc.perform(get("/api/v1/trades"))
-				.andReturn().getResponse().getContentAsString();
-		List<String> plumber = JsonPath.read(catalogue, "$[?(@.code=='PLUMBER')].id");
-
-		mockMvc.perform(put("/api/v1/me/business/trades").with(token)
-						.contentType(MediaType.APPLICATION_JSON)
-						.content("""
-								{"primaryTradeId":"%s","additionalTradeIds":[]}""".formatted(plumber.getFirst())))
-				.andExpect(status().isOk());
+		BusinessFixtures.claimPrimaryTrade(mockMvc, token, "PLUMBER");
 	}
 
+	/**
+	 * Filed under the trade {@link #setTrades} claimed, which every caller runs first — a service
+	 * requires a trade the business holds, and step 4 is not reachable before step 3.
+	 */
 	private void addService(RequestPostProcessor token, String name) throws Exception {
 		mockMvc.perform(post("/api/v1/me/business/services").with(token)
 						.contentType(MediaType.APPLICATION_JSON)
-						.content("""
-								{"name":"%s","estimatedDurationMinutes":60,
-								 "pricingMode":"STARTING_AT","price":"149.00"}""".formatted(name)))
+						.content(BusinessFixtures.serviceJson("", name,
+								BusinessFixtures.tradeId(mockMvc, "PLUMBER"), "STARTING_AT", "149.00")))
 				.andExpect(status().isCreated());
 	}
 

@@ -267,6 +267,11 @@ paths:
         **`version` is required and must match.** Otherwise two browser tabs editing
         the same profile would both save and the later one would silently win.
 
+        **`slug` is fixed once the profile has been published.** Send the stored value
+        back like any other unchanged field; a different one answers 409 rather than
+        quietly breaking every link already handed out. A client renders the field
+        read-only from `slugLocked` instead of finding out here.
+
         **Changing `timeZone` needs `timeZoneChangeConfirmed: true`**, once the business has
         working hours. Those are stored as local wall clock and therefore do not move — Monday
         08:00 stays 08:00 — but the instants behind them do, and with them every free slot the
@@ -315,6 +320,12 @@ paths:
         registered tradesperson can still probe it, which is a far smaller surface
         than the open internet.
 
+        **Answered for the caller.** The slug the caller's own business already
+        holds comes back `true`: it is not taken from them, and a full replacement
+        of steps 1 and 2 sends the slug on every write whether or not anybody
+        touched it. A client that had to know this would be re-implementing a rule
+        that lives here.
+
         **A `true` is not a reservation.** Two callers can hold the same answer at
         the same moment; the unique index decides, and whoever creates second gets
         a 409.
@@ -335,6 +346,8 @@ paths:
           $ref: "#/components/responses/BadRequest"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
 
   /api/v1/me/business/readiness:
     get:
@@ -370,6 +383,10 @@ paths:
       summary: Make the profile visible to customers.
       description: |
         Moves the profile from `DRAFT` to `PUBLISHED`, and with it into the search.
+
+        **The first publish fixes the slug.** Until here the URL is a draft like everything
+        around it; from here it is an address a customer may already have written down, so it
+        stops being editable and `slugLocked` turns true. Unpublishing does not undo that.
 
         **The checklist is re-evaluated here, in the same transaction that sets the status.**
         Reading `readiness` first is what the wizard does to grey out the button, but it is
@@ -473,7 +490,7 @@ paths:
     put:
       tags: [business]
       operationId: setMyTrades
-      summary: Choose the trades — onboarding step 3.
+      summary: Select the trades — onboarding step 3.
       description: |
         The whole selection at once, because it is submitted as one form: one radio group
         for the primary trade and a checkbox group beside it.
@@ -483,6 +500,22 @@ paths:
         being submitted, and a submitted step 3 has exactly one.
 
         A trade that is not in the catalogue, or is inactive, is a 400.
+
+        **Dropping a trade removes the services filed under it.** A service sits under
+        exactly one trade, so a selection that no longer names it leaves the service nowhere
+        to be. The trades that stay keep their services.
+
+        Removed means gone from every answer here, not destroyed: both the trade and its
+        services are stamped with the moment they left and kept. A service an appointment
+        names is deactivated instead, on the same rule `DELETE /services/{id}` follows.
+        Re-selecting a trade later takes it back — its services stay removed, because taking
+        the trade back says nothing about them.
+
+        **A published profile cannot be left unbookable.** If the selection would drop the
+        last service a live profile has, nothing is applied and the answer is a 409 naming
+        what would have broken. Unpublish first if that is the intent. A profile that
+        already fails the checklist is not held to this — there would be nowhere left to fix
+        it from.
       requestBody:
         required: true
         content:
@@ -504,6 +537,8 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
 
   /api/v1/me/business/services:
     get:
@@ -532,9 +567,9 @@ paths:
         Appended to the end of the list; ordering is changed with
         `PUT /api/v1/me/business/services/order`, not by supplying a number here.
 
-        A `tradeId` must be one the business actually holds — the database checks that
-        through a composite foreign key rather than trusting the client. Omit it for work
-        that spans trades.
+        `tradeId` is required and must be one the business actually holds — the database
+        checks that through a composite foreign key rather than trusting the client. There
+        is no service without a trade.
 
         Names are unique per business, case-insensitively: "Clog removal" and "CLOG REMOVAL"
         are the same entry to everyone except a byte comparison.
@@ -643,6 +678,27 @@ paths:
         this sets `active` to false and the entry stops being offered. Either way it is gone
         from the customer's view, which is what the caller asked for — but a later `GET` can
         still return it with `active: false`.
+
+        **Removing the last bookable service of a published profile takes it off the
+        market.** The profile goes back to `DRAFT` — nothing else is lost, and publishing
+        again is one call. Because that is a decision rather than a side effect it is put to
+        the holder rather than taken: without `unpublishConfirmed` the removal is refused
+        with `urn:tradeties:problem:unconfirmed-unpublish` and nothing is changed. Ask, then
+        send the same request again with the flag.
+
+        This is deliberately the opposite answer to the one `PUT /trades` gives. Giving up a
+        trade is not a request to stop trading, so that operation refuses outright; deleting
+        the only thing anybody can book is a decision about exactly that.
+      parameters:
+        - name: unpublishConfirmed
+          in: query
+          required: false
+          schema:
+            type: boolean
+            default: false
+          description: |
+            The caller's answer to "this takes your profile off the marketplace". Only read
+            when the removal would actually do so.
       responses:
         "204":
           description: Removed, or deactivated where history prevents removal.
@@ -652,6 +708,8 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
 
   /api/v1/me/business/pricing:
     get:
@@ -977,7 +1035,10 @@ components:
     Conflict:
       description: |
         The write lost a race or would break a uniqueness rule: a slug taken in the
-        meantime, a second business for one account, or a stale `version`.
+        meantime, a second business for one account, or a stale `version`. Also the two
+        refusals that are neither — changing the slug of a profile that has been
+        published, and a change that would leave a live profile unbookable. Those are
+        rules rather than races.
       content:
         application/problem+json:
           schema:
@@ -1106,8 +1167,18 @@ components:
       type: string
       description: |
         The public URL segment: `tradeties.com/pro/{slug}`. Lower case letters,
-        digits and single hyphens. Generated from the display name in the wizard,
+        digits and single hyphens. Proposed from the display name in the wizard,
         then checked for availability.
+
+        **Fixed from the first publish onwards.** While the profile is a draft it is
+        not searchable and no link to it exists, so it can still be changed freely.
+        Publishing turns it into an address that gets printed on a van and read out
+        over the phone, and nothing this API can do would repair those copies. From
+        then on a differing `slug` on `PUT /api/v1/me/business` is a 409, and
+        `BusinessProfile.slugLocked` says so before the attempt is made.
+
+        The display name proposes it and does not own it: the two part company the
+        moment a business is renamed, and it is the URL that stays.
       pattern: '^[a-z0-9]+(-[a-z0-9]+)*$'
       maxLength: 80
       examples: ["joes-plumbing"]
@@ -1187,6 +1258,7 @@ components:
         later.
       required:
         - slug
+        - slugLocked
         - legalName
         - displayName
         - phone
@@ -1200,6 +1272,19 @@ components:
       properties:
         slug:
           $ref: "#/components/schemas/Slug"
+        slugLocked:
+          type: boolean
+          readOnly: true
+          description: |
+            Whether the URL is still the holder's to change. `false` until the profile
+            is published for the first time, `true` from then on — and it does not go
+            back: unpublishing returns the profile to a draft, not the address to being
+            free.
+
+            Stated rather than left to the client to derive. `status` cannot answer it,
+            because an unpublished profile reads `DRAFT` again and is indistinguishable
+            from one that was never live; `onboardingCompletedStep` is advisory and
+            says so.
         legalName:
           type: string
           description: The registered name, including the legal form.
@@ -1339,6 +1424,9 @@ components:
         `CreateBusinessRequest` plus the `version` being replaced — written out
         rather than composed with `allOf`, because the generated Java is then a
         plain class instead of a hierarchy.
+
+        `slug` carries one rule the create does not: once the profile has been
+        published it has to match what is stored. See `Slug`.
       required:
         - version
         - slug
@@ -1530,15 +1618,23 @@ components:
 
     Service:
       type: object
-      required: [id, name, estimatedDurationMinutes, pricingMode, active, sortOrder, version]
+      required: [id, tradeId, name, estimatedDurationMinutes, pricingMode, active, sortOrder, version]
       properties:
         id:
           type: string
           format: uuid
         tradeId:
-          type: [string, "null"]
+          type: string
           format: uuid
-          description: Null for work that spans trades.
+          description: |
+            The one trade this service sits under. Never empty, and for every service you can
+            still book, always a trade the business holds: giving up a trade removes the
+            services filed under it.
+
+            The one exception is a service an appointment already names. That one is
+            deactivated rather than removed — the row is the record of the job — so it stays in
+            this list with `active: false` and goes on naming the trade it was filed under,
+            whether or not the business still holds it.
         name:
           type: string
           minLength: 1
@@ -1576,10 +1672,10 @@ components:
 
     ServiceInput:
       type: object
-      required: [name, estimatedDurationMinutes, pricingMode]
+      required: [tradeId, name, estimatedDurationMinutes, pricingMode]
       properties:
         tradeId:
-          type: [string, "null"]
+          type: string
           format: uuid
         name:
           type: string
@@ -1606,13 +1702,13 @@ components:
     ServiceUpdate:
       type: object
       description: A ServiceInput plus the version being replaced.
-      required: [version, name, estimatedDurationMinutes, pricingMode]
+      required: [version, tradeId, name, estimatedDurationMinutes, pricingMode]
       properties:
         version:
           type: integer
           format: int64
         tradeId:
-          type: [string, "null"]
+          type: string
           format: uuid
         name:
           type: string
@@ -2100,10 +2196,20 @@ components:
         RFC 9457 problem detail, as produced by Spring's ProblemDetail.
 
         `type` is `about:blank` unless a problem is one a client has to tell apart from the
-        others sharing its status code. Exactly one is today:
-        `urn:tradeties:problem:unconfirmed-time-zone-change`, because the wizard has to answer
-        that 409 with a dialogue and a resend rather than with a sentence. Match on `type`,
-        never on `detail` — the wording is written for people and will be reworded.
+        others sharing its status code. Two are today, both `409` and both on the same
+        operation:
+
+        - `urn:tradeties:problem:unconfirmed-time-zone-change` — answer with a dialogue and
+          send the same body again with `timeZoneChangeConfirmed`.
+        - `urn:tradeties:problem:slug-locked` — the profile was published, so `slug` is no
+          longer the holder's to change. A client that believed otherwise is holding a stale
+          `slugLocked`: re-read the profile and offer the stored URL, rather than resending.
+        - `urn:tradeties:problem:unconfirmed-unpublish` — removing that service would take a
+          published profile off the marketplace. Put `detail` to the holder and send the same
+          request again with `unpublishConfirmed`, or send nothing.
+
+        Match on `type`, never on `detail` — the wording is written for people and will be
+        reworded.
       properties:
         type:
           type: string

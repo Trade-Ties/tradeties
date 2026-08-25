@@ -7,6 +7,10 @@ package com.tradeties.business;
  * <p>Carries no id. Nothing outside this module addresses a business by id: the owner reaches it
  * through their token, and the public side will reach it through the slug.
  *
+ * @param slugLocked  whether the slug has stopped being editable, which the first publish
+ *                    decides. Carried out as an answer rather than left to be worked out from
+ *                    {@code status}, which cannot tell an unpublished profile from one that was
+ *                    never live
  * @param phone       E.164, the business line — not the login
  * @param email       the business address — not the login
  * @param coordinates {@code null} while the address has not been geocoded
@@ -15,6 +19,7 @@ package com.tradeties.business;
  */
 public record BusinessDetails(
 		String slug,
+		boolean slugLocked,
 		String legalName,
 		String displayName,
 		String description,

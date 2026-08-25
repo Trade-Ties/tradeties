@@ -1,93 +1,105 @@
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
-import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import { FieldRow } from "../FieldRow";
-import { CANCELLATION_WINDOW_OPTIONS } from "../constants";
-import type { StepProps, CancellationInfo } from "../types";
+  ChoiceField,
+  FieldGrid,
+  SelectField,
+  TextareaField,
+  toOptions,
+} from "@/components/ui/field";
+import type { ChoiceOption } from "@/components/ui/field";
+import { CANCELLATION_POLICIES, CANCELLATION_WINDOW_OPTIONS } from "../constants";
+import { MoneyField } from "../AmountField";
+import type { CancellationPolicy, PricingForm, StepProps, UiState } from "../types";
 
-const POLICIES: [CancellationInfo["policy"], string, string][] = [
-  ["flexible", "Flexible", "Free cancellation up to 24 hours before"],
-  ["moderate", "Moderate", "Free cancellation up to 48 hours before"],
-  ["strict", "Strict", "Free cancellation up to 72 hours before"],
-  ["custom", "Custom", "Set your own window"],
-];
+/**
+ * The tiles, written out of the shared policy table. Only the description lives here — the
+ * notice is derived, so the tile and the publish review cannot quote different numbers.
+ */
+const POLICIES: ChoiceOption<CancellationPolicy>[] = CANCELLATION_POLICIES.map(
+  ({ value, label, hours }) => ({
+    value,
+    label,
+    desc:
+      hours === null
+        ? "Set your own window"
+        : `Free cancellation up to ${hours} hours before`,
+  })
+);
 
-export function CancellationStep({ data, update }: StepProps<CancellationInfo>) {
+const WINDOW_OPTIONS = toOptions(CANCELLATION_WINDOW_OPTIONS, (h) => `${h} hours`);
+
+/**
+ * The cancellation terms, which live on the pricing resource.
+ *
+ * Two slices, because two different things are edited. `data` is the contract's own fields — the
+ * fee and the notice in hours — and goes to the server unchanged. `ui` holds which named policy
+ * is selected, which cannot be derived from the hours: "Flexible" means 24, but so can "Custom".
+ */
+interface CancellationStepProps extends StepProps<PricingForm> {
+  ui: UiState;
+  updateUi: (value: UiState) => void;
+}
+
+export function CancellationStep({ data, update, ui, updateUi }: CancellationStepProps) {
+  const isCustom = ui.cancellationPolicy === "custom";
+
+  /**
+   * Picking a named policy sets the hours it stands for; picking "Custom" changes nothing but
+   * the label, and reveals the dropdown that edits the hours directly. Either way there is one
+   * number stored, which is the one the contract takes.
+   */
+  const selectPolicy = (cancellationPolicy: CancellationPolicy) => {
+    updateUi({ ...ui, cancellationPolicy });
+
+    const hours = CANCELLATION_POLICIES.find((p) => p.value === cancellationPolicy)?.hours;
+    if (hours !== null && hours !== undefined) {
+      update({ ...data, cancellationNoticeHours: hours });
+    }
+  };
+
   return (
-    <div className="space-y-5">
-      <FieldRow label="Cancellation policy *">
-        <RadioGroup
-          value={data.policy}
-          onValueChange={(v) =>
-            update({ ...data, policy: (v ?? "flexible") as CancellationInfo["policy"] })
-          }
-          className="space-y-2"
-        >
-          {POLICIES.map(([value, label, desc]) => (
-            <div key={value} className="flex items-start gap-3 rounded-lg border p-3">
-              <RadioGroupItem value={value} id={`policy-${value}`} className="mt-1" />
-              <Label htmlFor={`policy-${value}`} className="font-normal flex-1">
-                <span className="font-medium block">{label}</span>
-                <span className="text-sm text-muted-foreground">{desc}</span>
-              </Label>
-            </div>
-          ))}
-        </RadioGroup>
-      </FieldRow>
+    <>
+      <ChoiceField
+        label="Cancellation policy"
+        required
+        columns={2}
+        options={POLICIES}
+        value={ui.cancellationPolicy}
+        onValueChange={selectPolicy}
+      />
 
-      {data.policy === "custom" && (
-        <FieldRow label="Cancellation window *" hint="Free cancellation before this cutoff">
-          <Select
-            value={String(data.windowHours)}
-            onValueChange={(v) => update({ ...data, windowHours: Number(v ?? 24) })}
-          >
-            <SelectTrigger className="w-48">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {CANCELLATION_WINDOW_OPTIONS.map((h) => (
-                <SelectItem key={h} value={String(h)}>
-                  {h} hours
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </FieldRow>
-      )}
-
-      <FieldRow
-        label="Cancellation fee *"
-        hint="Charged when a client cancels after the cutoff. Leave at 0 for no fee."
-      >
-        <div className="relative w-40">
-          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm">
-            $
-          </span>
-          <Input
-            value={data.fee}
-            onChange={(e) => update({ ...data, fee: e.target.value.replace(/[^\d.]/g, "") })}
-            placeholder="0.00"
-            inputMode="decimal"
-            className="pl-7"
-          />
-        </div>
-      </FieldRow>
-
-      <FieldRow label="Additional notes" hint="Optional — shown to clients before they book">
-        <Textarea
-          value={data.notes}
-          onChange={(e) => update({ ...data, notes: e.target.value })}
-          rows={3}
+      <FieldGrid columns={2}>
+        <MoneyField
+          label="Cancellation fee"
+          fieldClassName={isCustom ? undefined : "sm:col-span-2"}
+          required
+          hint="Charged when a client cancels too late. 0 for none."
+          value={data.cancellationFee}
+          onValueChange={(cancellationFee) => update({ ...data, cancellationFee })}
         />
-      </FieldRow>
-    </div>
+
+        {isCustom && (
+          <SelectField
+            label="Cancellation window"
+            required
+            hint="Free cancellation before this cutoff."
+            options={WINDOW_OPTIONS}
+            value={data.cancellationNoticeHours}
+            onValueChange={(cancellationNoticeHours) =>
+              update({ ...data, cancellationNoticeHours })
+            }
+          />
+        )}
+      </FieldGrid>
+
+      {/* No field behind it. The contract has nowhere to put this, so it is typed and then
+          dropped on save — see `UiState`, where the gap is named. */}
+      <TextareaField
+        label="Additional notes"
+        rows={3}
+        hint="Shown to clients before they book. Not saved yet."
+        value={ui.cancellationNotes}
+        onChange={(e) => updateUi({ ...ui, cancellationNotes: e.target.value })}
+      />
+    </>
   );
 }

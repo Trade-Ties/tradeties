@@ -29,7 +29,6 @@ import com.tradeties.generated.model.ServiceInput;
 import com.tradeties.generated.model.ServiceOrder;
 import com.tradeties.generated.model.ServiceUpdate;
 import com.tradeties.generated.model.SlugAvailability;
-import com.tradeties.generated.model.Trade;
 import com.tradeties.generated.model.UpdateBusinessRequest;
 import com.tradeties.identity.CurrentMarketplaceUser;
 import com.tradeties.identity.MarketplaceUser;
@@ -109,7 +108,7 @@ class BusinessController implements BusinessApi {
 
 		return ResponseEntity.ok(new SlugAvailability()
 				.slug(slug)
-				.available(businessService.isSlugAvailable(slug)));
+				.available(businessService.isSlugAvailableFor(requireTradesperson().id(), slug)));
 	}
 
 	@Override
@@ -159,9 +158,10 @@ class BusinessController implements BusinessApi {
 	}
 
 	@Override
-	public ResponseEntity<Void> removeMyService(UUID serviceId) {
+	public ResponseEntity<Void> removeMyService(UUID serviceId, Boolean unpublishConfirmed) {
 
-		if (!serviceCatalogService.removeForOwner(requireTradesperson().id(), serviceId)) {
+		if (!serviceCatalogService.removeForOwner(requireTradesperson().id(), serviceId,
+				Boolean.TRUE.equals(unpublishConfirmed))) {
 			throw noSuchService();
 		}
 
@@ -520,6 +520,7 @@ class BusinessController implements BusinessApi {
 	private static BusinessProfile toWire(BusinessDetails details) {
 		return new BusinessProfile()
 				.slug(details.slug())
+				.slugLocked(details.slugLocked())
 				.legalName(details.legalName())
 				.displayName(details.displayName())
 				.description(details.description())
