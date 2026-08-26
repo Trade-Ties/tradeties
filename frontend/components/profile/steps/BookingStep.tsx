@@ -1,12 +1,11 @@
 import { FieldGrid, SelectField, toOptions } from "@/components/ui/field";
 import { CountField } from "../AmountField";
+import { BOOKING_HORIZON_MAX, BOOKING_HORIZON_MIN } from "../limits";
 import {
-  BOOKING_HORIZON_MAX,
-  BOOKING_HORIZON_MIN,
+  BUFFER_OPTIONS,
   MINIMUM_NOTICE_OPTIONS,
   START_TIME_GRID_OPTIONS,
-  BUFFER_OPTIONS,
-} from "../constants";
+} from "../options";
 import type { BookingPolicyForm, StepProps } from "../types";
 
 const GRID_OPTIONS = toOptions(START_TIME_GRID_OPTIONS, (m) => `${m} minutes`);

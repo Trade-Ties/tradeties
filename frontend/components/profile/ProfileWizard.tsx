@@ -23,7 +23,10 @@ import {
   publishProfile,
   refreshDashboard,
 } from "@/app/(pro)/profile/create/actions";
-import { DASHBOARD_PATH, STEPS, blankForm, dayName, nothingStored } from "./constants";
+import { DASHBOARD_PATH } from "@/lib/routes";
+import { blankForm, nothingStored } from "./defaults";
+import { dayName } from "./time";
+import { STEPS } from "./wizardSteps";
 import { buildReview, type ReviewGroup } from "./review";
 import {
   hasUnwrittenAnswers,

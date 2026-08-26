@@ -2,8 +2,8 @@
 
 import { TextField, type TextFieldProps } from "@/components/ui/field";
 
-import { MONEY_MAX, PERCENT_MAX, decimalOnly } from "./constants";
-import { digitsOnly } from "./digits";
+import { decimalOnly, digitsOnly } from "./digits";
+import { MONEY_MAX, PERCENT_MAX } from "./limits";
 import { moneyProblem, percentProblem } from "./validate";
 
 /**

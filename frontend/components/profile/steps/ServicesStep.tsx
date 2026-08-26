@@ -13,12 +13,9 @@ import {
 import { cn } from "@/lib/utils";
 import type { ReferenceData } from "@/lib/api/reference";
 import { CollapsibleRow, EmptyList } from "../CollapsibleRow";
-import {
-  DURATION_OPTIONS,
-  PRICING_MODES,
-  FIELD_MAX,
-  makeEmptyService,
-} from "../constants";
+import { makeEmptyService } from "../defaults";
+import { FIELD_MAX } from "../limits";
+import { DURATION_OPTIONS, PRICING_MODES } from "../options";
 import { MoneyField } from "../AmountField";
 import { tradeName } from "../reference";
 import { useRowList } from "../rowList";

@@ -8,7 +8,7 @@ import {
 } from "@/lib/api/failure";
 import type { ApiFailure, ApiResult } from "@/lib/api/failure";
 
-import { emptyFormData } from "./constants";
+import { emptyFormData } from "./defaults";
 import {
   contentOf,
   toBookingPolicy,
