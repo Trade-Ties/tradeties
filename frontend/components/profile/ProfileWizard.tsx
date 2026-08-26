@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { UNREACHABLE_DETAIL } from "@/lib/api/failure";
 import type { ProfileReadiness } from "@/lib/api/wire";
 import type { ReferenceData } from "@/lib/api/reference";
+import { PROFILE_PATH } from "@/lib/routes";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -21,9 +22,8 @@ import {
   checkSlug,
   loadReadiness,
   publishProfile,
-  refreshDashboard,
+  refreshProfileOverview,
 } from "@/app/(pro)/profile/create/actions";
-import { DASHBOARD_PATH } from "@/lib/routes";
 import { blankForm, nothingStored } from "./defaults";
 import { dayName } from "./time";
 import { STEPS } from "./wizardSteps";
@@ -64,8 +64,7 @@ const NOTHING_TO_REVIEW: ReviewGroup[] = [];
  * What the flush after the first successful save of steps 1 and 2 writes.
  *
  * `business` is out of it because in that moment it *is* the step that was just written, and
- * `publish` because it writes nothing. Every other list of steps to catch up is built elsewhere;
- * this one is only that flush.
+ * `publish` because it writes nothing.
  */
 const DEFERRED_UNTIL_THE_PROFILE_EXISTS: StepKey[] = STEPS.map((step) => step.key).filter(
   (key) => key !== "business" && key !== "publish"
@@ -115,8 +114,8 @@ const FOOTER_BUTTON = "h-11 px-4";
 /** What the footer is waiting for. One value, not two flags: the two cannot overlap. */
 type Pending = null | "saving" | "publishing";
 
-/** Where a save was heading, for replaying it once the time zone question is answered. */
-type PendingMove = { to: "step"; index: number } | { to: "dashboard" };
+/** Where a save was heading, for replaying it once a confirmation question is answered. */
+type PendingMove = { to: "step"; index: number } | { to: "exit" };
 
 export default function ProfileWizard({
   reference,
@@ -128,17 +127,15 @@ export default function ProfileWizard({
   /**
    * Which screens have been open, seeded with the one the wizard reopens on.
    *
-   * The mark tells a screen somebody looked at and left as it stood from one they never reached,
-   * which `save.ts` cannot work out for itself — an accepted default and an untouched form are
-   * the same body. Two things read it: the three single-resource steps, which write a screen
-   * that was shown even when nothing on it was edited, and "Save & finish later", which has to
-   * write every screen that has been open rather than only the one being stood on.
+   * The mark separates a screen somebody looked at and left as it stood from one they never
+   * reached, which `save.ts` cannot work out for itself: an accepted default and an untouched
+   * form are the same body. Two things read it — the three single-resource steps, which write a
+   * screen that was shown even when nothing on it was edited, and "Save & finish later", which
+   * writes every screen that has been open rather than only the one being stood on.
    */
   const [visited, setVisited] = useState<ReadonlySet<StepKey>>(
     () => new Set([STEPS[initialStep].key])
   );
-  // `blankForm()` returns a fresh form rather than a shared constant: the arrays inside a
-  // shared one would belong to every future form as well.
   const [formData, setFormData] = useState<ProfileFormData>(
     () => initial?.formData ?? blankForm()
   );
@@ -161,9 +158,9 @@ export default function ProfileWizard({
    */
   const [leaveOffered, setLeaveOffered] = useState(false);
   /**
-   * Set while the time zone change is waiting to be confirmed. It carries the move the save
-   * was going to make, because either button can raise the question and confirming one made
-   * on the way out has to still lead out.
+   * Set while a confirmation question is waiting to be answered. It carries the move the save was
+   * going to make, because either button can raise the question and confirming one made on the
+   * way out has to still lead out.
    */
   const [question, setQuestion] = useState<{
     kind: Confirmation;
@@ -188,13 +185,10 @@ export default function ProfileWizard({
   /**
    * The two ways out the wizard's own buttons do not cover — see `useLeaveGuard`.
    *
-   * Whether anything is unwritten is asked of the bookkeeping rather than remembered as a flag:
-   * a step written a moment ago is clean again, a step edited and navigated away from is not,
-   * and only the recorded bodies know which is which. Handed over as a question so that it is
-   * only asked when somebody presses something.
-   *
-   * Back is answered in the wizard's own vocabulary — the same notice and the same way out it
-   * offers when a save on the way out could not be made.
+   * Whether anything is unwritten is asked of the bookkeeping rather than remembered as a flag: a
+   * step written a moment ago is clean again, a step edited and navigated away from is not, and
+   * only the recorded bodies know which is which. Passed as a callback so it is only asked when
+   * somebody presses something.
    */
   useLeaveGuard(() => hasUnwrittenAnswers(formData, stored), () => {
     setNotice(UNSAVED_ON_THE_WAY_BACK);
@@ -211,9 +205,6 @@ export default function ProfileWizard({
    *
    * With no checklist to consult — no business yet, or the read did not come back — the button
    * stays enabled so the server gets to answer rather than this side guessing at its rules.
-   *
-   * Whatever greys this button out is on the screen above it: `PublishStep` renders the same
-   * checklist, line by line, in the server's own words.
    */
   const canPublish =
     stored.businessVersion !== null && (readiness === null || readiness.ready);
@@ -325,11 +316,12 @@ export default function ProfileWizard({
   }, []);
 
   /**
-   * No `refresh()` alongside the push: `bustCard` has already revalidated the dashboard, and
-   * refreshing here races the push because it targets the route being left.
+   * No `refresh()` alongside the push: whatever was written has already been revalidated — by
+   * `bustCard`, or by `publishProfile` itself — and refreshing here races the push because it
+   * targets the route being left.
    */
-  const leaveToDashboard = () => {
-    router.push(DASHBOARD_PATH);
+  const leaveWizard = () => {
+    router.push(PROFILE_PATH);
   };
 
   /**
@@ -373,18 +365,15 @@ export default function ProfileWizard({
     clearLastAttempt();
 
     /**
-     * The dashboard's cached card, busted once for the whole move.
+     * The overview's cached card, busted once for the whole move.
      *
-     * Before anything navigates, never after: `leaveToDashboard` pushes to the very page this
-     * marks stale, and a bust landing after the push renders the payload it was meant to
-     * replace.
+     * Before anything navigates, never after: `leaveWizard` pushes to the very page this marks
+     * stale, and a bust landing after the push renders the payload it was meant to replace.
      *
-     * Once, because a server action that revalidates makes Next re-render the route the caller
-     * is on — this wizard, whose loader fans out to eleven backend reads plus the identity call.
-     * The write actions therefore do not bust it themselves.
+     * Once per move rather than once per write — see `refreshProfileOverview`.
      */
     const bustCard = async (wrote: boolean | undefined) => {
-      if (wrote === true) await refreshDashboard();
+      if (wrote === true) await refreshProfileOverview();
     };
 
     try {
@@ -393,7 +382,7 @@ export default function ProfileWizard({
       const outcome = await saveStep(currentKey, formData, stored, {
         ...options,
         shown: true,
-        leaving: move.to === "dashboard",
+        leaving: move.to === "exit",
       });
 
       // Before anything else: the write is waiting on an answer, and moving on would take the
@@ -422,9 +411,9 @@ export default function ProfileWizard({
         setProblem(outcome.failure.detail);
 
         // Leaving would unmount the wizard in the same tick the message appears, so the
-        // tradesperson would reach the dashboard believing the step had been stored. The way
+        // tradesperson would reach the overview believing the step had been stored. The way
         // out is offered instead — see `leaveOffered`.
-        if (move.to === "dashboard") setLeaveOffered(true);
+        if (move.to === "exit") setLeaveOffered(true);
         else if (!heldByRefusal) await enter(move.index);
         return;
       }
@@ -458,7 +447,7 @@ export default function ProfileWizard({
 
       const done = await writeSteps(behind, saved, bookkeeping, {
         ...options,
-        leaving: move.to === "dashboard",
+        leaving: move.to === "exit",
       });
 
       saved = done.formData;
@@ -497,16 +486,16 @@ export default function ProfileWizard({
       // standing where they are. On the publish step that means its checklist is about to be
       // read again with the steps behind it freshly written — the same question `enter` asks on
       // the way in, on the one path that is not a way in.
-      if (isPublishStep && move.to === "dashboard" && (held !== undefined || partial !== undefined)) {
+      if (isPublishStep && move.to === "exit" && (held !== undefined || partial !== undefined)) {
         await refreshReadiness();
       }
 
       if (held !== undefined) {
-        const say = move.to === "dashboard" ? NOTHING_TO_LEAVE_BEHIND : NOT_SAVED;
+        const say = move.to === "exit" ? NOTHING_TO_LEAVE_BEHIND : NOT_SAVED;
 
         setNotice(say[held](saved));
 
-        if (move.to === "dashboard") setLeaveOffered(true);
+        if (move.to === "exit") setLeaveOffered(true);
         else await enter(move.index);
         return;
       }
@@ -514,12 +503,12 @@ export default function ProfileWizard({
       // Reported on the screen it happened on, for the same reason a refusal is: `writeSteps`
       // stops at the first refusal, so every step behind it was skipped too, and leaving in the
       // same tick takes that message off the screen unread.
-      if (partial !== undefined && move.to === "dashboard") {
+      if (partial !== undefined && move.to === "exit") {
         setLeaveOffered(true);
         return;
       }
 
-      if (move.to === "dashboard") leaveToDashboard();
+      if (move.to === "exit") leaveWizard();
       else await enter(move.index);
     } catch (cause) {
       // `saveStep` answers a refusal by the server with a result and rethrows everything else:
@@ -544,10 +533,10 @@ export default function ProfileWizard({
     data: ProfileFormData,
     from: StoredState,
     /**
-     * Handed on whole, and that is the part worth stating. A step behind is as unsurvivable as
-     * the one in front, so it needs `leaving` — and an answer to a question one of them raised
-     * has to reach the step that asked it, or confirming would replay the same question for as
-     * long as anybody kept pressing the button.
+     * Handed on whole. A step behind is as unsurvivable as the one in front, so it needs
+     * `leaving` — and an answer to a question one of them raised has to reach the step that asked
+     * it, or confirming would replay the same question for as long as anybody kept pressing the
+     * button.
      */
     options: SaveOptions
   ): Promise<{
@@ -559,7 +548,7 @@ export default function ProfileWizard({
      *
      * Carried out rather than swallowed: a step behind is held back for the same reasons the one
      * in front is, and it costs the same. Dropped here, "Save & finish later" would write four
-     * screens, silently skip the fifth and leave for the dashboard reporting success.
+     * screens, silently skip the fifth and leave for the overview reporting success.
      */
     held?: Deferral;
     /**
@@ -694,13 +683,13 @@ export default function ProfileWizard({
    */
   const saveAndLeave = () => {
     if (busy) return;
-    return persist({ to: "dashboard" });
+    return persist({ to: "exit" });
   };
 
   /** The other half of that offer: go, and leave behind what could not be stored. */
   const leaveAnyway = () => {
     if (busy) return;
-    leaveToDashboard();
+    leaveWizard();
   };
 
   /**
@@ -749,7 +738,7 @@ export default function ProfileWizard({
       const outcome = await publishProfile();
 
       if (outcome.outcome === "published") {
-        leaveToDashboard();
+        leaveWizard();
         return;
       }
 
@@ -867,9 +856,10 @@ export default function ProfileWizard({
   };
 
   return (
-    // `h-dvh` plus a `min-h-0` flex child is what lets the card take the leftover height and
-    // scroll inside itself, so the step navigation stays put on a long step.
-    <div className="flex h-dvh flex-col items-center gap-6 p-4 sm:p-6">
+    // A definite height from the page plus a `min-h-0` flex child is what lets the card take
+    // the leftover height and scroll inside itself, so the step navigation stays put on a long
+    // step. `h-full` and nothing more: the wizard is handed its box, it does not claim one.
+    <div className="flex h-full w-full flex-col items-center gap-6">
       <div className="w-full max-w-4xl shrink-0">
         <StepIndicator
           current={step}
@@ -982,7 +972,7 @@ export default function ProfileWizard({
  */
 const UNSAVED_ON_THE_WAY_BACK =
   "There are answers here that have not been saved yet. Save & finish later stores them and " +
-  "takes you to the dashboard — or leave without saving, and they are the only thing you lose.";
+  "closes the wizard — or leave without saving, and they are the only thing you lose.";
 
 /**
  * What dismissing the unpublish question leaves behind, said plainly because the screen and the
@@ -1132,8 +1122,8 @@ function ProblemStrip({ children }: { children: React.ReactNode }) {
 }
 
 /**
- * What each answer is called. The sentence above the buttons is the server's, and this is the
- * whole of what the two questions do not share.
+ * What each answer is called. The sentence above the buttons is the server's; these labels are
+ * all the two questions do not share.
  *
  * Both are refusals a person answers rather than errors. The time zone one is asked because
  * nothing on that screen shows that the zone reaches into the working week three steps later:

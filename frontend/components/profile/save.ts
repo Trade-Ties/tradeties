@@ -40,21 +40,15 @@ import {
 } from "./validate";
 
 /**
- * Writing one step of the wizard, a step at a time rather than a form at a time.
- *
+ * One step of the wizard is written at a time rather than the whole form at the end.
  * `onboardingCompletedStep` is `readOnly` in the contract and set by whichever endpoint was
- * called, so the server's idea of how far somebody got follows from what has been written.
- * Saving everything at the end would take that value from 2 straight to 9 and leave nothing to
- * resume from in between.
- *
- * Each function here covers one screen and returns the form and the bookkeeping as they now
- * stand — rows carrying the server ids they were just given, versions advanced. Returning them
- * rather than mutating anything is what keeps a failed save from moving the form half a step.
+ * called, so saving everything at the end would take that value from 2 straight to 9 and leave
+ * nothing to resume from in between.
  */
 
 /**
- * Why a step was not written, where not writing it was the right thing to do. None of them is a
- * failure: they are the moments where the wizard has nothing the server would accept yet.
+ * Why a step was deliberately not written. None of these is a failure: each is a moment where the
+ * wizard has nothing the server would accept yet.
  */
 export type Deferral =
   /**
@@ -86,9 +80,9 @@ export type Deferral =
   /**
    * A row on one of the two list steps is not complete enough to be written.
    *
-   * Only ever reported on the way out. Within the wizard an unfinished row is somebody
-   * mid-thought — it keeps its badge and stays in the form — but the form lives in one
-   * component, so leaving is where "not written" becomes "gone".
+   * Reported only on the way out. Within the wizard an unfinished row keeps its badge and stays
+   * in the form, but the form lives in one component, so leaving is where "not written" becomes
+   * "gone".
    */
   | "services-incomplete"
   | "licenses-incomplete";
@@ -98,12 +92,11 @@ export type SaveOutcome =
       ok: true;
       formData: ProfileFormData;
       stored: StoredState;
-      /** Present when the step was deliberately not sent. Absent means it was written. */
       deferred?: Deferral;
       /**
        * Whether at least one request actually went out, which is what the wizard busts the
-       * dashboard's cached card on. A step that matched what was already stored sends nothing
-       * and says so by leaving this unset. See `refreshDashboard`.
+       * profile overview's cached page on. A step that matched what was already stored leaves
+       * this unset. See `refreshProfileOverview`.
        */
       wrote?: boolean;
     }
@@ -131,8 +124,7 @@ export type SaveOutcome =
    * the calendar move confirmed before it follows.
    *
    * `unpublish`: the service being removed is the last one a live profile has, so removing it
-   * takes the profile off the marketplace. Deliberately a question where a trade change is a
-   * refusal — giving up a trade is not a request to stop trading, and this is.
+   * takes the profile off the marketplace.
    */
   | { ok: false; needsConfirmation: "time-zone-change"; detail: string }
   | { ok: false; needsConfirmation: "unpublish"; detail: string };
@@ -140,27 +132,17 @@ export type SaveOutcome =
 export type Confirmation = "time-zone-change" | "unpublish";
 
 export interface SaveOptions {
-  /** Resends the profile with `timeZoneChangeConfirmed`, after the question above was answered. */
   confirmTimeZoneChange?: boolean;
-  /** Resends the removal with `unpublishConfirmed`, after that question was answered. */
   confirmUnpublish?: boolean;
-  /**
-   * Whether the screen this step covers has actually been open.
-   *
-   * Read by the three steps that are one resource, and only before their first write — see
-   * `unchanged`, which is where the distinction is spent.
-   */
+  /** Whether the screen this step covers has actually been open — see `unchanged`. */
   shown?: boolean;
   /**
-   * Whether this save is on the way out of the wizard rather than to another step.
-   *
-   * The two list steps read it, and only to decide whether to say anything: a row they had to
-   * hold back survives a move within the wizard and does not survive this one.
+   * Whether this save is on the way out of the wizard rather than to another step. The two list
+   * steps read it: a row they held back survives a move within the wizard and not this one.
    */
   leaving?: boolean;
 }
 
-/** Carries a failure out of a helper without every caller restating the shape. */
 class Refused extends Error {
   constructor(readonly failure: ApiFailure) {
     super(failure.detail);
@@ -173,25 +155,13 @@ function must<T>(result: ApiResult<T>): T {
   return result.data;
 }
 
-/**
- * Writes whatever the given step is responsible for. `publish` owns no resource, so it saves
- * nothing and says so by succeeding unchanged — publishing is its own action, and it asks the
- * server rather than writing to it.
- *
- * Every step is written the same way whether it is the one on screen or one being caught up
- * behind it, questions included. `business` is among the steps written behind, which is what
- * retries a save of steps 1 and 2 that was refused; a question raised there is carried up to
- * somebody who can answer it rather than dropped. See `writeSteps`.
- */
+/** `publish` owns no resource, so it saves nothing and succeeds unchanged. */
 export async function saveStep(
   step: StepKey,
   formData: ProfileFormData,
   stored: StoredState,
   options: SaveOptions = {}
 ): Promise<SaveOutcome> {
-  // Nothing below step 2 exists until the profile does, so a request from here would be a 404
-  // dressed up as a failure. The answers stay in the form and are written by the flush that
-  // follows the first successful save of steps 1 and 2.
   if (step !== "business" && stored.businessVersion === null) {
     return { ok: true, formData, stored, deferred: "no-profile-yet" };
   }
@@ -217,8 +187,6 @@ export async function saveStep(
   }
 }
 
-// --- Onboarding steps 1 and 2 — the profile --------------------------------
-
 async function saveBusiness(
   formData: ProfileFormData,
   stored: StoredState,
@@ -226,8 +194,6 @@ async function saveBusiness(
 ): Promise<SaveOutcome> {
   const { profile: form } = formData;
 
-  // All or nothing — see `profileIsWritable`. An incomplete body comes back as a 400 whose
-  // whole message is "Invalid request content.", naming neither the step nor the field.
   if (!profileIsWritable(form)) {
     return { ok: true, formData, stored, deferred: "profile-incomplete" };
   }
@@ -264,21 +230,13 @@ async function saveBusiness(
     // The URL was fixed by a publish this wizard did not see — a second tab. Both the lock and
     // the address are put right, or the same body is sent on every later save of this step and
     // refused identically, with nothing on screen saying which URL would be accepted.
-    //
-    // No `sent` on either arm: a refused create or update stored nothing, so there is no card
-    // to bust.
     if (result.failure.type === SLUG_LOCKED) {
       return { ok: false, failure: result.failure, ...(await withStoredSlug(formData, stored)) };
     }
 
-    // The same recovery `savePricing` and `saveAvailability` make, and it matters more here:
-    // without it one stale-version 409 — a second tab, a publish from the dashboard — pins
+    // Without this, one stale-version 409 — a second tab, a publish from the dashboard — pins
     // `businessVersion` at the number that was just refused, and steps 1 and 2 stay unwritable
-    // for as long as the wizard is open. Nothing in it reloads, so the only way out discards
-    // what is on the screen.
-    //
-    // Only the version, and the refusal is still reported: the server's own words say the
-    // profile changed elsewhere, which is what pressing Next again would write over.
+    // for as long as the wizard is open, with no reload to escape it.
     const current = await versionAfterConflict(result.failure, actions.loadBusiness);
 
     return {
@@ -312,11 +270,8 @@ async function saveBusiness(
 }
 
 /**
- * The form and the bookkeeping with the stored URL put back, read from the server.
- *
- * Read rather than picked out of the refusal: `detail` names the address in prose, for a
- * person, and the contract warns against branching on it. If the read does not come back,
- * everything is handed over untouched and the failure is still reported.
+ * Read from the server rather than picked out of the refusal: `detail` names the address in
+ * prose, for a person, and the contract warns against branching on it.
  */
 async function withStoredSlug(
   formData: ProfileFormData,
@@ -339,10 +294,8 @@ async function withStoredSlug(
   };
 }
 
-// --- Onboarding steps 3 and 4 — trades and services ------------------------
-
 /**
- * Both halves of one screen, and the order the writes go out in is the whole of it.
+ * Both halves of one screen, where the order the writes go out in is what matters.
  *
  * Two rules pull against each other. The server refuses a service filed under a trade the
  * business has not claimed, so a newly ticked trade has to land *before* the services do. It
@@ -379,7 +332,7 @@ async function saveTradesAndServices(
    * service is an edit to `tradeId`, and until it has been written the server still has the row
    * where it was. Every decision below turns on that difference. A row the bookkeeping holds no
    * body for — one whose write was refused partway through an earlier attempt — falls back to
-   * what the form says, which is the best guess there is and no worse than not asking.
+   * what the form says.
    */
   const filedUnder = (row: ServiceForm, bodies: Record<string, string>): string => {
     const confirmed = row.serverId === undefined ? undefined : bodies[row.serverId];
@@ -436,8 +389,6 @@ async function saveTradesAndServices(
   const saved = await syncList({
     rows: formData.services,
     stored: stored.services,
-    // Shared with the step that badges the row, so what the screen calls incomplete and what
-    // this refuses to send are the same thing rather than two guesses about it.
     isWritable: (row) => serviceIsWritable(row, duplicates, claimed),
     body: toService,
     create: (body) => actions.createService(body),
@@ -448,9 +399,8 @@ async function saveTradesAndServices(
 
   wrote = wrote || saved.wrote;
 
-  // A question rather than a failure, and it has to be told apart here because `syncList` has no
-  // way to put one. Nothing landed for it — the removal is refused whole — so there is nothing to
-  // record on the way out; answering it replays this step with the flag set.
+  // Told apart here because `syncList` has no way to raise a question. Answering it replays this
+  // step with the flag set.
   if (saved.failure?.type === UNCONFIRMED_UNPUBLISH) {
     return { ok: false, needsConfirmation: "unpublish", detail: saved.failure.detail };
   }
@@ -466,17 +416,12 @@ async function saveTradesAndServices(
     });
   }
 
-  // The selection as it was actually chosen, now that every move has landed. This is the write
-  // that retires what is leaving, which is why the pruning below reads what the server holds
-  // after it rather than before.
+  // The narrowing write, which is what retires the departing trades — so the pruning below reads
+  // what the server holds after it rather than before.
   if (writesTrades && rescued.length > 0) {
     must(await actions.saveTrades(toTrades(formData.trades)));
   }
 
-  /**
-   * The bookkeeping the rest of this function builds on, carrying the trades now that the
-   * selection the form states is the one stored.
-   */
   const afterTrades = writesTrades ? { ...stored, tradesBody } : stored;
 
   /**
@@ -552,10 +497,6 @@ async function saveTradesAndServices(
     ok: true,
     formData: { ...formData, services: settled },
     stored: { ...afterTrades, services: list },
-    // Only on the way out, where a row left unwritten is a row that is about to be gone. On a
-    // move within the wizard it stays in the form with its badge, and saying so on every Next
-    // would be a notice about something nobody has finished typing.
-    //
     // Asked of the rows that survived rather than of `saved.held`: a row this write retired
     // along with its trade was also left unwritten, and it was removed on purpose.
     ...(options.leaving === true && unwritable(rows, claimed)
@@ -574,27 +515,23 @@ const sameOrder = (a: string[], b: string[]) =>
   a.length === b.length && a.every((id, i) => id === b[i]);
 
 /**
- * Marks an outcome as having sent something, which is what busts the dashboard's cached card.
- *
- * Attached on every way out of a step, not only the happy one: a step refused halfway through
- * has still written what came before the refusal, and each of those writes moved
- * `onboardingCompletedStep`. See `SaveOutcome.wrote`.
+ * Attached on every way out of a step, not only the happy one: a step refused halfway through has
+ * still written what came before the refusal. See `SaveOutcome.wrote`.
  */
 const sent = (wrote: boolean, outcome: SaveOutcome): SaveOutcome => ({ ...outcome, wrote });
 
-// --- The three steps that are one resource ---------------------------------
-
 /**
- * What each of these three looks like on the wire while nobody has answered it.
+ * What each of these resources looks like on the wire while nobody has answered it.
  *
  * The counterpart of `StoredList.bodies` for a step that is not a list: a row is recognised as
  * new by having no server id, and a resource cannot be. Before the first write there is no
  * stored body to compare against either, so "untouched" is stated as what the form itself
  * starts out holding rather than as a second description of the defaults.
  *
- * Without it the flush that follows the first save of steps 1 and 2 writes all three, and each
- * of those endpoints advances `onboardingCompletedStep` — so the server reports three screens
- * finished that were never shown, and the wizard reopens past every one.
+ * Without it the flush that follows the first save of steps 1 and 2 writes rates, working hours
+ * and booking rules regardless, and each of those endpoints advances `onboardingCompletedStep` —
+ * so the server reports three screens finished that were never shown, and the wizard reopens past
+ * every one.
  */
 const UNTOUCHED = {
   profile: contentOf(toCreateBusiness(emptyFormData.profile)),
@@ -608,14 +545,13 @@ const UNTOUCHED = {
  * Whether this step already says what the server holds, and so has nothing to send.
  *
  * Two questions rather than one, because before the first write there is no stored body to
- * compare against. Then it becomes whether the screen was ever open: what an untouched form
- * produces is somebody's answer the moment they have looked at it and moved on, and only a
- * screen nobody reached is still untouched.
+ * compare against. Then it becomes whether the screen was ever open: an untouched form and a
+ * screen somebody looked at and left as it stood produce the same body, and only the first is
+ * still untouched.
  *
  * That second half is not a missed write. Rates and working hours are two of the five conditions
- * `PublishService` checks, and both defaults are perfectly legal on the wire — so a screen whose
- * defaults were accepted and never written greys the publish button out with nothing anywhere
- * disagreeing.
+ * `PublishService` checks, and both defaults are legal on the wire — so a screen whose defaults
+ * were accepted and never written greys the publish button out with nothing anywhere disagreeing.
  */
 function unchanged(
   content: string,
@@ -632,8 +568,6 @@ function unchanged(
  * A 409 answers with a problem document rather than with the resource, so the form still holds
  * the version that was just refused and would send it again for as long as the wizard stays
  * open — a step nobody gets past without reloading the page.
- *
- * Only for a conflict, and only the version: what was typed on this screen is left as it is.
  */
 async function versionAfterConflict<T extends { version: number }>(
   failure: ApiFailure,
@@ -646,16 +580,11 @@ async function versionAfterConflict<T extends { version: number }>(
   return current.ok && current.data !== null ? current.data.version : null;
 }
 
-// --- Onboarding step 5 — rates and terms -----------------------------------
-
 async function savePricing(
   formData: ProfileFormData,
   stored: StoredState,
   options: SaveOptions
 ): Promise<SaveOutcome> {
-  // Held rather than sent. A travel or material charge with no amount behind it is refused as a
-  // 400 about the whole body, and by the time it arrives the wizard has moved on — so the one
-  // message names a box on the screen it just left.
   if (!pricingIsWritable(formData.pricing)) {
     return { ok: true, formData, stored, deferred: "pricing-incomplete" };
   }
@@ -672,7 +601,6 @@ async function savePricing(
   if (!result.ok) {
     const current = await versionAfterConflict(result.failure, actions.loadPricing);
 
-    // Refused means nothing was stored, so nothing on the dashboard has gone stale.
     return {
       ok: false,
       failure: result.failure,
@@ -688,8 +616,6 @@ async function savePricing(
   });
 }
 
-// --- Onboarding steps 7 and 8 — the working week and the booking rules -----
-
 async function saveAvailability(
   formData: ProfileFormData,
   stored: StoredState,
@@ -697,8 +623,6 @@ async function saveAvailability(
 ): Promise<SaveOutcome> {
   const shown = options.shown === true;
 
-  // Held rather than sent, for the reason `savePricing` holds an incomplete mode: the server
-  // refuses the week whole, and by the time it answers this screen has been left.
   if (!workingHoursAreWritable(formData.workingHours)) {
     return { ok: true, formData, stored, deferred: "hours-overlap" };
   }
@@ -715,8 +639,6 @@ async function saveAvailability(
   if (!unchanged(week, stored.workingHoursBody, UNTOUCHED.workingHours, shown)) {
     const hours = await actions.saveWorkingHours(days);
 
-    // `wrote` is set only once a write has landed, so a refusal here reports nothing sent — the
-    // refused write stored nothing, and the booking rules below have not been attempted yet.
     if (!hours.ok) return { ok: false, failure: hours.failure, formData, stored: next };
 
     wrote = true;
@@ -754,8 +676,6 @@ async function saveAvailability(
   });
 }
 
-// --- Onboarding step 6 — licences ------------------------------------------
-
 async function saveLicenses(
   formData: ProfileFormData,
   stored: StoredState,
@@ -766,8 +686,7 @@ async function saveLicenses(
   const saved = await syncList({
     rows: formData.licenses,
     stored: stored.licenses,
-    // A licence number is unique per state, so a row duplicating another's is refused. Shared
-    // with the step that badges the row, for the reason `serviceIsWritable` is.
+    // A licence number is unique per state, so a row duplicating another's is refused.
     isWritable: (row) => licenseIsWritable(row, duplicates),
     body: toLicense,
     create: (body) => actions.createLicense(body),
@@ -776,7 +695,6 @@ async function saveLicenses(
     remove: (serverId) => actions.deleteLicense(serverId),
   });
 
-  // Whether it worked or not, what landed is handed back — see `SyncedList.failure`.
   const applied = {
     formData: { ...formData, licenses: saved.rows },
     stored: { ...stored, licenses: saved.list },
@@ -788,7 +706,6 @@ async function saveLicenses(
       ? {
           ok: true,
           ...applied,
-          // Only on the way out — see the same line in `saveTradesAndServices`.
           ...(options.leaving === true && saved.held
             ? { deferred: "licenses-incomplete" as const }
             : {}),
@@ -797,8 +714,6 @@ async function saveLicenses(
   );
 }
 
-// --- The list diff ---------------------------------------------------------
-
 interface SyncSpec<Row extends ServerRow, Wire extends { id: string; version: number }, Body extends object> {
   rows: Row[];
   stored: StoredList;
@@ -806,12 +721,10 @@ interface SyncSpec<Row extends ServerRow, Wire extends { id: string; version: nu
   /**
    * The request body, which is also what an unchanged row is recognised by.
    *
-   * Built once per row and handed to both `create` and `update`: building it separately in
-   * each would require the two to produce byte-identical JSON, or the `bodies` bookkeeping
-   * stops matching and every save rewrites every row.
-   *
-   * Serialised through `contentOf`, the same function `fromWire.storedList` runs over the rows
-   * it restores, so the two ends of that comparison cannot spell a body differently.
+   * Built once per row and handed to both `create` and `update`: building it separately in each
+   * would require the two to produce byte-identical JSON, or the `bodies` bookkeeping stops
+   * matching and every save rewrites every row. Serialised through `contentOf`, the same function
+   * `fromWire.storedList` runs over the rows it restores.
    */
   body: (row: Row) => Body;
   create: (body: Body) => Promise<ApiResult<Wire>>;
@@ -819,9 +732,7 @@ interface SyncSpec<Row extends ServerRow, Wire extends { id: string; version: nu
   remove: (serverId: string) => Promise<ApiResult<void>>;
 }
 
-/** What `syncList` settled, including what has to be recorded when it did not finish. */
 interface SyncedList<Row> {
-  /** Every row, in form order, carrying whatever the server settled for the ones it took. */
   rows: Row[];
   /** The ids and bodies now known to be on the server, which is the next save's starting point. */
   list: StoredList;
@@ -931,8 +842,6 @@ async function syncList<
       continue;
     }
 
-    // An incomplete row is somebody mid-thought, not something to write and not something to
-    // throw away on their behalf.
     if (!spec.isWritable(row)) {
       held = true;
       keepAsStored(row);
@@ -980,19 +889,16 @@ async function syncList<
   return { rows, list: { ids, bodies }, failure, wrote, held };
 }
 
-// --- What has not reached the server ---------------------------------------
-
 /**
  * Whether anything on the form has not been written.
  *
- * The same question every `save*` above answers before it sends, asked without sending
- * anything. It exists for the one moment the wizard cannot save its way out of — a tab being
- * closed — where nothing asynchronous is allowed to run and all that is left is to decide
- * whether the browser's own prompt is warranted.
+ * The same question every `save*` above answers before it sends, asked without sending anything.
+ * It exists for the one moment the wizard cannot save its way out of — a tab being closed — where
+ * nothing asynchronous may run and all that is left is whether to raise the browser's own prompt.
  *
- * Erring towards yes: a prompt nobody needed costs a keystroke, and the other mistake costs
- * whatever was typed. An untouched row somebody added and never filled in therefore counts,
- * because it exists nowhere but here.
+ * Errs towards yes: a prompt nobody needed costs a keystroke, the other mistake costs whatever
+ * was typed. A row added and never filled in therefore counts, because it exists nowhere but
+ * here.
  */
 export function hasUnwrittenAnswers(formData: ProfileFormData, stored: StoredState): boolean {
   /** Before the first write there is no stored body, so the question is whether it is still blank. */
@@ -1018,10 +924,6 @@ export function hasUnwrittenAnswers(formData: ProfileFormData, stored: StoredSta
   );
 }
 
-/**
- * The same for one of the two lists: a row that is new, one whose body has moved on, one the
- * server still holds that no row claims any more, or the same rows in a different order.
- */
 function listDiffers<Row extends ServerRow>(
   rows: Row[],
   stored: StoredList,

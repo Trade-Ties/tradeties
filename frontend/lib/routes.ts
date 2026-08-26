@@ -17,11 +17,15 @@ export const PORTAL_SIGN_UP_PATH = `${PORTAL_PATH}/sign-up`;
 
 export const DASHBOARD_PATH = "/dashboard";
 
+export const PROFILE_PATH = "/dashboard/profile";
+
+/** Opens the wizard over the overview. Presence is the signal; the value is never read. */
+export const WIZARD_PARAM = "edit";
+
 /**
- * Where the wizard lives.
- *
- * One copy because the three callers fail differently when they drift: the dashboard link goes
- * dead loudly, but a stale `revalidatePath` target just stops invalidating and serves cached
- * data with no symptom at all.
+ * Where the wizard lives: a view of `PROFILE_PATH` rather than a route of its own, because
+ * `revalidatePath` matches on the path and never sees the query — so the wizard and the page a
+ * write invalidates cannot drift apart. A stale `revalidatePath` target has no symptom; it stops
+ * invalidating and serves cached data.
  */
-export const WIZARD_PATH = "/profile/create";
+export const WIZARD_PATH = `${PROFILE_PATH}?${WIZARD_PARAM}=1`;
