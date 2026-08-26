@@ -5,16 +5,16 @@ import { Switch } from "@/components/ui/switch";
 import { Copy, Plus, Trash2 } from "lucide-react";
 import { CheckboxField, CheckboxGrid, Field, SelectControl, toOptions } from "@/components/ui/field";
 import { cn } from "@/lib/utils";
+import { makeTimeBlock } from "../defaults";
+import { nextKey } from "../rowList";
 import {
   TIME_OPTIONS,
   dayName,
   formatHours,
   formatTime,
-  makeTimeBlock,
-  nextKey,
   toMinutes,
   weeklyMinutes,
-} from "../constants";
+} from "../time";
 import type { StepProps, WorkingDayForm, WorkingHoursForm } from "../types";
 import { overlappingBlockKeys } from "../validate";
 

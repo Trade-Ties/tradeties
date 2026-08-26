@@ -2,7 +2,7 @@ import { Check } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 
-import { STEPS } from "./constants";
+import { STEPS } from "./wizardSteps";
 
 interface StepIndicatorProps {
   current: number;

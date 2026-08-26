@@ -1,7 +1,8 @@
 import { redirect } from "next/navigation";
 
 import ProfileWizard from "@/components/profile/ProfileWizard";
-import { WIZARD_PATH, resumeStepIndex } from "@/components/profile/constants";
+import { resumeStepIndex } from "@/components/profile/wizardSteps";
+import { WIZARD_PATH } from "@/lib/routes";
 import { restore } from "@/components/profile/fromWire";
 import { buttonVariants } from "@/components/ui/button";
 import { isTradesperson } from "@/lib/api/identity";

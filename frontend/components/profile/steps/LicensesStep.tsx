@@ -6,18 +6,13 @@ import {
   AutocompleteField,
   Field,
   FieldGrid,
-  SuggestField,
   TextField,
 } from "@/components/ui/field";
 import { CollapsibleRow, EmptyList } from "../CollapsibleRow";
 import type { ReferenceData } from "@/lib/api/reference";
-import {
-  FIELD_MAX,
-  LICENSE_TYPE_SUGGESTIONS,
-  licenseHeading,
-  makeEmptyLicense,
-} from "../constants";
-import { stateOptions } from "../reference";
+import { makeEmptyLicense } from "../defaults";
+import { FIELD_MAX } from "../limits";
+import { licenseHeading, stateOptions } from "../reference";
 import { useRowList } from "../rowList";
 import type { LicenseForm } from "../types";
 import {
@@ -140,16 +135,14 @@ export function LicensesStep({ data, update, reference, defaultState }: Licenses
               panelClassName="space-y-4 p-4"
             >
               <FieldGrid columns={3}>
-                <SuggestField
+                <TextField
                   label="License type"
-                  suggestions={LICENSE_TYPE_SUGGESTIONS}
                   autoFocus={rows.focusId === license.key}
                   fieldClassName="sm:col-span-2"
-                  hint="Pick a suggestion or type your own."
                   placeholder="e.g. Master Plumber"
                   maxLength={FIELD_MAX.licenseType}
                   value={license.licenseType}
-                  onValueChange={(type) => rows.edit(license.key, "licenseType", type)}
+                  onChange={(e) => rows.edit(license.key, "licenseType", e.target.value)}
                 />
 
                 <AutocompleteField

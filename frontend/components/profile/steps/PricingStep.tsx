@@ -10,7 +10,7 @@ import {
   BILLING_INCREMENT_OPTIONS,
   TRAVEL_FEE_MODES,
   MATERIAL_PRICING_MODES,
-} from "../constants";
+} from "../options";
 import type { MaterialPricingMode, TravelFeeMode } from "@/lib/api/wire";
 import { CountField, MoneyField, PercentField } from "../AmountField";
 import { statesAnAmount } from "../toWire";

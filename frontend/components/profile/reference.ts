@@ -86,3 +86,17 @@ export function stateName(reference: ReferenceData, code: string): string {
 export function timeZoneName(reference: ReferenceData, code: string): string {
   return derive(reference).timeZones.get(code) ?? code;
 }
+
+/**
+ * Empty while neither the type nor the state has been answered, because the row and the publish
+ * review word that case differently.
+ */
+export function licenseHeading(
+  reference: ReferenceData,
+  license: { licenseType: string; state: string }
+): string {
+  return (
+    license.licenseType.trim() ||
+    (license.state ? `${stateName(reference, license.state)} license` : "")
+  );
+}

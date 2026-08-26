@@ -1,4 +1,4 @@
-import { BOOKING_HORIZON_MAX, BOOKING_HORIZON_MIN } from "./constants";
+import { BOOKING_HORIZON_MAX, BOOKING_HORIZON_MIN } from "./limits";
 import { digitsOnly } from "./digits";
 import { slugify } from "./slug";
 import { toE164 } from "./phone";

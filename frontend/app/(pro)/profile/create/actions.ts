@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 
-import { DASHBOARD_PATH } from "@/components/profile/constants";
+import { DASHBOARD_PATH } from "@/lib/routes";
 import * as api from "@/lib/api/business";
 import type { ApiResult } from "@/lib/api/problem";
 import { portalToken as token } from "@/lib/portal/session";

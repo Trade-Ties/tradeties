@@ -1,6 +1,7 @@
 import Link from "next/link";
 
-import { STEPS, WIZARD_PATH, resumeStepIndex } from "@/components/profile/constants";
+import { STEPS, resumeStepIndex } from "@/components/profile/wizardSteps";
+import { WIZARD_PATH } from "@/lib/routes";
 import { PROFILE_URL_PREFIX } from "@/components/profile/slug";
 import { buttonVariants } from "@/components/ui/button";
 import {

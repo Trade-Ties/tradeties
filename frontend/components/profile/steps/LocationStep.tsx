@@ -2,7 +2,7 @@ import { Slider } from "@/components/ui/slider";
 import { AutocompleteField, Field, FieldGrid, TextField } from "@/components/ui/field";
 import type { ReferenceData } from "@/lib/api/reference";
 import { DIGIT, useCaret } from "../caret";
-import { FIELD_MAX } from "../constants";
+import { FIELD_MAX } from "../limits";
 import { format as formatPostalCode } from "../postalCode";
 import { stateOptions, timeZoneOptions } from "../reference";
 import { useTouched } from "../touched";

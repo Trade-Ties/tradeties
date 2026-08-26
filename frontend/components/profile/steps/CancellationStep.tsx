@@ -6,7 +6,7 @@ import {
   toOptions,
 } from "@/components/ui/field";
 import type { ChoiceOption } from "@/components/ui/field";
-import { CANCELLATION_POLICIES, CANCELLATION_WINDOW_OPTIONS } from "../constants";
+import { CANCELLATION_POLICIES, CANCELLATION_WINDOW_OPTIONS } from "../options";
 import { MoneyField } from "../AmountField";
 import type { CancellationPolicy, PricingForm, StepProps, UiState } from "../types";
 

@@ -2,8 +2,6 @@
 
 import { useState } from "react";
 
-import { nextKey } from "./constants";
-
 /**
  * The editing state a list of rows needs, for the two steps that have one.
  *
@@ -16,6 +14,15 @@ import { nextKey } from "./constants";
 /** Everything this needs of a row: a key of its own, which React needs before the server has one. */
 export interface KeyedRow {
   key: number;
+}
+
+/**
+ * The next free key in a list the form owns. Counted off the list rather than taken from a clock:
+ * copying one day of hours onto six creates six blocks in the same tick, and React needs these
+ * unique only within the form.
+ */
+export function nextKey(items: readonly KeyedRow[]): number {
+  return items.reduce((max, item) => Math.max(max, item.key), 0) + 1;
 }
 
 export interface RowList<Row extends KeyedRow> {

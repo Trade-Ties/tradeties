@@ -1,7 +1,7 @@
 import { FieldGrid, TextField, TextareaField } from "@/components/ui/field";
 import { ProfileUrlField, type SlugAnswer } from "../ProfileUrlField";
 import { DIGIT, useCaret } from "../caret";
-import { FIELD_MAX } from "../constants";
+import { FIELD_MAX } from "../limits";
 import { slugify } from "../slug";
 import { format as formatPhone } from "../phone";
 import { useTouched } from "../touched";

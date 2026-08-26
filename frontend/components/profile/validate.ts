@@ -1,4 +1,4 @@
-import { toMinutes } from "./constants";
+import { toMinutes } from "./time";
 import { digitsOnly } from "./digits";
 import { isInternational, nationalDigits } from "./phone";
 import { statesAnAmount } from "./toWire";
