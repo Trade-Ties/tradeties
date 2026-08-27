@@ -232,4 +232,61 @@
 		</plugins>
 	</build>
 
+	<!--
+		Runs the suite against the tradeties_test database inside the Compose
+		PostgreSQL instead of a throwaway Testcontainers container, for developers
+		already running Compose for their development data and not wanting a second
+		PostgreSQL started beside it for every test run:
+
+			cd infra && docker compose up -d
+			cd backend && ./mvnw verify -Pcompose-db
+
+		CI must never select it: a GitHub runner has no Compose stack, so the only
+		PostgreSQL available there is the one Testcontainers provisions.
+
+		The connection is duplicated from infra/compose.yaml rather than read from
+		it, because Maven cannot read a Compose file. Change one and the other has
+		to follow; the URL check in TestcontainersConfiguration turns a mismatch
+		into a refusal instead of a wrong database being emptied.
+	-->
+	<profiles>
+		<profile>
+			<id>compose-db</id>
+			<properties>
+				<!--
+					Overridable, because 5432 is not free on every machine and infra/.env
+					then moves the container to another host port (see infra/README.md):
+
+						./mvnw verify -Pcompose-db -Dcompose.db.url=jdbc:postgresql://localhost:55432/tradeties_test
+
+					The database name is not a free choice: TestcontainersConfiguration
+					refuses to clean anything that does not end in tradeties_test.
+				-->
+				<compose.db.url>jdbc:postgresql://localhost:5432/tradeties_test</compose.db.url>
+			</properties>
+			<build>
+				<plugins>
+					<plugin>
+						<groupId>org.apache.maven.plugins</groupId>
+						<artifactId>maven-surefire-plugin</artifactId>
+						<configuration>
+							<systemPropertyVariables>
+								<tradeties.test.compose-db>true</tradeties.test.compose-db>
+								<spring.datasource.url>${compose.db.url}</spring.datasource.url>
+								<spring.datasource.username>tradeties</spring.datasource.username>
+								<spring.datasource.password>tradeties</spring.datasource.password>
+								<!--
+									Flyway refuses to clean unless told otherwise. Enabled here for the
+									test database only, never in application.yml where a deployment
+									would read it.
+								-->
+								<spring.flyway.clean-disabled>false</spring.flyway.clean-disabled>
+							</systemPropertyVariables>
+						</configuration>
+					</plugin>
+				</plugins>
+			</build>
+		</profile>
+	</profiles>
+
 </project>

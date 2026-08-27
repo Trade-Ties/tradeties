@@ -318,8 +318,8 @@ count, and it expires with it.
   with `git diff --cached --name-status` — a deletion appears as `D`.
 - **`.env` files are ignored repo-wide.** Commit `frontend/.env.example` instead; the
   `!.env.example` exception in `frontend/.gitignore` is what allows it.
-- **Docker must run** for anything that touches the backend — tests and
-  `spring-boot:test-run` provision PostgreSQL through Testcontainers.
+- **Docker must run** for anything that touches the backend — every way of getting
+  PostgreSQL needs it. See [infra/README.md](infra/README.md).
 - **Never commit generated sources.** The backend generates into `backend/target/`, the frontend
   into `frontend/lib/api/schema.d.ts`. Both are ignored. Note the file, not the directory:
   everything else under `frontend/lib/api/` is hand-written — the typed client, the failure

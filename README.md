@@ -43,14 +43,13 @@ Register `http://localhost:3000/callback` as a redirect URI in the WorkOS dashbo
 sign-in round trip fails with a redirect_uri mismatch.
 
 ```bash
-pnpm install && pnpm dev               
-cd backend && ./mvnw spring-boot:test-run 
-cd infra && docker compose up -d        # not set up yet
+pnpm install && pnpm dev
+cd infra && docker compose up -d
+cd backend && ./mvnw spring-boot:run
 ```
 
 `pnpm dev` regenerates the typed API client from `api/openapi.yaml` first, so it cannot go
-stale. Docker Desktop must be running for the backend — its tests and `spring-boot:test-run`
-provision PostgreSQL through Testcontainers.
+stale. Docker Desktop must be running for the backend, whichever database it uses.
 
 Two entry points, and they behave differently by design:
 
@@ -59,11 +58,32 @@ Two entry points, and they behave differently by design:
 | `http://localhost:3000/` | customers — search and book | none needed |
 | `http://localhost:3000/portal` | tradespeople — sign in to the dashboard | required |
 
-`spring-boot:test-run` starts the app with a Testcontainers-managed PostgreSQL, so there is no separate database to install or keep in sync. To run against your own PostgreSQL instead, use `./mvnw spring-boot:run` and set `DATABASE_URL`, `DATABASE_USER`, `DATABASE_PASSWORD`.
+### Which database the backend talks to
+
+Two ways to run it, and they differ in one thing only: whether what you enter is still
+there tomorrow.
+
+| Command | PostgreSQL | Your data |
+| --- | --- | --- |
+| `./mvnw spring-boot:run` | the Compose container from [infra/](infra/) | kept |
+| `./mvnw spring-boot:test-run` | a throwaway Testcontainers container | dropped at exit |
+
+`test-run` needs nothing running beforehand, which makes it the quickest way to see the app
+at all — use it for a one-off, and Compose for work you want to keep. `compose.yaml`
+publishes the connection `application.yml` already defaults to, so nothing has to be
+configured for the switch. [infra/README.md](infra/README.md) covers the seed data, the
+reset, and what to do when port 5432 is already taken on your machine.
+
+To point the backend at a PostgreSQL of your own instead, set `DATABASE_URL`,
+`DATABASE_USER` and `DATABASE_PASSWORD`.
 
 ```bash
-cd backend && ./mvnw verify
+cd backend && ./mvnw verify              # throwaway container, and what CI runs
+cd backend && ./mvnw verify -Pcompose-db # the tradeties_test database in Compose
 ```
+
+Neither run can touch your development data — `-Pcompose-db` uses a separate
+`tradeties_test` database. [infra/README.md](infra/README.md) explains why the two exist.
 
 ## Contributing
 

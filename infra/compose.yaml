@@ -1,0 +1,51 @@
+# The local stack. Today only PostgreSQL; the backend, frontend and Traefik
+# services join it here when they are containerised.
+#
+# This exists so that development data survives a restart. `spring-boot:test-run`
+# provisions a throwaway container per run, which is right for tests and loses
+# every wizard entry made against it.
+name: tradeties
+
+services:
+  postgres:
+    # Pinned to the same tag as TestcontainersConfiguration, so tests and local
+    # development cannot disagree about the major version.
+    image: postgres:18-alpine
+
+    # The defaults in application.yml are exactly these, so `./mvnw spring-boot:run`
+    # needs no environment at all.
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-tradeties}
+      POSTGRES_USER: ${POSTGRES_USER:-tradeties}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-tradeties}
+
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+
+    volumes:
+      # postgres:18 declares its VOLUME at /var/lib/postgresql and puts PGDATA in
+      # /var/lib/postgresql/18/docker underneath it -- moved there from
+      # /var/lib/postgresql/data, which is where every image up to 17 kept it.
+      # Mounting the old path here would leave the real data directory on an
+      # anonymous volume, and every `docker compose down` would look like it had
+      # persisted while quietly dropping everything.
+      - pgdata:/var/lib/postgresql
+      - ./postgres/initdb:/docker-entrypoint-initdb.d:ro
+
+    # The backend fails its first Flyway run against a database that is still
+    # starting, so anything that waits on this service should wait for `healthy`.
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+      start_interval: 1s
+
+volumes:
+  # Named, not a bind mount: a bind mount would put PostgreSQL's data directory
+  # on the host filesystem, where on Windows and macOS it is both slower and
+  # subject to permission rules PostgreSQL refuses to start under.
+  #
+  # `docker compose down` keeps this. `docker compose down -v` is the reset button.
+  pgdata:

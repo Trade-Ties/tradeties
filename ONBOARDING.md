@@ -34,7 +34,7 @@ Register `http://localhost:3000/callback` as a redirect URI in the WorkOS dashbo
 Details are in the [README](README.md#getting-started).
 
 Finally, prove the checkout is healthy before you change anything. Start Docker Desktop first
-— the backend tests provision PostgreSQL through Testcontainers:
+— the backend tests provision PostgreSQL themselves and need it:
 
 ```bash
 pnpm install
@@ -238,6 +238,9 @@ Actions. See [BRANCHING.md](BRANCHING.md) — you do not need it for day-to-day 
 
 - **Docker must be running** for anything touching the backend — tests and
   `spring-boot:test-run` both need it.
+- **`spring-boot:test-run` throws your data away**, and **port 5432 may already be taken**
+  by a natively installed PostgreSQL. Both bite on the first day and both are covered in
+  [infra/README.md](infra/README.md) — read it before you start entering data.
 - **Never commit `.env` files.** They are ignored repo-wide; commit the `.env.example`
   template instead.
 - **Never commit generated sources.** `frontend/lib/api/schema.d.ts` and everything under
