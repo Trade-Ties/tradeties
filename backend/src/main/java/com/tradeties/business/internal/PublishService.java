@@ -191,6 +191,7 @@ public class PublishService {
 
 		List<ReadinessCheck> checks = new ArrayList<>();
 
+		checks.add(addressGeocoded(businessId));
 		checks.add(primaryTrade(businessId));
 		checks.add(atLeastOneService(activeServices));
 		checks.add(hourlyServicesHaveARate(activeServices, pricingTerms));
@@ -198,6 +199,30 @@ public class PublishService {
 		checks.add(workingHoursSet(businessId));
 
 		return new ProfileReadiness(checks);
+	}
+
+	/**
+	 * Read through the repository rather than passed in, because {@link #evaluate} is reached from
+	 * call sites that hold nothing but the id. Inside a read-only transaction that has already
+	 * loaded this row, which every one of them is, it is served from the persistence context.
+	 *
+	 * <p>The wording names the postal code, since that is the only field a tradesperson can act
+	 * on: the geocoder reads nothing else, and "check your address" would send them re-reading a
+	 * street name that was never consulted.
+	 *
+	 * <p>It is also the only detail on this list that is read out twice — the checklist shows it,
+	 * and {@link LiveProfileNotReadyException} composes it into the sentence that refuses an
+	 * address edit on a live profile. One string, so the two cannot come to disagree.
+	 */
+	private ReadinessCheck addressGeocoded(UUID businessId) {
+		boolean located = businesses.findById(businessId)
+				.map(BusinessProfile::hasCoordinates)
+				.orElse(false);
+
+		return located
+				? ReadinessCheck.passed(ReadinessCheckCode.ADDRESS_GEOCODED, "Your address is on the map.")
+				: ReadinessCheck.failed(ReadinessCheckCode.ADDRESS_GEOCODED,
+						"We're unable to locate this ZIP code.");
 	}
 
 	private ReadinessCheck primaryTrade(UUID businessId) {

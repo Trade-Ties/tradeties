@@ -70,10 +70,10 @@ class ViolationsTests {
 	@Test
 	void aSecondBusinessForOneOwnerIsTheOwnerIndexAndNotTheSlug() {
 		UUID ownerUserId = givenAUser("user_violations_owner");
-		profiles.saveAndFlush(new BusinessProfile(ownerUserId, input("violations-first")));
+		profiles.saveAndFlush(new BusinessProfile(ownerUserId, input("violations-first"), null));
 
 		DataIntegrityViolationException refused = assertThrows(DataIntegrityViolationException.class,
-				() -> profiles.saveAndFlush(new BusinessProfile(ownerUserId, input("violations-second"))));
+				() -> profiles.saveAndFlush(new BusinessProfile(ownerUserId, input("violations-second"), null)));
 
 		assertTrue(Violations.broke(refused, Violations.BUSINESS_BY_OWNER),
 				"one account, one business — this is the index that refused it");
@@ -92,7 +92,7 @@ class ViolationsTests {
 	@Test
 	void aFailureThatIsNoConstraintAtAllMatchesNothing() {
 		UUID ownerUserId = givenAUser("user_violations_wide");
-		UUID businessId = profiles.saveAndFlush(new BusinessProfile(ownerUserId, input("violations-wide"))).id();
+		UUID businessId = profiles.saveAndFlush(new BusinessProfile(ownerUserId, input("violations-wide"), null)).id();
 
 		ServiceDefinition tooWide = new ServiceDefinition(null, "Huge", null, 60,
 				ServicePricingMode.FLAT, new BigDecimal("99999999999999999999"), true);

@@ -25,8 +25,9 @@ import org.springframework.test.web.servlet.request.RequestPostProcessor;
 /**
  * Onboarding step 9 — the checklist, and the two moves it guards.
  *
- * <p>Everything checked here reads from at least two tables, which is exactly why none of it
- * is a database constraint.
+ * <p>None of it is a database constraint, because none of it is a rule about a stored row: a
+ * draft mid-edit may fail every line here and still be a valid profile. Most of the conditions
+ * additionally read from two tables, which no CHECK can do.
  *
  * <p>The profile URL is moved by the same call and is not here: see {@link SlugFreezeTests}.
  */
@@ -42,10 +43,14 @@ class PublishTests {
 	JdbcTemplate jdbcTemplate;
 
 	/**
-	 * Except one: with no hourly services there is none missing a rate, so that check is
-	 * vacuously true. Asserting it explicitly is the point — a checklist that failed
-	 * conditions nobody has run into would be noise, and it is easy to write it the wrong way
-	 * round.
+	 * Except two, and both pass for reasons worth pinning rather than leaving implied. With no
+	 * hourly services there is none missing a rate, so that check is vacuously true. And the
+	 * address was located the moment the draft was saved — the one condition on this list that a
+	 * fresh draft has already met, because it is answered by a field the wizard demands in step 2
+	 * rather than by something still to be added.
+	 *
+	 * <p>Asserting them explicitly is the point: a checklist that failed conditions nobody has run
+	 * into would be noise, and it is easy to write it the wrong way round.
 	 */
 	@Test
 	void aFreshDraftFailsEveryCheckThatCanFail() throws Exception {
@@ -54,12 +59,92 @@ class PublishTests {
 		mockMvc.perform(get("/api/v1/me/business/readiness").with(token))
 				.andExpect(status().isOk())
 				.andExpect(jsonPath("$.ready").value(false))
-				.andExpect(jsonPath("$.checks.length()").value(5))
-				.andExpect(check(0, "PRIMARY_TRADE", false))
-				.andExpect(check(1, "AT_LEAST_ONE_SERVICE", false))
-				.andExpect(check(2, "HOURLY_SERVICES_HAVE_A_RATE", true))
-				.andExpect(check(3, "PRICING_SET", false))
-				.andExpect(check(4, "WORKING_HOURS_SET", false));
+				.andExpect(jsonPath("$.checks.length()").value(6))
+				.andExpect(check(0, "ADDRESS_GEOCODED", true))
+				.andExpect(check(1, "PRIMARY_TRADE", false))
+				.andExpect(check(2, "AT_LEAST_ONE_SERVICE", false))
+				.andExpect(check(3, "HOURLY_SERVICES_HAVE_A_RATE", true))
+				.andExpect(check(4, "PRICING_SET", false))
+				.andExpect(check(5, "WORKING_HOURS_SET", false));
+	}
+
+	/**
+	 * The condition that makes "live" mean something. Everything else on this profile is filled
+	 * in — trade, service, rates, working hours — and a customer searching the next street over
+	 * would still never see it, because a profile with no coordinates is in no radius search.
+	 *
+	 * <p>Refused rather than published-and-broken, and the wording has to name the postal code:
+	 * it is the only field the tradesperson can act on, and it is the one they got wrong.
+	 */
+	@Test
+	void aProfileWhoseZipCannotBePlacedIsNotPublishable() throws Exception {
+		RequestPostProcessor token = completeBusinessFor("user_unplaceable", "unplaceable");
+		moveTo(token, "unplaceable", "00000");
+
+		mockMvc.perform(get("/api/v1/me/business/readiness").with(token))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.ready").value(false))
+				.andExpect(check(0, "ADDRESS_GEOCODED", false))
+				.andExpect(jsonPath("$.checks[0].detail").value(containsString("ZIP code")));
+
+		mockMvc.perform(post("/api/v1/me/business/publish").with(token))
+				.andExpect(status().isUnprocessableEntity());
+
+		mockMvc.perform(get("/api/v1/me/business").with(token))
+				.andExpect(jsonPath("$.status").value("DRAFT"));
+	}
+
+	/** The other half: correcting the postal code puts the profile back within reach of going live. */
+	@Test
+	void correctingTheZipMakesItPublishableAgain() throws Exception {
+		RequestPostProcessor token = completeBusinessFor("user_replaceable", "replaceable");
+		moveTo(token, "replaceable", "00000");
+		moveTo(token, "replaceable", "80202");
+
+		mockMvc.perform(get("/api/v1/me/business/readiness").with(token))
+				.andExpect(status().isOk())
+				.andExpect(check(0, "ADDRESS_GEOCODED", true))
+				.andExpect(jsonPath("$.ready").value(true));
+
+		mockMvc.perform(post("/api/v1/me/business/publish").with(token))
+				.andExpect(status().isOk());
+	}
+
+	/**
+	 * The other door to the same broken state, and the one the checklist alone does not guard.
+	 *
+	 * <p>A live profile whose postal code stops resolving is not caught by anything at publish
+	 * time — it was published long ago. Without this the profile keeps saying it is live, keeps
+	 * looking complete, and is in no radius search from the moment the typo is saved.
+	 *
+	 * <p>Refused rather than unpublished: a mistyped ZIP should not take a business off the
+	 * marketplace, and the sentence names the one field to correct.
+	 */
+	@Test
+	void aLiveProfileCannotBeEditedIntoBeingUnfindable() throws Exception {
+		RequestPostProcessor token = completeBusinessFor("user_live_typo", "live-typo");
+		mockMvc.perform(post("/api/v1/me/business/publish").with(token)).andExpect(status().isOk());
+
+		mockMvc.perform(moveRequest(token, "live-typo", "00000"))
+				.andExpect(status().isConflict())
+				.andExpect(jsonPath("$.detail").value(containsString("We're unable to locate this ZIP code.")));
+
+		mockMvc.perform(get("/api/v1/me/business").with(token))
+				.andExpect(jsonPath("$.status").value("PUBLISHED"))
+				.andExpect(jsonPath("$.address.postalCode").value("80202"))
+				.andExpect(jsonPath("$.coordinates.latitude").value(39.751526));
+	}
+
+	/** The same edit on a draft is nobody's emergency: it is stored, and the checklist holds it back. */
+	@Test
+	void aDraftMayHoldAZipThatCannotBePlaced() throws Exception {
+		RequestPostProcessor token = completeBusinessFor("user_draft_typo", "draft-typo");
+
+		moveTo(token, "draft-typo", "00000");
+
+		mockMvc.perform(get("/api/v1/me/business").with(token))
+				.andExpect(jsonPath("$.status").value("DRAFT"))
+				.andExpect(jsonPath("$.address.postalCode").value("00000"));
 	}
 
 	@Test
@@ -69,8 +154,8 @@ class PublishTests {
 		mockMvc.perform(post("/api/v1/me/business/publish").with(token))
 				.andExpect(status().isUnprocessableEntity())
 				.andExpect(jsonPath("$.ready").value(false))
-				.andExpect(jsonPath("$.checks[0].code").value("PRIMARY_TRADE"))
-				.andExpect(jsonPath("$.checks[0].detail").isNotEmpty());
+				.andExpect(jsonPath("$.checks[1].code").value("PRIMARY_TRADE"))
+				.andExpect(jsonPath("$.checks[1].detail").isNotEmpty());
 
 		mockMvc.perform(get("/api/v1/me/business").with(token))
 				.andExpect(jsonPath("$.status").value("DRAFT"));
@@ -118,7 +203,7 @@ class PublishTests {
 
 		mockMvc.perform(post("/api/v1/me/business/publish").with(token))
 				.andExpect(status().isUnprocessableEntity())
-				.andExpect(check(1, "AT_LEAST_ONE_SERVICE", false));
+				.andExpect(check(2, "AT_LEAST_ONE_SERVICE", false));
 	}
 
 	/**
@@ -138,12 +223,12 @@ class PublishTests {
 		BusinessFixtures.setPricing(mockMvc, token, null);
 
 		mockMvc.perform(get("/api/v1/me/business/readiness").with(token))
-				.andExpect(check(2, "HOURLY_SERVICES_HAVE_A_RATE", false));
+				.andExpect(check(3, "HOURLY_SERVICES_HAVE_A_RATE", false));
 
 		BusinessFixtures.setPricing(mockMvc, token, "125.00");
 
 		mockMvc.perform(get("/api/v1/me/business/readiness").with(token))
-				.andExpect(check(2, "HOURLY_SERVICES_HAVE_A_RATE", true))
+				.andExpect(check(3, "HOURLY_SERVICES_HAVE_A_RATE", true))
 				.andExpect(jsonPath("$.ready").value(true));
 	}
 
@@ -360,6 +445,43 @@ class PublishTests {
 	/** Registers, creates the draft, and takes it all the way to publishable. */
 	private RequestPostProcessor completeBusinessFor(String subject, String slug) throws Exception {
 		return BusinessFixtures.publishableBusinessFor(mockMvc, subject, slug);
+	}
+
+	/**
+	 * Replaces steps 1 and 2 with the same profile at a different postal code, reading the stored
+	 * version first rather than assuming it — the steps taken to make a profile publishable write
+	 * to other tables, and what they leave the profile's version at is not this test's business.
+	 */
+	private void moveTo(RequestPostProcessor token, String slug, String postalCode) throws Exception {
+		mockMvc.perform(moveRequest(token, slug, postalCode)).andExpect(status().isOk());
+	}
+
+	private org.springframework.test.web.servlet.RequestBuilder moveRequest(
+			RequestPostProcessor token, String slug, String postalCode) throws Exception {
+
+		String stored = mockMvc.perform(get("/api/v1/me/business").with(token))
+				.andExpect(status().isOk())
+				.andReturn().getResponse().getContentAsString();
+
+		return put("/api/v1/me/business").with(token)
+						.contentType(MediaType.APPLICATION_JSON)
+						.content("""
+								{
+								  "version": %s,
+								  "slug": "%s",
+								  "legalName": "Acme Plumbing LLC",
+								  "displayName": "Acme Plumbing",
+								  "phone": "+13035550101",
+								  "email": "dispatch@acme.example",
+								  "address": {
+								    "street1": "123 Main St",
+								    "city": "Denver",
+								    "state": "CO",
+								    "postalCode": "%s"
+								  },
+								  "timeZone": "America/Denver",
+								  "serviceRadiusMiles": 25
+								}""".formatted(JsonPath.read(stored, "$.version").toString(), slug, postalCode));
 	}
 
 	private RequestPostProcessor businessFor(String subject, String slug) throws Exception {

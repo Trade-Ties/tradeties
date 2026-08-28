@@ -8,7 +8,9 @@ package com.tradeties.business;
  * only a replacement carries — so it is a parameter of the call, not a field here.
  *
  * @param coordinates {@code null} unless the tradesperson dragged the map pin to correct
- *                    the geocoded position
+ *                    the geocoded position. Carried because the contract offers it, and not yet
+ *                    read: the server geocodes the address on every write instead — see
+ *                    {@code BusinessService.locate}
  */
 public record BusinessInput(
 		String slug,

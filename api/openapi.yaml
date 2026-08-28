@@ -283,6 +283,13 @@ paths:
         `type: urn:tradeties:problem:unconfirmed-time-zone-change`; send the same body again
         with the flag set. A business with no working hours has nothing to move and is never
         asked.
+
+        **A published profile cannot be edited into being unfindable.** The server derives
+        the coordinates from the address on every write, and a postal code it cannot place
+        leaves the profile with none — which takes it out of every radius search while it
+        goes on saying it is live. On a published profile that is refused with `409` and the
+        write is rolled back; on a draft it is stored as-is, and `ADDRESS_GEOCODED` on the
+        readiness checklist is what stops it going live that way.
       requestBody:
         required: true
         content:
@@ -357,13 +364,16 @@ paths:
       description: |
         The checklist of onboarding step 9, computed by the server.
 
-        It has to be: every condition reads from more than one table, and two of them —
-        "exactly one primary trade" and "every hourly service has a rate" — are precisely
-        the rules the schema cannot hold on its own. A client that reproduced them would be
-        a second implementation to keep in step.
+        It has to be: none of these is a rule about a stored row — a draft mid-edit may
+        fail every one of them and still be a valid profile — and most read from more than
+        one table, including the two the schema cannot hold on its own, "exactly one
+        primary trade" and "every hourly service has a rate". A client that reproduced
+        them would be a second implementation to keep in step.
 
-        Answering when nothing is finished is normal. A brand-new draft gets the full list
-        with everything failing, which is what the wizard renders as an empty checklist.
+        Answering when nothing is finished is normal. A brand-new draft gets the full
+        list, and only `ADDRESS_GEOCODED` passes on it — that one is answered by the
+        address the draft could not have been created without, where every other
+        condition is answered by a later step that has not been taken yet.
       responses:
         "200":
           description: Every condition, passed or not.
@@ -1216,9 +1226,8 @@ components:
     Coordinates:
       type: object
       description: |
-        Where the business sits on the map. Derived from the address by the server;
-        the client sends them back only when the tradesperson has dragged the pin to
-        correct the result.
+        Where the business sits on the map, derived from the address by the server on
+        every write. Nobody types this and no screen shows it.
 
         Latitude and longitude always travel together — a half-located business
         would drop silently out of every radius search.
@@ -1325,7 +1334,9 @@ components:
           oneOf:
             - $ref: "#/components/schemas/Coordinates"
             - type: "null"
-          description: Null when the address could not be geocoded.
+          description: |
+            Null when the postal code could not be placed. Such a profile is in no
+            radius search at all, which is what `ADDRESS_GEOCODED` stops going live.
         timeZone:
           allOf:
             - $ref: "#/components/schemas/TimeZoneId"
@@ -1407,8 +1418,12 @@ components:
             - $ref: "#/components/schemas/Coordinates"
             - type: "null"
           description: |
-            Omit to let the server geocode the address. Send them only to override
-            the result after the pin has been dragged.
+            **Not read.** The server derives the point from the address, so anything
+            sent here is discarded.
+
+            The field stays because it is the seam an override belongs on the day
+            there is a map pin to drag — see `UpdateBusinessRequest.coordinates` for
+            why that day has not come.
         timeZone:
           $ref: "#/components/schemas/TimeZoneId"
         serviceRadiusMiles:
@@ -1477,6 +1492,20 @@ components:
           oneOf:
             - $ref: "#/components/schemas/Coordinates"
             - type: "null"
+          description: |
+            **Not read.** The server derives the point from the address on every write,
+            so a change of address moves it and anything sent here is discarded.
+
+            It has to be discarded, and that is worth spelling out. This request is a
+            full replacement, so a client that omitted the field would clear a column
+            nobody typed — which is why clients send the stored value straight back
+            instead. A server that honoured what arrives would therefore be honouring
+            that echo: the first geocode would freeze, and a business that moved would
+            keep the point it started with, silently, forever. Nothing in the request
+            tells an echo from an override, so nothing here tries.
+
+            The field stays as the seam an override belongs on. It becomes readable the
+            day a map pin exists and the client can say it was dragged.
         timeZone:
           $ref: "#/components/schemas/TimeZoneId"
         serviceRadiusMiles:
@@ -2150,12 +2179,16 @@ components:
         A stable name per condition, so the client can attach its own wording and its own
         link into the wizard rather than parsing `detail`.
 
-        One condition from the model is deliberately absent: that the address has been
-        geocoded. It belongs here — a profile without coordinates appears in no radius
-        search — but geocoding is not built, and shipping a check nobody can satisfy would
-        mean nobody can publish. It joins this enum when the provider is decided, which is
-        an additive change.
+        Ordered as the wizard asks them, so the checklist reads top to bottom the way the
+        profile was filled in rather than in the order the server happens to evaluate.
+
+        `ADDRESS_GEOCODED` is the one condition here that the tradesperson cannot fix by
+        supplying something they left out — every field is already filled, and the postal
+        code simply did not resolve to a point. It is a condition anyway, because the
+        alternative is a profile that is live, looks complete, and appears in no radius
+        search at all.
       enum:
+        - ADDRESS_GEOCODED
         - PRIMARY_TRADE
         - AT_LEAST_ONE_SERVICE
         - HOURLY_SERVICES_HAVE_A_RATE
