@@ -95,6 +95,14 @@ class BusinessProfile {
 	@Column(name = "longitude", precision = 9, scale = 6)
 	private BigDecimal longitude;
 
+	/**
+	 * Set exactly when the coordinates are, which a constraint in V11 enforces — so the three move
+	 * as one and are only ever written together, by {@link #apply}.
+	 */
+	@Enumerated(EnumType.STRING)
+	@Column(name = "geocode_precision", length = 16)
+	private GeocodePrecision geocodePrecision;
+
 	@Column(name = "time_zone", nullable = false, length = 64)
 	private String timeZone;
 
@@ -145,11 +153,11 @@ class BusinessProfile {
 		// for JPA
 	}
 
-	BusinessProfile(UUID ownerUserId, BusinessInput input) {
+	BusinessProfile(UUID ownerUserId, BusinessInput input, Geocode geocode) {
 		this.ownerUserId = Objects.requireNonNull(ownerUserId, "ownerUserId");
 		this.status = BusinessStatus.DRAFT;
 		this.onboardingCompletedStep = OnboardingStep.ADDRESS.number();
-		apply(input);
+		apply(input, geocode);
 	}
 
 	/**
@@ -178,9 +186,14 @@ class BusinessProfile {
 	 * client's to move, and their absence is also what stops this call moving the marker
 	 * <em>backwards</em>.
 	 *
+	 * @param geocode where the address in {@code input} sits, or {@code null} when it could not be
+	 *        located. Passed in rather than read off {@code input.coordinates()}: deciding between
+	 *        what the client sent and what the geocoder found needs the <em>stored</em> address to
+	 *        compare against, which the entity has and this method has already overwritten by the
+	 *        time it would matter. {@code BusinessService} settles it before calling.
 	 * @throws SlugLockedException if the URL has been published and this would change it
 	 */
-	final void apply(BusinessInput input) {
+	final void apply(BusinessInput input, Geocode geocode) {
 		requireSlugStillOpen(input.slug());
 		this.slug = input.slug();
 		this.legalName = input.legalName();
@@ -197,9 +210,10 @@ class BusinessProfile {
 		this.state = address.state();
 		this.postalCode = address.postalCode();
 
-		GeoPoint coordinates = input.coordinates();
+		GeoPoint coordinates = geocode == null ? null : geocode.point();
 		this.latitude = coordinates == null ? null : coordinates.latitude();
 		this.longitude = coordinates == null ? null : coordinates.longitude();
+		this.geocodePrecision = geocode == null ? null : geocode.precision();
 
 		this.timeZone = input.timeZone();
 		this.serviceRadiusMiles = input.serviceRadiusMiles();
@@ -223,6 +237,16 @@ class BusinessProfile {
 
 	boolean slugLocked() {
 		return firstPublishedAt != null;
+	}
+
+	/**
+	 * Whether the address resolved to a point, which is what the publishing checklist asks.
+	 *
+	 * <p>Latitude alone answers for both columns: a CHECK in V3 keeps them null or set together,
+	 * so there is no half-located row for the second half of the test to catch.
+	 */
+	boolean hasCoordinates() {
+		return latitude != null;
 	}
 
 	/**
