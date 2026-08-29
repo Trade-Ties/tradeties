@@ -7,6 +7,7 @@
 @theme inline {
     --font-heading: var(--font-sans);
     --font-sans: var(--font-sans);
+    --font-mono: var(--font-mono);
     --color-sidebar-ring: var(--sidebar-ring);
     --color-sidebar-border: var(--sidebar-border);
     --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
@@ -126,4 +127,71 @@
   html {
     @apply font-sans;
     }
+}
+
+/* ---------------------------------------------------------------
+   Marketplace landing page tokens (Maastricht Blue brand palette,
+   availability accents, card shadows). Generates utilities like
+   bg-brand, text-brand-500, border-line, shadow-lift, etc.
+---------------------------------------------------------------- */
+@theme {
+  /* Maastricht Blue — the primary */
+  --color-brand: #001C3D;
+  --color-brand-700: #0A2F5C;
+  --color-brand-500: #1E4E82;
+  --color-brand-100: #DCE7F3;
+  --color-brand-50: #F1F6FB;
+
+  /* Neutrals */
+  --color-muted-ink: #5D6E82;
+  --color-faint: #8B9AAB;
+  --color-line: #E6ECF2;
+  --color-canvas: #F7F9FC;
+
+  /* Availability */
+  --color-go: #0E9F6E;
+  --color-go-bg: #E7F7F0;
+
+  /* Shadows */
+  --shadow-card: 0 1px 2px rgba(0,28,61,.06), 0 1px 3px rgba(0,28,61,.04);
+  --shadow-lift: 0 18px 48px rgba(0,28,61,.12), 0 2px 8px rgba(0,28,61,.05);
+}
+
+/* Hero background wash — too specific to be worth a utility class. */
+.hero-wash {
+  background:
+    radial-gradient(900px 420px at 12% -6%, #E8F1FB 0%, rgba(232,241,251,0) 62%),
+    radial-gradient(760px 380px at 92% 4%, #EEF4FA 0%, rgba(238,244,250,0) 60%),
+    #FFFFFF;
+}
+
+/* Availability-dot pulse. */
+@keyframes tt-pulse {
+  0%   { box-shadow: 0 0 0 0 rgba(14,159,110,.5); }
+  70%  { box-shadow: 0 0 0 8px rgba(14,159,110,0); }
+  100% { box-shadow: 0 0 0 0 rgba(14,159,110,0); }
+}
+.animate-tt-pulse { animation: tt-pulse 2.4s infinite; }
+
+/* Entrance rise, staggered by delay utilities in the markup. */
+@keyframes tt-rise {
+  to { opacity: 1; transform: none; }
+}
+.animate-tt-rise {
+  opacity: 0;
+  transform: translateY(16px);
+  animation: tt-rise .7s cubic-bezier(.2,.7,.3,1) forwards;
+}
+
+/* Fully hide the horizontal scrollbar on the availability rail — it's paged with
+   the ← → buttons instead, so a visible scrollbar track just reads as unfinished. */
+.rail-scroll {
+  scrollbar-width: none; /* Firefox */
+  -ms-overflow-style: none; /* old Edge */
+}
+.rail-scroll::-webkit-scrollbar { display: none; } /* Chrome, Safari */
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-tt-pulse,
+  .animate-tt-rise { animation: none; opacity: 1; transform: none; }
 }
