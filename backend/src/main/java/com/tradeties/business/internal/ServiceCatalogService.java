@@ -12,6 +12,7 @@ import java.util.stream.Collectors;
 
 import com.tradeties.business.InvalidSelectionException;
 import com.tradeties.business.OnboardingStep;
+import com.tradeties.business.ReadinessCheckCode;
 import com.tradeties.business.ServiceDefinition;
 import com.tradeties.business.ServiceDetails;
 import com.tradeties.business.ServiceNameTakenException;
@@ -143,14 +144,14 @@ public class ServiceCatalogService {
 		}
 
 		// Read before the removal, because afterwards there is nothing left to read it from.
-		boolean wasBookable = publishing.isBookable(business.id(), business.status());
+		Set<ReadinessCheckCode> wasPassing = publishing.bookableChecks(business.id(), business.status());
 
 		removal.removeAll(List.of(found.get()));
 		services.flush();
 
 		// Asked rather than refused, which is the opposite of what a trade change gets and
 		// deliberately so — see `unpublishIfNoLongerBookable`.
-		publishing.unpublishIfNoLongerBookable(business, wasBookable, unpublishConfirmed);
+		publishing.unpublishIfNoLongerBookable(business, wasPassing, unpublishConfirmed);
 
 		recordStepReached(business.id());
 		return true;

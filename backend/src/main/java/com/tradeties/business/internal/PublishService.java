@@ -3,7 +3,9 @@ package com.tradeties.business.internal;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 import com.tradeties.business.BusinessDetails;
 import com.tradeties.business.BusinessStatus;
@@ -118,18 +120,45 @@ public class PublishService {
 	}
 
 	/**
-	 * Whether a change about to be made could take this profile off the market — asked before it.
+	 * What this profile is meeting right now, so that a change can be refused for breaking one of
+	 * them — asked before the change.
 	 *
-	 * <p>Only a live profile that currently passes the checklist has anything to lose: a draft is
-	 * not bookable yet, and one already failing the checklist is already not being offered, so
-	 * neither is made worse by the change. Pair it with {@link #requireStillBookable}.
+	 * <p><strong>Per condition rather than one boolean for the whole checklist</strong>, and that
+	 * is load-bearing. A live profile already failing something is not thereby fair game: it is
+	 * still listed, still reachable by its URL, and somebody is on their way to putting it right.
+	 * What has to be refused is a change that breaks a condition this profile was <em>meeting</em>,
+	 * so that is what is remembered. An all-or-nothing answer disarms every guard below the moment
+	 * any one condition fails — and each condition added to {@link #evaluate} widens that hole
+	 * again, silently, for the profiles that fail the new one.
+	 *
+	 * <p>Empty for a draft, which is not on the market and has nothing to lose. Empty too for a
+	 * live profile meeting no condition at all, where the answer is the same for the same reason.
+	 *
+	 * <p>Pair it with {@link #requireStillBookable} or {@link #unpublishIfNoLongerBookable}.
 	 */
-	boolean isBookable(UUID businessId, BusinessStatus status) {
-		return status == BusinessStatus.PUBLISHED && evaluate(businessId).ready();
+	Set<ReadinessCheckCode> bookableChecks(UUID businessId, BusinessStatus status) {
+		if (status != BusinessStatus.PUBLISHED) {
+			return Set.of();
+		}
+
+		return evaluate(businessId).checks().stream()
+				.filter(ReadinessCheck::passed)
+				.map(ReadinessCheck::code)
+				.collect(Collectors.toUnmodifiableSet());
 	}
 
 	/**
-	 * Refuses the change just made if it has taken a live profile below the checklist.
+	 * The conditions that were being met before the change and are not after it — this change's
+	 * own damage, told apart from whatever the profile was already failing.
+	 */
+	private List<ReadinessCheck> brokenSince(Set<ReadinessCheckCode> wasPassing, UUID businessId) {
+		return evaluate(businessId).checks().stream()
+				.filter(check -> !check.passed() && wasPassing.contains(check.code()))
+				.toList();
+	}
+
+	/**
+	 * Refuses the change just made if it broke a condition this live profile was meeting.
 	 *
 	 * <p>Here rather than at each caller because more than one write can do it: giving up a trade
 	 * takes the services filed under it, and deleting or deactivating the last service does the
@@ -139,23 +168,23 @@ public class PublishService {
 	 * <p>Called after every write the change makes, so the checklist reads the profile as it would
 	 * stand. Throwing rolls the transaction back, which is what puts back whatever was removed.
 	 *
-	 * @param wasBookable what {@link #isBookable} answered before the change
-	 * @throws LiveProfileNotReadyException if it was bookable and no longer is
+	 * @param wasPassing what {@link #bookableChecks} answered before the change
+	 * @throws LiveProfileNotReadyException if the change broke one of them
 	 */
-	void requireStillBookable(UUID businessId, boolean wasBookable) {
-		if (!wasBookable) {
+	void requireStillBookable(UUID businessId, Set<ReadinessCheckCode> wasPassing) {
+		if (wasPassing.isEmpty()) {
 			return;
 		}
 
-		ProfileReadiness after = evaluate(businessId);
-		if (!after.ready()) {
-			throw new LiveProfileNotReadyException(after);
+		List<ReadinessCheck> broken = brokenSince(wasPassing, businessId);
+		if (!broken.isEmpty()) {
+			throw new LiveProfileNotReadyException(broken);
 		}
 	}
 
 	/**
-	 * Takes the profile off the market when the change just made left it below the checklist, and
-	 * declines to do it unasked.
+	 * Takes the profile off the market when the change just made broke a condition it was meeting,
+	 * and declines to do it unasked.
 	 *
 	 * <p>The other answer to the question {@link #requireStillBookable} refuses outright, for the
 	 * one change that is a deliberate removal rather than a side effect — see
@@ -164,12 +193,12 @@ public class PublishService {
 	 * <p>Called after the write, so the checklist reads the profile as it would stand. Throwing
 	 * rolls the transaction back, which is what puts the service and the status back.
 	 *
-	 * @param wasBookable what {@link #isBookable} answered before the change
+	 * @param wasPassing what {@link #bookableChecks} answered before the change
 	 * @param confirmed the holder's answer to "this takes your profile off the marketplace"
 	 * @throws UnconfirmedUnpublishException if it was needed and not given
 	 */
-	void unpublishIfNoLongerBookable(BusinessProfile business, boolean wasBookable, boolean confirmed) {
-		if (!wasBookable || evaluate(business.id()).ready()) {
+	void unpublishIfNoLongerBookable(BusinessProfile business, Set<ReadinessCheckCode> wasPassing, boolean confirmed) {
+		if (wasPassing.isEmpty() || brokenSince(wasPassing, business.id()).isEmpty()) {
 			return;
 		}
 		if (!confirmed) {

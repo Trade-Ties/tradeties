@@ -1,6 +1,7 @@
 package com.tradeties.business.internal;
 
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 
 import com.tradeties.business.BusinessAlreadyExistsException;
@@ -11,6 +12,7 @@ import com.tradeties.business.CalendarReadiness;
 import com.tradeties.business.InvalidSelectionException;
 import com.tradeties.business.OnboardingProgress;
 import com.tradeties.business.OnboardingStep;
+import com.tradeties.business.ReadinessCheckCode;
 import com.tradeties.business.SlugTakenException;
 import com.tradeties.business.StaleVersionException;
 import com.tradeties.business.UnconfirmedTimeZoneChangeException;
@@ -223,10 +225,10 @@ public class BusinessService implements Businesses, OnboardingProgress {
 			throw new SlugTakenException(input.slug());
 		}
 
-		// Read before the change, because that is the question: was this profile bookable a moment
-		// ago, and would it still be. Cheap for a draft, which is most saves — `isBookable` answers
-		// on the status without running the checklist at all.
-		boolean wasBookable = publishing.isBookable(profile.id(), profile.status());
+		// Read before the change, because that is the question: what was this profile meeting a
+		// moment ago, and is it still. Cheap for a draft, which is most saves — `bookableChecks`
+		// answers on the status without running the checklist at all.
+		Set<ReadinessCheckCode> wasPassing = publishing.bookableChecks(profile.id(), profile.status());
 
 		profile.apply(input, locate(input));
 
@@ -249,7 +251,7 @@ public class BusinessService implements Businesses, OnboardingProgress {
 		// live in steps 1 and 2 — and a live profile whose postal code stopped resolving would
 		// have stayed published, complete-looking, and in no radius search at all. Throwing rolls
 		// the address back with the transaction.
-		publishing.requireStillBookable(profile.id(), wasBookable);
+		publishing.requireStillBookable(profile.id(), wasPassing);
 
 		return Optional.of(saved);
 	}
