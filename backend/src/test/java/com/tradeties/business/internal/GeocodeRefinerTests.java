@@ -3,6 +3,7 @@ package com.tradeties.business.internal;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -13,6 +14,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import java.math.BigDecimal;
+import java.util.List;
 import java.util.Map;
 
 import com.jayway.jsonpath.JsonPath;
@@ -32,6 +34,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.RequestPostProcessor;
+import org.springframework.transaction.annotation.Transactional;
 
 /**
  * The background pass, driven by hand.
@@ -224,6 +227,39 @@ class GeocodeRefinerTests {
 		assertNull(profile("refine-nofix").get("latitude"));
 		assertNull(profile("refine-nofix").get("geocode_precision"));
 		assertNotNull(profile("refine-nofix").get("geocode_attempted_at"));
+	}
+
+	/**
+	 * The work list is served by an index, and the index supplies the order.
+	 *
+	 * <p>The pass runs every five minutes forever, so the query it makes is one of the few in this
+	 * application whose plan is worth pinning. Without an index it read the whole table and sorted
+	 * it to return a batch — including on the passes with nothing to do, which is most of them once
+	 * the queue has drained.
+	 *
+	 * <p><strong>The absent sort is the assertion that matters.</strong> The query orders
+	 * {@code NULLS FIRST} and PostgreSQL's default for ascending is {@code NULLS LAST}, so an index
+	 * created the ordinary way would be read and then sorted anyway — present, used, and useless
+	 * for the part that costs. Sequential scans are switched off for the plan because the table is
+	 * tiny here and would otherwise be scanned on cost alone; that says nothing about whether the
+	 * index can serve the query, which is what is being asked.
+	 */
+	@Test
+	@Transactional
+	void theQueueIsServedByAnIndexWithoutASort() {
+		jdbcTemplate.execute("SET LOCAL enable_seqscan = off");
+
+		List<String> plan = jdbcTemplate.queryForList("""
+				EXPLAIN SELECT * FROM business_profile
+				WHERE (geocode_precision IS NULL OR geocode_precision = 'ZIP')
+				  AND (geocode_attempted_at IS NULL OR geocode_attempted_at < now())
+				ORDER BY geocode_attempted_at ASC NULLS FIRST
+				LIMIT 25""", String.class);
+
+		assertTrue(plan.stream().anyMatch(line -> line.contains("business_profile_awaiting_geocode_idx")),
+				() -> "the queue should read through its index, but the plan was " + plan);
+		assertTrue(plan.stream().noneMatch(line -> line.contains("Sort")),
+				() -> "the index should supply the order rather than the planner, but the plan was " + plan);
 	}
 
 	/**
