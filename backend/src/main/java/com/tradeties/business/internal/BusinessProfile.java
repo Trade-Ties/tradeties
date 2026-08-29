@@ -220,17 +220,25 @@ class BusinessProfile {
 		this.state = address.state();
 		this.postalCode = address.postalCode();
 
-		GeoPoint coordinates = geocode == null ? null : geocode.point();
-		this.latitude = coordinates == null ? null : coordinates.latitude();
-		this.longitude = coordinates == null ? null : coordinates.longitude();
-		this.geocodePrecision = geocode == null ? null : geocode.precision();
+		// Only when there is something to replace or nothing to lose, and that condition is the
+		// whole of it. The geocode handed in is a ZIP centroid, because a save may not wait on
+		// anybody else's service; writing it unconditionally would undo the refiner's work on
+		// every ordinary edit -- a phone number changed, a description reworded -- and put the
+		// business back on the middle of its postal area. The stamp below is not cleared in that
+		// case either, so the coarse point would then stand for the whole retry window.
+		if (relocating || !hasCoordinates()) {
+			GeoPoint coordinates = geocode == null ? null : geocode.point();
+			this.latitude = coordinates == null ? null : coordinates.latitude();
+			this.longitude = coordinates == null ? null : coordinates.longitude();
+			this.geocodePrecision = geocode == null ? null : geocode.precision();
+		}
 
 		// Both halves of the refiner's queue, and it takes both. Resetting the precision alone
 		// is not enough: a profile already sharpened once carries a recent attempt stamp, and the
-		// query wants ZIP *and* not-asked-recently. Left as it was, a business that moved would
-		// sit on the centroid of its new ZIP until the retry window expired -- correct, coarse,
-		// and a month late. Cleared only when the address actually moves, so the window still
-		// does its job for an address the service can never match.
+		// query wants a coarse point *and* not-asked-recently. Left as it was, a business that
+		// moved would sit on the centroid of its new ZIP until the retry window expired --
+		// correct, coarse, and a month late. Cleared only when the address actually moves, so the
+		// window still does its job for an address the service can never match.
 		if (relocating) {
 			this.geocodeAttemptedAt = null;
 		}

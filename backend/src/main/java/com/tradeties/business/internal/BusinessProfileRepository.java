@@ -90,15 +90,23 @@ interface BusinessProfileRepository extends JpaRepository<BusinessProfile, UUID>
 	 * to record only the attempt. {@code geocodeAttemptedAt} is written either way, which is what
 	 * keeps an address the service cannot match from being asked about on every pass.
 	 *
-	 * <p>The precision guard in the where clause matches the work list above, so that a row another
-	 * pass has already sharpened to {@code STREET} is not written back down to a coarser answer.
+	 * <p><strong>The version in the where clause is what makes this safe against a concurrent
+	 * save.</strong> The point being written was fetched for the address this row had when the
+	 * pass read it, and an owner who saves during that call may have replaced it — a request to
+	 * somebody else's service takes as long as it takes. Guarding on the precision, as this once
+	 * did, cannot catch that: a save <em>resets</em> the precision, so the clause would match and
+	 * the stale point would land. {@code version} is bumped by a save and by nothing else here,
+	 * which makes it the one column that answers "is this still the row I read".
 	 *
-	 * <p><strong>It does not protect against a concurrent address change</strong>, and a comment
-	 * here once claimed it did. A save resets the precision to {@code ZIP} — or to null when the
-	 * new postal code resolves to nothing — so after one, this clause matches rather than rejects,
-	 * and a point fetched for the old address lands on the new one and is then locked in at
-	 * {@code STREET}. Catching that needs a guard on something the save actually changes: the
-	 * address columns, or {@code geocodeAttemptedAt}, which a move clears.
+	 * <p>Bumping it is what must not happen, and a bulk update is what stops that: writing through
+	 * the entity would increment the version underneath whoever has the wizard open. So it is read
+	 * in the guard and left alone in the set.
+	 *
+	 * <p>The precision clause stays for a different job — it matches the work list above, so a row
+	 * another pass has already sharpened is not written back down to a coarser answer.
+	 *
+	 * @return the number of rows written, which is zero when the guard rejects. The caller reads
+	 *         it: a discarded write that is reported as a success is a race nobody can see
 	 */
 	@Modifying(flushAutomatically = true, clearAutomatically = true)
 	@Query("""
@@ -108,9 +116,11 @@ interface BusinessProfileRepository extends JpaRepository<BusinessProfile, UUID>
 			    b.longitude = coalesce(:longitude, b.longitude),
 			    b.geocodePrecision = coalesce(:precision, b.geocodePrecision)
 			where b.id = :businessId
+			  and b.version = :version
 			  and (b.geocodePrecision is null
 			       or b.geocodePrecision = com.tradeties.business.internal.GeocodePrecision.ZIP)""")
 	int recordGeocodeAttempt(@Param("businessId") UUID businessId,
+			@Param("version") long version,
 			@Param("attemptedAt") Instant attemptedAt,
 			@Param("latitude") BigDecimal latitude,
 			@Param("longitude") BigDecimal longitude,

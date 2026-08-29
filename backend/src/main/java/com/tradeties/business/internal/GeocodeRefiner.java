@@ -3,11 +3,9 @@ package com.tradeties.business.internal;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
-import java.util.Optional;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.data.domain.Limit;
@@ -43,18 +41,13 @@ class GeocodeRefiner {
 
 	private final BusinessProfileRepository businesses;
 	private final GeocodeWrites writes;
-	private final Geocoder census;
+	private final CensusGeocoder census;
 	private final int batchSize;
 	private final Duration retryAfter;
 
-	/**
-	 * @param census by name, because {@link ZipCentroidGeocoder} is the {@code @Primary} one and
-	 *        would otherwise be injected here — which would look like it worked and would rewrite
-	 *        each profile with the centroid it already has, marking it done forever
-	 */
 	GeocodeRefiner(BusinessProfileRepository businesses,
 			GeocodeWrites writes,
-			@Qualifier("censusGeocoder") Geocoder census,
+			CensusGeocoder census,
 			@Value("${tradeties.census.refiner.batch-size}") int batchSize,
 			@Value("${tradeties.census.refiner.retry-after}") Duration retryAfter) {
 
@@ -80,21 +73,27 @@ class GeocodeRefiner {
 		}
 
 		int sharpened = 0;
+		int attempted = 0;
 		for (BusinessProfile profile : waiting) {
-			sharpened += refine(profile) ? 1 : 0;
+			GeocodeAnswer answer = census.locate(profile.address());
+
+			// One unreachable call ends the pass. The service is down for the whole batch, not
+			// for this address, so carrying on would spend twenty-four more requests learning the
+			// same thing -- and every one of them would be a request to a free service that is
+			// already having a bad day. Nothing is stamped, so the next pass in five minutes
+			// starts from the same place.
+			if (answer instanceof GeocodeAnswer.Unavailable) {
+				log.warn("Geocode refiner: the service did not answer, ending this pass after {} of {}",
+						attempted, waiting.size());
+				break;
+			}
+
+			attempted++;
+			sharpened += writes.record(profile, answer) ? 1 : 0;
 		}
 
-		log.info("Geocode refiner: {} of {} profiles sharpened to street level", sharpened, waiting.size());
-	}
-
-	/**
-	 * @return whether a better point was found, which is not the same as whether the attempt was
-	 *         recorded. The attempt is recorded either way; that is what stops an address the
-	 *         service will never match from being asked about on every pass.
-	 */
-	private boolean refine(BusinessProfile profile) {
-		Optional<Geocode> located = census.locate(profile.address());
-		writes.record(profile, located);
-		return located.isPresent();
+		if (attempted > 0) {
+			log.info("Geocode refiner: {} of {} profiles sharpened to street level", sharpened, attempted);
+		}
 	}
 }

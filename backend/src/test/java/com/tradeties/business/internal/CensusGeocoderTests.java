@@ -1,14 +1,13 @@
 package com.tradeties.business.internal;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.queryParam;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withServerError;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
 
 import java.math.BigDecimal;
-import java.util.Optional;
 
 import com.tradeties.business.GeoPoint;
 import com.tradeties.business.PostalAddress;
@@ -64,7 +63,7 @@ class CensusGeocoderTests {
 				.andRespond(withSuccess(matchAt("-104.987336378379", "39.742007876168"),
 						MediaType.APPLICATION_JSON));
 
-		GeoPoint point = geocoder.locate(DENVER).orElseThrow().point();
+		GeoPoint point = located(geocoder.locate(DENVER)).point();
 
 		assertEquals(0, new BigDecimal("39.742008").compareTo(point.latitude()), "latitude from y");
 		assertEquals(0, new BigDecimal("-104.987336").compareTo(point.longitude()), "longitude from x");
@@ -77,7 +76,7 @@ class CensusGeocoderTests {
 				.andRespond(withSuccess(matchAt("-104.987336378379", "39.742007876168"),
 						MediaType.APPLICATION_JSON));
 
-		GeoPoint point = geocoder.locate(DENVER).orElseThrow().point();
+		GeoPoint point = located(geocoder.locate(DENVER)).point();
 
 		assertEquals(6, point.latitude().scale());
 		assertEquals(6, point.longitude().scale());
@@ -88,7 +87,7 @@ class CensusGeocoderTests {
 		census.expect(requestTo(Matchers.anything()))
 				.andRespond(withSuccess(matchAt("-104.987336", "39.742008"), MediaType.APPLICATION_JSON));
 
-		assertEquals(GeocodePrecision.STREET, geocoder.locate(DENVER).orElseThrow().precision());
+		assertEquals(GeocodePrecision.STREET, located(geocoder.locate(DENVER)).precision());
 	}
 
 	/**
@@ -123,27 +122,70 @@ class CensusGeocoderTests {
 		census.verify();
 	}
 
+	/**
+	 * A ZIP+4 is cut to five, the same trim the centroid lookup makes.
+	 *
+	 * <p>Sent as typed it narrows the search to a block the service does not resolve, so the
+	 * address is never matched — and the caller would record that as a real miss and leave the
+	 * profile alone for the length of the retry window. The two geocoders have to agree about what
+	 * a postal code is, and this is the side that has no table to make it obvious.
+	 */
+	@Test
+	void aZipPlusFourIsCutToFiveDigits() {
+		census.expect(queryParam("zip", "80202"))
+				.andRespond(withSuccess(noMatch(), MediaType.APPLICATION_JSON));
+
+		geocoder.locate(new PostalAddress("1600 Broadway", null, "Denver", "CO", "80202-1234"));
+
+		census.verify();
+	}
+
 	/** An address the service cannot place is an empty list and a 200 — a normal answer. */
 	@Test
-	void anUnmatchedAddressIsEmpty() {
+	void anUnmatchedAddressIsNotFound() {
 		census.expect(requestTo(Matchers.anything()))
 				.andRespond(withSuccess(noMatch(), MediaType.APPLICATION_JSON));
 
-		assertTrue(geocoder.locate(DENVER).isEmpty());
+		assertEquals(GeocodeAnswer.NOT_FOUND, geocoder.locate(DENVER));
 	}
 
 	/**
-	 * A service that is down leaves the profile on the ZIP centroid it already has. The caller
-	 * cannot act on the difference between "no such address" and "nobody answered", so it is not
-	 * asked to — this must not become an exception that reaches the write path.
+	 * A service that is down is a different answer from an address that does not exist, and the
+	 * whole point of the distinction is what the caller does next: a miss is recorded and the
+	 * profile is left alone for the retry window, an outage is recorded nowhere and the profile
+	 * keeps its place in the queue.
+	 *
+	 * <p>Still not an exception. Nothing about this may reach the write path.
 	 */
 	@Test
-	void aFailingServiceIsEmptyRatherThanAnException() {
+	void aFailingServiceIsUnavailableRatherThanAMiss() {
 		census.expect(requestTo(Matchers.anything())).andRespond(withServerError());
 
-		Optional<Geocode> located = geocoder.locate(DENVER);
+		assertEquals(GeocodeAnswer.UNAVAILABLE, geocoder.locate(DENVER));
+	}
 
-		assertTrue(located.isEmpty());
+	/**
+	 * The first match with a point, not the first match. A leading entry without coordinates would
+	 * otherwise answer for the whole list and the usable ones behind it would never be read.
+	 */
+	@Test
+	void aMatchWithoutAPointDoesNotHideTheOneBehindIt() {
+		census.expect(requestTo(Matchers.anything()))
+				.andRespond(withSuccess("""
+						{"result":{"addressMatches":[
+						  {"coordinates":{"x":null,"y":null}},
+						  {"coordinates":{"x":-104.987336,"y":39.742008}}]}}""",
+						MediaType.APPLICATION_JSON));
+
+		GeoPoint point = located(geocoder.locate(DENVER)).point();
+
+		assertEquals(0, new BigDecimal("39.742008").compareTo(point.latitude()));
+	}
+
+	private static Geocode located(GeocodeAnswer answer) {
+		assertInstanceOf(GeocodeAnswer.Located.class, answer, "expected a located address");
+
+		return ((GeocodeAnswer.Located) answer).geocode();
 	}
 
 	private static String matchAt(String x, String y) {

@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -13,7 +14,6 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import java.math.BigDecimal;
 import java.util.Map;
-import java.util.Optional;
 
 import com.jayway.jsonpath.JsonPath;
 import com.tradeties.BusinessFixtures;
@@ -77,7 +77,7 @@ class GeocodeRefinerTests {
 	@Test
 	void aProfileOnAZipCentroidIsSharpenedToStreetLevel() throws Exception {
 		givenAProfileWaiting("user_refine_hit", "refine-hit");
-		when(census.locate(any())).thenReturn(Optional.of(new Geocode(SHARPER, GeocodePrecision.STREET)));
+		when(census.locate(any())).thenReturn(new GeocodeAnswer.Located(new Geocode(SHARPER, GeocodePrecision.STREET)));
 
 		refiner.refineABatch();
 
@@ -96,7 +96,7 @@ class GeocodeRefinerTests {
 	void anUnmatchedAddressKeepsItsCentroidAndLeavesTheQueue() throws Exception {
 		givenAProfileWaiting("user_refine_miss", "refine-miss");
 		BigDecimal centroid = (BigDecimal) profile("refine-miss").get("latitude");
-		when(census.locate(any())).thenReturn(Optional.empty());
+		when(census.locate(any())).thenReturn(GeocodeAnswer.NOT_FOUND);
 
 		refiner.refineABatch();
 
@@ -139,7 +139,7 @@ class GeocodeRefinerTests {
 		givenAProfileWaiting("user_refine_one", "refine-one");
 		givenAProfileWaiting("user_refine_two", "refine-two");
 		givenAProfileWaiting("user_refine_three", "refine-three");
-		when(census.locate(any())).thenReturn(Optional.empty());
+		when(census.locate(any())).thenReturn(GeocodeAnswer.NOT_FOUND);
 
 		refiner.refineABatch();
 
@@ -160,7 +160,7 @@ class GeocodeRefinerTests {
 	void sharpeningIsNotAnEditToTheProfile() throws Exception {
 		givenAProfileWaiting("user_refine_quiet", "refine-quiet");
 		Map<String, Object> before = profile("refine-quiet");
-		when(census.locate(any())).thenReturn(Optional.of(new Geocode(SHARPER, GeocodePrecision.STREET)));
+		when(census.locate(any())).thenReturn(new GeocodeAnswer.Located(new Geocode(SHARPER, GeocodePrecision.STREET)));
 
 		refiner.refineABatch();
 
@@ -173,7 +173,7 @@ class GeocodeRefinerTests {
 	@Test
 	void theStoredAddressIsWhatGetsLookedUp() throws Exception {
 		givenAProfileWaiting("user_refine_address", "refine-address");
-		when(census.locate(any())).thenReturn(Optional.empty());
+		when(census.locate(any())).thenReturn(GeocodeAnswer.NOT_FOUND);
 
 		refiner.refineABatch();
 
@@ -197,7 +197,7 @@ class GeocodeRefinerTests {
 				UPDATE business_profile
 				SET latitude = NULL, longitude = NULL, geocode_precision = NULL
 				WHERE slug = 'refine-nopoint'""");
-		when(census.locate(any())).thenReturn(Optional.of(new Geocode(SHARPER, GeocodePrecision.STREET)));
+		when(census.locate(any())).thenReturn(new GeocodeAnswer.Located(new Geocode(SHARPER, GeocodePrecision.STREET)));
 
 		refiner.refineABatch();
 
@@ -217,13 +217,80 @@ class GeocodeRefinerTests {
 				UPDATE business_profile
 				SET latitude = NULL, longitude = NULL, geocode_precision = NULL
 				WHERE slug = 'refine-nofix'""");
-		when(census.locate(any())).thenReturn(Optional.empty());
+		when(census.locate(any())).thenReturn(GeocodeAnswer.NOT_FOUND);
 
 		refiner.refineABatch();
 
 		assertNull(profile("refine-nofix").get("latitude"));
 		assertNull(profile("refine-nofix").get("geocode_precision"));
 		assertNotNull(profile("refine-nofix").get("geocode_attempted_at"));
+	}
+
+	/**
+	 * An outage is not an attempt, and it ends the pass rather than being repeated.
+	 *
+	 * <p>The stamp is what holds a profile out of the queue for the retry window, and writing it
+	 * because nobody answered spends a month of that window on a call that never happened. The
+	 * service is down for the batch rather than for one address, so the second profile is not
+	 * asked either: during an outage this costs one request per pass instead of a full batch.
+	 */
+	@Test
+	void anOutageStampsNothingAndEndsThePass() throws Exception {
+		givenAProfileWaiting("user_refine_down_one", "refine-down-one");
+		givenAProfileWaiting("user_refine_down_two", "refine-down-two");
+		when(census.locate(any())).thenReturn(GeocodeAnswer.UNAVAILABLE);
+
+		refiner.refineABatch();
+
+		assertNull(profile("refine-down-one").get("geocode_attempted_at"), "no attempt was made");
+		assertNull(profile("refine-down-two").get("geocode_attempted_at"), "and the pass stopped");
+		verify(census, times(1)).locate(any());
+	}
+
+	/**
+	 * A point fetched for an address the owner has since replaced is discarded.
+	 *
+	 * <p>A call to somebody else's service takes as long as it takes, and a save during it leaves
+	 * the profile at a different address. Writing the answer then would put the business at its old
+	 * address and mark it street-level — more trustworthy than before and wrong, with nothing left
+	 * to correct it, because street-level profiles are not in the queue. The stub saves the profile
+	 * while the "call" is in flight, which is the race spelled out.
+	 */
+	@Test
+	void aPointForAnAddressThatChangedMidCallIsDiscarded() throws Exception {
+		RequestPostProcessor token = givenAProfileWaiting("user_refine_raced", "refine-raced");
+		when(census.locate(any())).thenAnswer(inFlight -> {
+			moveTo(token, "refine-raced", "80301");
+			return new GeocodeAnswer.Located(new Geocode(SHARPER, GeocodePrecision.STREET));
+		});
+
+		refiner.refineABatch();
+
+		Map<String, Object> row = profile("refine-raced");
+		assertEquals("ZIP", row.get("geocode_precision"), "the stale point was not written");
+		assertNull(row.get("geocode_attempted_at"), "and the profile keeps its place in the queue");
+	}
+
+	/**
+	 * A save that leaves the address alone keeps the sharper point.
+	 *
+	 * <p>The geocode handed to a save is a ZIP centroid, because a save may not wait on anybody
+	 * else's service. Writing it every time would undo this pass's work on an edit that had nothing
+	 * to do with the address — a phone number, a description — and because the attempt stamp is
+	 * kept in that case, the coarse point would then stand for the whole retry window.
+	 */
+	@Test
+	void anEditThatIsNotAMoveKeepsTheStreetLevelPoint() throws Exception {
+		RequestPostProcessor token = givenAProfileWaiting("user_refine_kept", "refine-kept");
+		when(census.locate(any())).thenReturn(new GeocodeAnswer.Located(new Geocode(SHARPER, GeocodePrecision.STREET)));
+		refiner.refineABatch();
+		assertEquals("STREET", profile("refine-kept").get("geocode_precision"), "precondition");
+
+		moveTo(token, "refine-kept", "80202");
+
+		Map<String, Object> row = profile("refine-kept");
+		assertEquals("STREET", row.get("geocode_precision"), "the same address, so the point stands");
+		assertEquals(0, SHARPER.latitude().compareTo((BigDecimal) row.get("latitude")));
 	}
 
 	/**
@@ -238,7 +305,7 @@ class GeocodeRefinerTests {
 	@Test
 	void aBusinessThatMovesIsBackOnTheQueueImmediately() throws Exception {
 		RequestPostProcessor token = givenAProfileWaiting("user_refine_moved", "refine-moved");
-		when(census.locate(any())).thenReturn(Optional.of(new Geocode(SHARPER, GeocodePrecision.STREET)));
+		when(census.locate(any())).thenReturn(new GeocodeAnswer.Located(new Geocode(SHARPER, GeocodePrecision.STREET)));
 		refiner.refineABatch();
 		assertEquals("STREET", profile("refine-moved").get("geocode_precision"), "precondition");
 
@@ -257,7 +324,7 @@ class GeocodeRefinerTests {
 	@Test
 	void aSaveThatDoesNotMoveTheBusinessLeavesTheStampAlone() throws Exception {
 		RequestPostProcessor token = givenAProfileWaiting("user_refine_stay", "refine-stay");
-		when(census.locate(any())).thenReturn(Optional.empty());
+		when(census.locate(any())).thenReturn(GeocodeAnswer.NOT_FOUND);
 		refiner.refineABatch();
 		assertNotNull(profile("refine-stay").get("geocode_attempted_at"), "precondition");
 

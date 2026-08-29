@@ -21,10 +21,16 @@ import org.springframework.web.client.RestClientException;
  * upgrades is the precision, from {@link GeocodePrecision#ZIP} to
  * {@link GeocodePrecision#STREET}.
  *
- * <p>Free, keyless and US-only, which is this market. The cost of that is the paragraph below.
+ * <p>Free, keyless and US-only, which is this market. The cost is that it can be down, and that
+ * cost is carried in the return type rather than hidden in an empty answer — see
+ * {@link GeocodeAnswer}.
+ *
+ * <p><strong>Deliberately not a {@link Geocoder}.</strong> It answers from somebody else's
+ * service and has an outcome that interface cannot express, so keeping the types apart is what
+ * makes wiring this to a save a compile error instead of a comment asking nobody to do it.
  */
 @Component
-class CensusGeocoder implements Geocoder {
+class CensusGeocoder {
 
 	private static final Logger log = LoggerFactory.getLogger(CensusGeocoder.class);
 
@@ -46,27 +52,28 @@ class CensusGeocoder implements Geocoder {
 	}
 
 	/**
-	 * @return empty for an address the service cannot match, and empty when the call fails. The
-	 *         two are deliberately one answer here: the caller's move is the same either way —
-	 *         leave the ZIP centroid in place and come back to this profile later — and a
-	 *         distinction it cannot act on would only be one more branch to get wrong. The
-	 *         difference is logged, because it is the difference between a bad address and a
-	 *         service that is down, and only one of those is worth being woken for.
+	 * @return {@link GeocodeAnswer#NOT_FOUND} for an address the service does not know, and
+	 *         {@link GeocodeAnswer#UNAVAILABLE} when it could not be asked. Two answers rather
+	 *         than one empty: the caller records an attempt for the first and must not for the
+	 *         second, because a stamp written after an outage defers the profile for the whole
+	 *         retry window on the strength of a call nobody made
 	 */
-	@Override
-	public Optional<Geocode> locate(PostalAddress address) {
+	GeocodeAnswer locate(PostalAddress address) {
 		CensusLocations.Locations answer;
 		try {
 			answer = census.locate(street(address), address.city(), address.state(),
-					address.postalCode(), BENCHMARK, FORMAT);
+					zip(address), BENCHMARK, FORMAT);
 		}
 		catch (RestClientException unreachable) {
 			log.warn("Census geocoder did not answer for {} {}: {}",
 					address.city(), address.state(), unreachable.getMessage());
-			return Optional.empty();
+			return GeocodeAnswer.UNAVAILABLE;
 		}
 
-		return firstMatch(answer).map(point -> new Geocode(point, GeocodePrecision.STREET));
+		return firstMatch(answer)
+				.<GeocodeAnswer>map(point -> new GeocodeAnswer.Located(
+						new Geocode(point, GeocodePrecision.STREET)))
+				.orElse(GeocodeAnswer.NOT_FOUND);
 	}
 
 	/**
@@ -80,12 +87,27 @@ class CensusGeocoder implements Geocoder {
 		}
 
 		return answer.result().addressMatches().stream()
-				.findFirst()
 				.map(CensusLocations.Locations.Match::coordinates)
-				.filter(point -> point.x() != null && point.y() != null)
+				// Filtered before the first is taken, not after: a leading match with no point
+				// would otherwise answer for the whole list and throw away the usable ones behind
+				// it.
+				.filter(point -> point != null && point.x() != null && point.y() != null)
+				.findFirst()
 				// y then x. The record says which is which, and this is the line that would be
 				// wrong if anyone trusted the order they are written in.
 				.map(point -> new GeoPoint(stored(point.y()), stored(point.x())));
+	}
+
+	/**
+	 * The postal code as the service wants it. A ZIP+4 is cut to five the same way the centroid
+	 * lookup cuts it — sent as typed it narrows the search to a block the service cannot resolve,
+	 * and the address is quietly never matched.
+	 *
+	 * <p>Empty rather than absent for a code too short to trim, so the street, city and state can
+	 * still carry the request.
+	 */
+	private static String zip(PostalAddress address) {
+		return Geocoder.fiveDigitZip(address.postalCode()).orElse("");
 	}
 
 	/** Street and unit as one line, which is the field the service takes. */
