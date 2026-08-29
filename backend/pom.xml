@@ -52,6 +52,16 @@
 			<groupId>org.springframework.boot</groupId>
 			<artifactId>spring-boot-starter-webmvc</artifactId>
 		</dependency>
+		<!--
+			The outbound side of HTTP, which webmvc does not bring: Boot 4 split the starters,
+			and serving requests no longer implies being able to make them. This is what
+			auto-configures RestClient.Builder and makes the spring.http.client.* timeouts
+			apply to it. One caller today, the Census geocoder.
+		-->
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-restclient</artifactId>
+		</dependency>
 		<dependency>
 			<groupId>org.flywaydb</groupId>
 			<artifactId>flyway-database-postgresql</artifactId>

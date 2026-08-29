@@ -13,6 +13,7 @@ import java.util.function.Function;
 
 import com.tradeties.business.InvalidSelectionException;
 import com.tradeties.business.OnboardingStep;
+import com.tradeties.business.ReadinessCheckCode;
 import com.tradeties.business.TradeOption;
 import com.tradeties.business.TradeSelection;
 
@@ -93,8 +94,9 @@ public class TradeSelectionService {
 		// Read before anything is written, and that is the whole point of asking twice. What is
 		// refused below is a change that takes a live profile off the air — not the state of being
 		// live and already failing, which is somebody on their way to putting it right and would
-		// have nowhere left to do it from.
-		boolean wasBookable = publishing.isBookable(businessId, business.status());
+		// have nowhere left to do it from. Hence the conditions rather than a yes or no: it is the
+		// ones this profile was meeting that this change may not break.
+		Set<ReadinessCheckCode> wasPassing = publishing.bookableChecks(businessId, business.status());
 
 		Set<UUID> additional = new LinkedHashSet<>(additionalTradeIds == null ? List.of() : additionalTradeIds);
 		if (additional.contains(primaryTradeId)) {
@@ -158,7 +160,7 @@ public class TradeSelectionService {
 
 		// After every write this step makes, so the checklist reads the selection as it would
 		// stand.
-		publishing.requireStillBookable(businessId, wasBookable);
+		publishing.requireStillBookable(businessId, wasPassing);
 
 		// Last, and after the answer is built: the marker is a note about the form, and reading
 		// anything from the profile after this would read a copy that predates it.

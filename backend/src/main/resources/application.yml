@@ -72,6 +72,37 @@ workos:
 tradeties:
   profile-url-prefix: ${PROFILE_URL_PREFIX:tradeties.com/pro/}
 
+  # The US Census Bureau's public geocoder, which sharpens a ZIP centroid into a position
+  # along the address range. Free, keyless and US-only -- and with no availability promise
+  # attached, which is exactly why nothing on the write path waits for it. Configurable so a
+  # test or an air-gapped environment can point it somewhere that is not the internet.
+  census:
+    base-url: ${CENSUS_GEOCODER_URL:https://geocoding.geo.census.gov}
+
+    # Short on purpose. The caller already holds a usable point, so waiting is worth less
+    # than giving up and trying again on the next pass. Read by CensusClientConfiguration,
+    # which explains why they are not spring.http.client.* properties.
+    connect-timeout: 3s
+    read-timeout: 10s
+
+    # The background pass that sharpens ZIP centroids into address-level points. It never
+    # blocks anything -- every profile already has a point -- so the numbers below are about
+    # being a good guest on a free public service, not about speed.
+    refiner:
+      # Off in tests, where the stand-in for the service is a mock and a real pass would
+      # reach the internet. See src/test/resources/application.properties.
+      enabled: ${CENSUS_REFINER_ENABLED:true}
+      # Profiles per pass. Small: the queue drains on its own over hours, and there is
+      # nothing waiting for it to finish.
+      batch-size: 25
+      interval: 5m
+      # Long enough that startup and the first requests are done with the database first.
+      initial-delay: 2m
+      # How long before a profile is asked about again. Days rather than minutes, because
+      # what is left in the queue after the first pass is mostly addresses the service will
+      # never match -- and asking again quickly would be asking forever.
+      retry-after: 30d
+
 server:
   # Traefik terminates TLS and sits in front of this service.
   forward-headers-strategy: framework

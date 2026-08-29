@@ -1,5 +1,6 @@
 import * as actions from "@/app/(pro)/profile/create/actions";
 import {
+  LIVE_PROFILE_NOT_READY,
   SLUG_LOCKED,
   UNCONFIRMED_TIME_ZONE_CHANGE,
   UNCONFIRMED_UNPUBLISH,
@@ -232,6 +233,13 @@ async function saveBusiness(
     // refused identically, with nothing on screen saying which URL would be accepted.
     if (result.failure.type === SLUG_LOCKED) {
       return { ok: false, failure: result.failure, ...(await withStoredSlug(formData, stored)) };
+    }
+
+    // The change would have taken a live profile below the checklist, so the server rolled it
+    // back. Nothing to re-read: the stored version is the one still held, and what the holder
+    // needs is the sentence saying which condition their edit would break.
+    if (result.failure.type === LIVE_PROFILE_NOT_READY) {
+      return { ok: false, failure: result.failure, stored };
     }
 
     // Without this, one stale-version 409 — a second tab, a publish from the dashboard — pins

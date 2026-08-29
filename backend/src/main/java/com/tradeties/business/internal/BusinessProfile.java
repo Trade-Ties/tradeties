@@ -103,6 +103,14 @@ class BusinessProfile {
 	@Column(name = "geocode_precision", length = 16)
 	private GeocodePrecision geocodePrecision;
 
+	/**
+	 * When the address-level geocoder last looked at this profile, whether or not it found
+	 * anything. Written by the background pass in {@code GeocodeRefiner}, and cleared by
+	 * {@link #apply} when the address moves — see there for why both halves are needed.
+	 */
+	@Column(name = "geocode_attempted_at")
+	private Instant geocodeAttemptedAt;
+
 	@Column(name = "time_zone", nullable = false, length = 64)
 	private String timeZone;
 
@@ -195,6 +203,8 @@ class BusinessProfile {
 	 */
 	final void apply(BusinessInput input, Geocode geocode) {
 		requireSlugStillOpen(input.slug());
+		// Asked before the fields below overwrite the answer.
+		boolean relocating = addressWouldMove(input.address());
 		this.slug = input.slug();
 		this.legalName = input.legalName();
 		this.displayName = input.displayName();
@@ -210,10 +220,28 @@ class BusinessProfile {
 		this.state = address.state();
 		this.postalCode = address.postalCode();
 
-		GeoPoint coordinates = geocode == null ? null : geocode.point();
-		this.latitude = coordinates == null ? null : coordinates.latitude();
-		this.longitude = coordinates == null ? null : coordinates.longitude();
-		this.geocodePrecision = geocode == null ? null : geocode.precision();
+		// Only when there is something to replace or nothing to lose, and that condition is the
+		// whole of it. The geocode handed in is a ZIP centroid, because a save may not wait on
+		// anybody else's service; writing it unconditionally would undo the refiner's work on
+		// every ordinary edit -- a phone number changed, a description reworded -- and put the
+		// business back on the middle of its postal area. The stamp below is not cleared in that
+		// case either, so the coarse point would then stand for the whole retry window.
+		if (relocating || !hasCoordinates()) {
+			GeoPoint coordinates = geocode == null ? null : geocode.point();
+			this.latitude = coordinates == null ? null : coordinates.latitude();
+			this.longitude = coordinates == null ? null : coordinates.longitude();
+			this.geocodePrecision = geocode == null ? null : geocode.precision();
+		}
+
+		// Both halves of the refiner's queue, and it takes both. Resetting the precision alone
+		// is not enough: a profile already sharpened once carries a recent attempt stamp, and the
+		// query wants a coarse point *and* not-asked-recently. Left as it was, a business that
+		// moved would sit on the centroid of its new ZIP until the retry window expired --
+		// correct, coarse, and a month late. Cleared only when the address actually moves, so the
+		// window still does its job for an address the service can never match.
+		if (relocating) {
+			this.geocodeAttemptedAt = null;
+		}
 
 		this.timeZone = input.timeZone();
 		this.serviceRadiusMiles = input.serviceRadiusMiles();
@@ -240,6 +268,15 @@ class BusinessProfile {
 	}
 
 	/**
+	 * The stored address as one value, for the background geocoder — which needs the fields and
+	 * nothing else on the profile. {@link #toDetails} assembles the same thing on its way past;
+	 * this exists so a caller that wants only the address does not have to build the rest.
+	 */
+	PostalAddress address() {
+		return new PostalAddress(street1, street2, city, state, postalCode);
+	}
+
+	/**
 	 * Whether the address resolved to a point, which is what the publishing checklist asks.
 	 *
 	 * <p>Latitude alone answers for both columns: a CHECK in V3 keeps them null or set together,
@@ -247,6 +284,18 @@ class BusinessProfile {
 	 */
 	boolean hasCoordinates() {
 		return latitude != null;
+	}
+
+	/**
+	 * Whether the address-level geocoder has already had a go at this address.
+	 *
+	 * <p>Only interesting when there is no point: it separates "we have not looked yet" from "we
+	 * looked and could not place it", which are the same absence of coordinates and quite
+	 * different news for the person waiting. A move clears the stamp, so an address that has just
+	 * changed is correctly back to not-looked-yet.
+	 */
+	boolean geocodeAttempted() {
+		return geocodeAttemptedAt != null;
 	}
 
 	/**
@@ -284,6 +333,18 @@ class BusinessProfile {
 	 */
 	boolean slugWouldMove(String proposed) {
 		return !slug.equals(proposed);
+	}
+
+	/**
+	 * Whether this write is putting the business somewhere else, which is what decides if the
+	 * address-level geocoder has to look again.
+	 *
+	 * <p>The whole address, not the postal code the ZIP lookup reads. The question is whether the
+	 * thing being located changed — the Census geocoder moves on a house number, and this is the
+	 * call that would otherwise go on feeding it a stale answer.
+	 */
+	private boolean addressWouldMove(PostalAddress proposed) {
+		return !new PostalAddress(street1, street2, city, state, postalCode).equals(proposed);
 	}
 
 	/**

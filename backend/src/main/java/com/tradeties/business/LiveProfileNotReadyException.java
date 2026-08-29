@@ -1,5 +1,6 @@
 package com.tradeties.business;
 
+import java.util.List;
 import java.util.stream.Collectors;
 
 /**
@@ -17,14 +18,18 @@ import java.util.stream.Collectors;
  */
 public class LiveProfileNotReadyException extends RuntimeException {
 
-	public LiveProfileNotReadyException(ProfileReadiness readiness) {
-		super("Your profile is live, so this change was not applied: " + wouldBreak(readiness)
+	/**
+	 * @param broken the conditions this change broke — not everything the profile fails. A live
+	 *        profile can already be failing something the owner is on their way to fixing, and
+	 *        naming that here would blame this change for it
+	 */
+	public LiveProfileNotReadyException(List<ReadinessCheck> broken) {
+		super("Your profile is live, so this change was not applied: " + wouldBreak(broken)
 				+ " Undo it here, or unpublish your profile first.");
 	}
 
-	private static String wouldBreak(ProfileReadiness readiness) {
-		return readiness.checks().stream()
-				.filter(check -> !check.passed())
+	private static String wouldBreak(List<ReadinessCheck> broken) {
+		return broken.stream()
 				.map(ReadinessCheck::detail)
 				.collect(Collectors.joining(" "));
 	}

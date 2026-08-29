@@ -7,10 +7,11 @@ package com.tradeties.business;
  * replacement rather than a merge. What the two calls do not share is the {@code version}, which
  * only a replacement carries — so it is a parameter of the call, not a field here.
  *
- * @param coordinates {@code null} unless the tradesperson dragged the map pin to correct
- *                    the geocoded position. Carried because the contract offers it, and not yet
- *                    read: the server geocodes the address on every write instead — see
- *                    {@code BusinessService.locate}
+ * <p>No coordinates. The contract carries them and the server discards them, so stopping at the
+ * controller is the honest place: a field here that nothing reads is one every future author has
+ * to work out is dead. Where they would enter, the day a map pin exists, is beside the geocode
+ * that {@code BusinessService.locate} produces — not as a second source the write path has to
+ * choose between.
  */
 public record BusinessInput(
 		String slug,
@@ -21,7 +22,6 @@ public record BusinessInput(
 		String phone,
 		String email,
 		PostalAddress address,
-		GeoPoint coordinates,
 		String timeZone,
 		int serviceRadiusMiles) {
 }

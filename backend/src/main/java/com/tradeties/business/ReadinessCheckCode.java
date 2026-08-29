@@ -15,6 +15,11 @@ public enum ReadinessCheckCode {
 	 * tradesperson has not supplied yet, and this one is something they supplied that could not
 	 * be located. It is a publishing condition all the same — coordinates are what put a profile
 	 * into a radius search, so without them going live means being live and unfindable.
+	 *
+	 * <p>It fails in two ways that read the same from here and not to the person waiting: the
+	 * address has not been looked up yet, or it has and could not be placed. The {@code detail}
+	 * says which, so a postal code the background pass has simply not reached is not reported as
+	 * a mistake.
 	 */
 	ADDRESS_GEOCODED,
 

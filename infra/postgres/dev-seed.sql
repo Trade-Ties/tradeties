@@ -60,17 +60,22 @@ BEGIN
     -- PUBLISHED, so it is visible to the customer side without a further step.
     -- first_published_at is not decoration: the CHECK added in V6 rejects the
     -- row without it, and the slug freeze reads it.
+    --
+    -- geocode_precision travels with the coordinates or V11 rejects the row --
+    -- a point whose provenance is unrecorded is exactly what that constraint
+    -- exists to prevent. ZIP, because these are 80202's centroid rather than
+    -- anything the address-level geocoder found.
     INSERT INTO business_profile (
         id, owner_user_id, slug, legal_name, display_name, description, website_url,
         phone, email, street1, city, state, postal_code, latitude, longitude,
-        time_zone, service_radius_miles, status, onboarding_completed_step,
-        first_published_at, created_at, updated_at, version)
+        geocode_precision, time_zone, service_radius_miles, status,
+        onboarding_completed_step, first_published_at, created_at, updated_at, version)
     VALUES (
         seeded_business_id, seeded_owner_id, 'acme-plumbing', 'Acme Plumbing LLC', 'Acme Plumbing',
         'Drains, water heaters and emergency call-outs across the Denver metro area.',
         'https://acme-plumbing.example', '+13035550101', 'dispatch@acme.example',
         '123 Main St', 'Denver', 'CO', '80202', 39.739236, -104.990251,
-        'America/Denver', 25, 'PUBLISHED', 9, now_utc, now_utc, now_utc, 0);
+        'ZIP', 'America/Denver', 25, 'PUBLISHED', 9, now_utc, now_utc, now_utc, 0);
 
     INSERT INTO business_trade (business_id, trade_id, is_primary)
     VALUES (seeded_business_id, plumber_id, TRUE);

@@ -24,7 +24,7 @@ interface PublishStepProps {
  * The contract answers with all of them rather than only the failures, because a list that
  * showed only what is wrong cannot be ticked off, and "nothing left" would be indistinguishable
  * from "nothing checked". Each line is the server's own sentence rather than a wording here:
- * every condition behind it reads from more than one table, and a second copy on this side is
+ * the conditions are the server's to decide and to phrase, and a second copy on this side is
  * the copy that goes stale.
  */
 function ReadinessChecklist({ readiness }: { readiness: ProfileReadiness }) {

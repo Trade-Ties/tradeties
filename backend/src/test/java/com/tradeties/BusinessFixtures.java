@@ -14,6 +14,7 @@ import com.jayway.jsonpath.JsonPath;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.RequestBuilder;
 import org.springframework.test.web.servlet.request.RequestPostProcessor;
 
 /**
@@ -28,6 +29,25 @@ public final class BusinessFixtures {
 	}
 
 	public static RequestPostProcessor businessFor(MockMvc mockMvc, String subject, String slug) throws Exception {
+		RequestPostProcessor token = registeredTradesperson(mockMvc, subject);
+
+		mockMvc.perform(post("/api/v1/me/business").with(token)
+						.contentType(MediaType.APPLICATION_JSON)
+						.content(businessJson(slug, "")))
+				.andExpect(status().isCreated());
+
+		return token;
+	}
+
+	/**
+	 * The registration half of {@link #businessFor}, for the tests that need to create the
+	 * business themselves — with a postal code of their own, most of them.
+	 *
+	 * <p>Separate rather than copied because this is the one step that touches identity: the day
+	 * the registration body gains a field or the token gains a required claim, a copy fails with
+	 * a 400 in a suite that has nothing to do with either.
+	 */
+	public static RequestPostProcessor registeredTradesperson(MockMvc mockMvc, String subject) throws Exception {
 		RequestPostProcessor token = jwt().jwt(t -> t.subject(subject).claim("email", subject + "@example.com"));
 
 		mockMvc.perform(post("/api/v1/me/registration").with(token)
@@ -36,12 +56,28 @@ public final class BusinessFixtures {
 								{"intent":"TRADESPERSON"}"""))
 				.andExpect(status().isOk());
 
-		mockMvc.perform(post("/api/v1/me/business").with(token)
-						.contentType(MediaType.APPLICATION_JSON)
-						.content(businessJson(slug, "")))
-				.andExpect(status().isCreated());
-
 		return token;
+	}
+
+	/**
+	 * A replacement of the whole profile that differs only in the postal code, with the stored
+	 * version read first so it is accepted.
+	 *
+	 * <p>A request rather than a performed call, because the callers disagree about what should
+	 * come back: a move onto an unplaceable code is refused on a live profile and stored on a
+	 * draft, and each test asserts its own outcome.
+	 */
+	public static RequestBuilder moveRequest(MockMvc mockMvc, RequestPostProcessor token,
+			String slug, String postalCode) throws Exception {
+
+		String stored = mockMvc.perform(get("/api/v1/me/business").with(token))
+				.andExpect(status().isOk())
+				.andReturn().getResponse().getContentAsString();
+
+		return put("/api/v1/me/business").with(token)
+				.contentType(MediaType.APPLICATION_JSON)
+				.content(businessJson(slug, postalCode,
+						"\"version\": " + JsonPath.read(stored, "$.version") + ","));
 	}
 
 	/**
@@ -87,6 +123,14 @@ public final class BusinessFixtures {
 	 * — e.g. {@code "\"version\": 99,"} for the tests that submit a stale or duplicate version.
 	 */
 	public static String businessJson(String slug, String extraFields) {
+		return businessJson(slug, "80202", extraFields);
+	}
+
+	/**
+	 * The same body with the postal code varied, which is the one field the geocoding suites need
+	 * to change — a ZIP+4, a code with no centroid, a move to the next town.
+	 */
+	public static String businessJson(String slug, String postalCode, String extraFields) {
 		return """
 				{
 				  %s
@@ -99,11 +143,11 @@ public final class BusinessFixtures {
 				    "street1": "123 Main St",
 				    "city": "Denver",
 				    "state": "CO",
-				    "postalCode": "80202"
+				    "postalCode": "%s"
 				  },
 				  "timeZone": "America/Denver",
 				  "serviceRadiusMiles": 25
-				}""".formatted(extraFields, slug);
+				}""".formatted(extraFields, slug, postalCode);
 	}
 
 	/**

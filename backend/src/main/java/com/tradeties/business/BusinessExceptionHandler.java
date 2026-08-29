@@ -41,6 +41,18 @@ class BusinessExceptionHandler {
 	private static final URI SLUG_LOCKED = URI.create("urn:tradeties:problem:slug-locked");
 
 	/**
+	 * A {@code type} of its own because the client's move is neither of the other two: there is
+	 * nothing to confirm and nothing to re-read. The write was rolled back, so the version the
+	 * client holds still stands.
+	 *
+	 * <p>Without one this is a bare 409, and a bare 409 on this operation already means "the
+	 * version you sent is not the stored one" — so a client would re-read the profile it just
+	 * failed to change and learn nothing, on every refused save.
+	 */
+	private static final URI LIVE_PROFILE_NOT_READY =
+			URI.create("urn:tradeties:problem:live-profile-not-ready");
+
+	/**
 	 * Where a published profile lives, for the one message that has to name the whole address.
 	 *
 	 * <p>Configured rather than compiled into the domain: which host serves a profile is a
@@ -167,7 +179,10 @@ class BusinessExceptionHandler {
 	 */
 	@ExceptionHandler(LiveProfileNotReadyException.class)
 	ProblemDetail handleLiveProfileNotReady(LiveProfileNotReadyException exception) {
-		return conflict(exception.getMessage());
+		ProblemDetail problem = conflict(exception.getMessage());
+		problem.setTitle("Live profile not ready");
+		problem.setType(LIVE_PROFILE_NOT_READY);
+		return problem;
 	}
 
 	/**

@@ -236,10 +236,14 @@ export interface StoredState {
    * Where the address geocoded to, as the server last had it — kept so that saving the profile
    * does not throw it away.
    *
-   * Not on the form: nobody types it, and there is no control for it. It is here because the
-   * update is a full replacement and `BusinessController` reads `coordinates` off the request,
-   * so a body that leaves it out stores null. Nothing geocodes yet, so this is null on both
-   * sides; the day something does, this is what stops the wizard undoing it on the next Next.
+   * Not on the form: nobody types it, and there is no control for it. Kept because the profile
+   * overview and the map both read it off what was last saved, so the wizard has to have
+   * somewhere to hold it between steps.
+   *
+   * The server does not read what the wizard sends here — it derives the point from the address
+   * on every write — so echoing it back changes nothing on that side. It is echoed anyway
+   * because the update is a full replacement, and a body that dropped a field the contract
+   * carries would be a client quietly disagreeing with the contract.
    */
   coordinates: Coordinates | null;
   /** Null until the profile exists. That is what tells a create from an update. */
