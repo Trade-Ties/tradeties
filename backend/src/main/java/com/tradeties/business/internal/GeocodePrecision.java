@@ -16,5 +16,12 @@ enum GeocodePrecision {
 	 * The centroid of the postal code. Accurate to the size of the ZIP area, which is under a mile
 	 * in a city and considerably more in open country.
 	 */
-	ZIP
+	ZIP,
+
+	/**
+	 * Interpolated along a street segment, between the house numbers the address range holds for
+	 * it. Usually within a house or two — and deliberately not called {@code ROOFTOP}, which is
+	 * the building itself and a stronger claim than this makes.
+	 */
+	STREET
 }

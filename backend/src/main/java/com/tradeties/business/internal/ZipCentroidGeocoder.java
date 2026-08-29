@@ -4,6 +4,7 @@ import java.util.Optional;
 
 import com.tradeties.business.PostalAddress;
 
+import org.springframework.context.annotation.Primary;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -19,7 +20,13 @@ import org.springframework.transaction.annotation.Transactional;
  * accepts both spellings of the same postal code and the extra four narrow it to a block — a
  * distinction {@code zip_centroid} does not make and does not need to.
  */
+/**
+ * The default {@link Geocoder}, and {@code @Primary} says which of the two that is. This one can
+ * always answer, from a table that is always there — {@link CensusGeocoder} depends on somebody
+ * else's service being up, and is asked for by name where it is wanted.
+ */
 @Component
+@Primary
 class ZipCentroidGeocoder implements Geocoder {
 
 	/** The length of the key in {@code zip_centroid}, which a ZIP+4 is trimmed to. */

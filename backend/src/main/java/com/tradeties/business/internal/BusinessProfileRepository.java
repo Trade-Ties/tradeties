@@ -1,8 +1,12 @@
 package com.tradeties.business.internal;
 
+import java.math.BigDecimal;
+import java.time.Instant;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
+import org.springframework.data.domain.Limit;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
@@ -44,4 +48,71 @@ interface BusinessProfileRepository extends JpaRepository<BusinessProfile, UUID>
 			update BusinessProfile b set b.onboardingCompletedStep = :step
 			where b.id = :businessId and b.onboardingCompletedStep < :step""")
 	void advanceOnboardingStep(@Param("businessId") UUID businessId, @Param("step") short step);
+
+	/**
+	 * The work list for the address-level geocoder: profiles no better placed than their ZIP
+	 * centroid that have not been asked about recently.
+	 *
+	 * <p><strong>A null precision is in the list, and that is the case that matters most.</strong>
+	 * It means the postal code resolved to nothing at all — a ZIP with no ZCTA, a PO-box-only
+	 * range — so the profile has no point, is in no radius search, and {@code ADDRESS_GEOCODED}
+	 * refuses to let it go live. The address-level service is the only thing that can still place
+	 * it, because it reads the street and not just the five digits. Taking only {@code ZIP} here
+	 * would exclude precisely the profiles with no other way out, and leave their owners a refusal
+	 * naming a postal code that is perfectly correct and no action that could fix it.
+	 *
+	 * <p>No owner in the signature, which is the one exception to the rule above and is not a hole
+	 * in it. That rule protects a caller acting <em>for</em> somebody; this query has no caller and
+	 * no requester, it is a background pass over the whole table, and there is no owner it could
+	 * take. It answers with ids and addresses and nothing that identifies a person.
+	 *
+	 * <p>Ordered oldest-attempt-first, nulls first, so a profile never looked at goes before one
+	 * being retried and no profile can be starved by a steady trickle of new ones.
+	 */
+	@Query("""
+			select b from BusinessProfile b
+			where (b.geocodePrecision is null
+			       or b.geocodePrecision = com.tradeties.business.internal.GeocodePrecision.ZIP)
+			  and (b.geocodeAttemptedAt is null or b.geocodeAttemptedAt < :notSince)
+			order by b.geocodeAttemptedAt asc nulls first""")
+	List<BusinessProfile> findAwaitingPreciseGeocode(@Param("notSince") Instant notSince, Limit limit);
+
+	/**
+	 * Records what the pass found, or that it found nothing.
+	 *
+	 * <p><strong>A bulk update for the same reason {@link #advanceOnboardingStep} is one</strong>,
+	 * and here it matters more: this runs on its own schedule, so going through the entity would
+	 * bump {@code @Version} underneath whichever tradesperson happens to have the wizard open and
+	 * refuse their next save as a conflict with nobody. {@code updated_at} would move too, telling
+	 * every owner their profile was edited on a day nobody touched it.
+	 *
+	 * <p>The coordinates and the precision move together or not at all — pass nulls for all three
+	 * to record only the attempt. {@code geocodeAttemptedAt} is written either way, which is what
+	 * keeps an address the service cannot match from being asked about on every pass.
+	 *
+	 * <p>The precision guard in the where clause matches the work list above, so that a row another
+	 * pass has already sharpened to {@code STREET} is not written back down to a coarser answer.
+	 *
+	 * <p><strong>It does not protect against a concurrent address change</strong>, and a comment
+	 * here once claimed it did. A save resets the precision to {@code ZIP} — or to null when the
+	 * new postal code resolves to nothing — so after one, this clause matches rather than rejects,
+	 * and a point fetched for the old address lands on the new one and is then locked in at
+	 * {@code STREET}. Catching that needs a guard on something the save actually changes: the
+	 * address columns, or {@code geocodeAttemptedAt}, which a move clears.
+	 */
+	@Modifying(flushAutomatically = true, clearAutomatically = true)
+	@Query("""
+			update BusinessProfile b
+			set b.geocodeAttemptedAt = :attemptedAt,
+			    b.latitude = coalesce(:latitude, b.latitude),
+			    b.longitude = coalesce(:longitude, b.longitude),
+			    b.geocodePrecision = coalesce(:precision, b.geocodePrecision)
+			where b.id = :businessId
+			  and (b.geocodePrecision is null
+			       or b.geocodePrecision = com.tradeties.business.internal.GeocodePrecision.ZIP)""")
+	int recordGeocodeAttempt(@Param("businessId") UUID businessId,
+			@Param("attemptedAt") Instant attemptedAt,
+			@Param("latitude") BigDecimal latitude,
+			@Param("longitude") BigDecimal longitude,
+			@Param("precision") GeocodePrecision precision);
 }
