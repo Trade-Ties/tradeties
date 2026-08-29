@@ -127,6 +127,10 @@ class PublishTests {
 
 		mockMvc.perform(moveRequest(token, "live-typo", "00000"))
 				.andExpect(status().isConflict())
+				// The type is what tells this refusal from the other 409 this operation answers
+				// with. An untyped conflict here means the version sent was stale, and a client
+				// that read this one as that would re-read the profile and resend the same body.
+				.andExpect(jsonPath("$.type").value("urn:tradeties:problem:live-profile-not-ready"))
 				.andExpect(jsonPath("$.detail").value(containsString("We're unable to locate this ZIP code.")));
 
 		mockMvc.perform(get("/api/v1/me/business").with(token))

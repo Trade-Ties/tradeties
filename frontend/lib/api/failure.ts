@@ -8,13 +8,16 @@
  */
 
 /**
- * The two problem types a client must recognise, per the contract. Match on these, never on
+ * The problem types a client must recognise, per the contract. Match on these, never on
  * `detail` — the wording is written for people and will be reworded.
  *
  * A time zone change that would move an existing calendar and has not been confirmed: ask, and
  * send the same body again with the flag set.
  */
 export const UNCONFIRMED_TIME_ZONE_CHANGE = "urn:tradeties:problem:unconfirmed-time-zone-change";
+
+/** What RFC 9457 says a problem carries when it is not one of the above. */
+export const UNTYPED = "about:blank";
 
 /**
  * The URL was fixed by a publish this client did not know about — a second tab, most likely.
@@ -27,6 +30,15 @@ export const SLUG_LOCKED = "urn:tradeties:problem:slug-locked";
  * tradesperson and send the same request again with `unpublishConfirmed`, or send nothing.
  */
 export const UNCONFIRMED_UNPUBLISH = "urn:tradeties:problem:unconfirmed-unpublish";
+
+/**
+ * The change would leave a published profile failing a condition it was meeting, so the server
+ * refused it and rolled the write back.
+ *
+ * Nothing to confirm and nothing to re-read: the version held here still stands. Show `detail`
+ * and let the tradesperson undo the edit.
+ */
+export const LIVE_PROFILE_NOT_READY = "urn:tradeties:problem:live-profile-not-ready";
 
 /**
  * The status carried when the request never reached the backend at all.
@@ -76,8 +88,17 @@ export type ApiResult<T> = { ok: true; data: T } | { ok: false; failure: ApiFail
  *
  * Named here rather than compared as `409` at the call site: the wire number is this module's
  * to know, and a caller spelling it itself is a second place to change.
+ *
+ * An untyped `409` is what a stale version looks like on the wire, so a typed one is not that.
+ * Without the second half, every refusal the server can express — a live profile the change
+ * would break, and whatever is added next — is read as a stale version, and the client re-reads
+ * a profile that did not change to rewrite a version from a write that was rolled back.
+ *
+ * `about:blank` rather than absent: `problem.ts` fills it in either way, so this is the shape
+ * that actually arrives.
  */
-export const isVersionConflict = (failure: ApiFailure): boolean => failure.status === 409;
+export const isVersionConflict = (failure: ApiFailure): boolean =>
+  failure.status === 409 && failure.type === UNTYPED;
 
 /**
  * A delete whose row was already gone, which is the outcome asked for rather than a failure.

@@ -287,9 +287,10 @@ paths:
         **A published profile cannot be edited into being unfindable.** The server derives
         the coordinates from the address on every write, and a postal code it cannot place
         leaves the profile with none — which takes it out of every radius search while it
-        goes on saying it is live. On a published profile that is refused with `409` and the
-        write is rolled back; on a draft it is stored as-is, and `ADDRESS_GEOCODED` on the
-        readiness checklist is what stops it going live that way.
+        goes on saying it is live. On a published profile that is refused with `409` carrying
+        `type: urn:tradeties:problem:live-profile-not-ready` and the write is rolled back; on
+        a draft it is stored as-is, and `ADDRESS_GEOCODED` on the readiness checklist is what
+        stops it going live that way.
       requestBody:
         required: true
         content:
@@ -2229,8 +2230,8 @@ components:
         RFC 9457 problem detail, as produced by Spring's ProblemDetail.
 
         `type` is `about:blank` unless a problem is one a client has to tell apart from the
-        others sharing its status code. Two are today, both `409` and both on the same
-        operation:
+        others sharing its status code. Every one that is today is a `409`, because that is
+        the status this API answers with for more than one reason:
 
         - `urn:tradeties:problem:unconfirmed-time-zone-change` — answer with a dialogue and
           send the same body again with `timeZoneChangeConfirmed`.
@@ -2240,9 +2241,17 @@ components:
         - `urn:tradeties:problem:unconfirmed-unpublish` — removing that service would take a
           published profile off the marketplace. Put `detail` to the holder and send the same
           request again with `unpublishConfirmed`, or send nothing.
+        - `urn:tradeties:problem:live-profile-not-ready` — the change would leave a published
+          profile failing a condition it was meeting, so it was refused and rolled back.
+          Nothing to confirm and nothing to re-read: the version you sent still stands. Show
+          `detail` and let the holder undo the edit.
 
         Match on `type`, never on `detail` — the wording is written for people and will be
         reworded.
+
+        A `409` with no `type` on an operation that takes a `version` means the version sent
+        was not the stored one. That is why the ones above carry a type: without it a client
+        cannot tell a stale version from a refusal it has to show.
       properties:
         type:
           type: string
