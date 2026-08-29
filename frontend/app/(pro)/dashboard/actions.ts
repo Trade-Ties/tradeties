@@ -5,6 +5,7 @@ import { revalidatePath } from "next/cache";
 import { signOut, withAuth } from "@workos-inc/authkit-nextjs";
 
 import { registerAsTradesperson } from "@/lib/api/identity";
+import { DASHBOARD_PATH } from "@/lib/routes";
 
 /**
  * Retries the registration the callback route attempts on every sign-in.
@@ -18,7 +19,7 @@ export async function retryRegistration() {
 
   await registerAsTradesperson(accessToken);
 
-  revalidatePath("/dashboard");
+  revalidatePath(DASHBOARD_PATH);
 }
 
 /**

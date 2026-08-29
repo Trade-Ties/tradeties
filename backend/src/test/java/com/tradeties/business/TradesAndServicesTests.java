@@ -1,6 +1,7 @@
 package com.tradeties.business;
 
 import static org.hamcrest.Matchers.containsString;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -8,7 +9,6 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import java.util.List;
 import java.util.UUID;
 
 import com.jayway.jsonpath.JsonPath;
@@ -21,6 +21,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.RequestPostProcessor;
 
@@ -38,6 +39,9 @@ class TradesAndServicesTests {
 
 	@Autowired
 	MockMvc mockMvc;
+
+	@Autowired
+	JdbcTemplate jdbc;
 
 	@Test
 	void aFreshProfileHoldsNoTrades() throws Exception {
@@ -103,10 +107,10 @@ class TradesAndServicesTests {
 	}
 
 	/**
-	 * The one that would break silently. {@code business_service} points at
-	 * {@code business_trade} with {@code ON DELETE SET NULL (trade_id)}, so replacing the
-	 * selection by deleting every link and re-inserting it would unfile every service —
-	 * including those under trades the tradesperson kept.
+	 * The one that would break silently. A service is filed under a link in
+	 * {@code business_trade}, so replacing the selection by retiring every link and reviving the
+	 * survivors would take every service with it — including those under trades the tradesperson
+	 * kept. {@code TradeSelectionService} therefore retires only the links that actually leave.
 	 */
 	@Test
 	void changingTheTradesKeepsServicesFiledUnderTheOnesThatStay() throws Exception {
@@ -149,16 +153,259 @@ class TradesAndServicesTests {
 				.andExpect(status().isBadRequest());
 	}
 
+	/**
+	 * There is no service that sits under no trade: a service belongs to exactly one, so an omitted
+	 * {@code tradeId} is a missing required field rather than a claim that it spans trades.
+	 */
 	@Test
-	void aCrossTradeServiceNeedsNoTrade() throws Exception {
-		RequestPostProcessor token = businessFor("user_cross_trade", "cross-trade");
+	void aServiceMustNameATrade() throws Exception {
+		RequestPostProcessor token = businessFor("user_no_trade_service", "no-trade-service");
+		claimPrimaryTrade(token);
 
 		mockMvc.perform(post("/api/v1/me/business/services").with(token)
 						.contentType(MediaType.APPLICATION_JSON)
 						.content(serviceJson("Emergency call-out", null, "HOURLY", "195.00")))
+				.andExpect(status().isBadRequest());
+	}
+
+	/**
+	 * An hourly service may state a rate of its own, which overrides the business's general one.
+	 *
+	 * <p>The rule reads as an absence — {@code requireValidPricing} has an {@code HOURLY} branch
+	 * that deliberately does nothing — so nothing complains the day it stops being true.
+	 *
+	 * <p>Worth having on its own: {@code PublishService.hourlyServicesHaveARate} lets a business
+	 * with no general rate publish precisely because each of its hourly services can carry one.
+	 */
+	@Test
+	void anHourlyServiceMayCarryItsOwnRate() throws Exception {
+		RequestPostProcessor token = businessFor("user_hourly_rate", "hourly-rate");
+		String plumber = claimPrimaryTrade(token);
+
+		mockMvc.perform(post("/api/v1/me/business/services").with(token)
+						.contentType(MediaType.APPLICATION_JSON)
+						.content(serviceJson("Emergency call-out", plumber, "HOURLY", "195.00")))
 				.andExpect(status().isCreated())
-				.andExpect(jsonPath("$.tradeId").doesNotExist())
-				.andExpect(jsonPath("$.price").value("195.0000"));
+				.andExpect(jsonPath("$.pricingMode").value("HOURLY"))
+				.andExpect(jsonPath("$.price").value(containsString("195")));
+	}
+
+	/**
+	 * The guarantee the wizard's write order rests on.
+	 *
+	 * <p>The services screen invites somebody to move a service off a trade they are dropping —
+	 * "Pick another trade, or this service goes with it" — and the client makes that work by
+	 * widening the selection, moving the service, then narrowing again. It has to, because the
+	 * removal keys off the trade the row is <em>stored</em> under, not the one being typed.
+	 *
+	 * <p>Pinned here because nothing in Java would fail if it stopped being true. The service
+	 * would simply be retired along with the trade, and the client's {@code PUT} would answer 404
+	 * on a screen offering no way past it.
+	 */
+	@Test
+	void aServiceMovedOffATradeBeforeItIsDroppedSurvivesTheDrop() throws Exception {
+		RequestPostProcessor token = businessFor("user_refiles_service", "refiles-service");
+		String plumber = tradeId("PLUMBER");
+		String roofer = tradeId("ROOFER");
+
+		mockMvc.perform(put("/api/v1/me/business/trades").with(token)
+						.contentType(MediaType.APPLICATION_JSON)
+						.content(tradesJson(plumber, roofer)))
+				.andExpect(status().isOk());
+
+		String created = mockMvc.perform(post("/api/v1/me/business/services").with(token)
+						.contentType(MediaType.APPLICATION_JSON)
+						.content(serviceJson("Gutter repair", roofer, "QUOTE_ONLY", null)))
+				.andExpect(status().isCreated())
+				.andReturn().getResponse().getContentAsString();
+
+		String serviceId = JsonPath.read(created, "$.id");
+		int version = JsonPath.read(created, "$.version");
+
+		// Moved while both trades are still held, which is the whole point of the order.
+		mockMvc.perform(put("/api/v1/me/business/services/" + serviceId).with(token)
+						.contentType(MediaType.APPLICATION_JSON)
+						.content("""
+								{"version":%d,"tradeId":"%s","name":"Gutter repair",
+								 "estimatedDurationMinutes":60,"pricingMode":"QUOTE_ONLY"}"""
+								.formatted(version, plumber)))
+				.andExpect(status().isOk());
+
+		mockMvc.perform(put("/api/v1/me/business/trades").with(token)
+						.contentType(MediaType.APPLICATION_JSON)
+						.content(tradesJson(plumber)))
+				.andExpect(status().isOk());
+
+		mockMvc.perform(get("/api/v1/me/business/services").with(token))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.length()").value(1))
+				.andExpect(jsonPath("$[0].id").value(serviceId))
+				.andExpect(jsonPath("$[0].tradeId").value(plumber))
+				.andExpect(jsonPath("$[0].active").value(true));
+	}
+
+	/**
+	 * The half a tradesperson feels: a trade that leaves takes the services filed under it out
+	 * of the catalogue, while the trades that stay keep theirs.
+	 */
+	@Test
+	void droppingATradeTakesItsServicesOutOfTheCatalogue() throws Exception {
+		RequestPostProcessor token = businessFor("user_drops_trade", "drops-trade");
+		String plumber = tradeId("PLUMBER");
+		String roofer = tradeId("ROOFER");
+
+		mockMvc.perform(put("/api/v1/me/business/trades").with(token)
+						.contentType(MediaType.APPLICATION_JSON)
+						.content(tradesJson(plumber, roofer)))
+				.andExpect(status().isOk());
+
+		mockMvc.perform(post("/api/v1/me/business/services").with(token)
+						.contentType(MediaType.APPLICATION_JSON)
+						.content(serviceJson("Clog removal", plumber, "QUOTE_ONLY", null)))
+				.andExpect(status().isCreated());
+
+		mockMvc.perform(post("/api/v1/me/business/services").with(token)
+						.contentType(MediaType.APPLICATION_JSON)
+						.content(serviceJson("Gutter repair", roofer, "QUOTE_ONLY", null)))
+				.andExpect(status().isCreated());
+
+		mockMvc.perform(put("/api/v1/me/business/trades").with(token)
+						.contentType(MediaType.APPLICATION_JSON)
+						.content(tradesJson(plumber)))
+				.andExpect(status().isOk());
+
+		mockMvc.perform(get("/api/v1/me/business/services").with(token))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.length()").value(1))
+				.andExpect(jsonPath("$[0].name").value("Clog removal"))
+				.andExpect(jsonPath("$[0].tradeId").value(plumber));
+
+		mockMvc.perform(get("/api/v1/me/business/trades").with(token))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.additional.length()").value(0));
+	}
+
+	/**
+	 * The point of the whole soft-delete change, and the one thing no API call can show: what
+	 * left the catalogue is still in the table. Asked of PostgreSQL directly, because every read
+	 * path above is filtered and would answer "gone" either way.
+	 */
+	@Test
+	void aDroppedTradeAndItsServicesSurviveInTheTable() throws Exception {
+		RequestPostProcessor token = businessFor("user_soft_delete", "soft-delete");
+		String plumber = tradeId("PLUMBER");
+		String roofer = tradeId("ROOFER");
+
+		mockMvc.perform(put("/api/v1/me/business/trades").with(token)
+						.contentType(MediaType.APPLICATION_JSON)
+						.content(tradesJson(plumber, roofer)))
+				.andExpect(status().isOk());
+
+		mockMvc.perform(post("/api/v1/me/business/services").with(token)
+						.contentType(MediaType.APPLICATION_JSON)
+						.content(serviceJson("Gutter repair", roofer, "FLAT", "480.00")))
+				.andExpect(status().isCreated());
+
+		mockMvc.perform(put("/api/v1/me/business/trades").with(token)
+						.contentType(MediaType.APPLICATION_JSON)
+						.content(tradesJson(plumber)))
+				.andExpect(status().isOk());
+
+		UUID business = businessIdOf("soft-delete");
+
+		assertEquals(1, jdbc.queryForObject("""
+				SELECT count(*) FROM business_service
+				WHERE business_id = ? AND name = 'Gutter repair' AND deleted_at IS NOT NULL""",
+				Integer.class, business),
+				"the service row was destroyed rather than stamped");
+
+		assertEquals(1, jdbc.queryForObject("""
+				SELECT count(*) FROM business_trade
+				WHERE business_id = ? AND trade_id = ?::uuid AND deleted_at IS NOT NULL""",
+				Integer.class, business, roofer),
+				"the trade link was destroyed rather than stamped");
+	}
+
+	/**
+	 * The collision the primary key would otherwise produce. A trade that comes back is the row
+	 * that is already there — inserting a second {@code (business_id, trade_id)} is not
+	 * available, and a filter that hid the retired one would leave nothing else to do.
+	 *
+	 * <p>Its services stay gone. They were removed; taking the trade back says nothing about
+	 * them, and quietly reviving a price list somebody retired is not a favour.
+	 */
+	@Test
+	void aTradeCanBeTakenBackAfterItWasGivenUp() throws Exception {
+		RequestPostProcessor token = businessFor("user_retakes_trade", "retakes-trade");
+		String plumber = tradeId("PLUMBER");
+		String roofer = tradeId("ROOFER");
+
+		mockMvc.perform(put("/api/v1/me/business/trades").with(token)
+						.contentType(MediaType.APPLICATION_JSON)
+						.content(tradesJson(plumber, roofer)))
+				.andExpect(status().isOk());
+
+		mockMvc.perform(post("/api/v1/me/business/services").with(token)
+						.contentType(MediaType.APPLICATION_JSON)
+						.content(serviceJson("Gutter repair", roofer, "QUOTE_ONLY", null)))
+				.andExpect(status().isCreated());
+
+		mockMvc.perform(put("/api/v1/me/business/trades").with(token)
+						.contentType(MediaType.APPLICATION_JSON)
+						.content(tradesJson(plumber)))
+				.andExpect(status().isOk());
+
+		mockMvc.perform(put("/api/v1/me/business/trades").with(token)
+						.contentType(MediaType.APPLICATION_JSON)
+						.content(tradesJson(plumber, roofer)))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.additional.length()").value(1));
+
+		mockMvc.perform(get("/api/v1/me/business/services").with(token))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.length()").value(0));
+	}
+
+	/**
+	 * The same collision on the other index. A trade given up as primary keeps {@code is_primary}
+	 * nowhere: {@code retire} clears it, and the partial unique index counts only live rows —
+	 * either alone would do, and together they are what makes the next primary insertable.
+	 */
+	@Test
+	void thePrimaryTradeCanBeReplacedByOneTheBusinessDidNotHold() throws Exception {
+		RequestPostProcessor token = businessFor("user_swaps_primary", "swaps-primary");
+
+		mockMvc.perform(put("/api/v1/me/business/trades").with(token)
+						.contentType(MediaType.APPLICATION_JSON)
+						.content(tradesJson(tradeId("PLUMBER"))))
+				.andExpect(status().isOk());
+
+		mockMvc.perform(put("/api/v1/me/business/trades").with(token)
+						.contentType(MediaType.APPLICATION_JSON)
+						.content(tradesJson(tradeId("ROOFER"))))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.primary.code").value("ROOFER"))
+				.andExpect(jsonPath("$.additional.length()").value(0));
+	}
+
+	/**
+	 * Removing "Clog removal" and adding it back is the most ordinary thing on that screen. The
+	 * unique index is partial for exactly this: uniqueness is a rule about the services a
+	 * business has, and a retired row holding a name hostage is a 409 about something the
+	 * tradesperson can no longer see.
+	 */
+	@Test
+	void aRemovedServiceGivesItsNameBack() throws Exception {
+		RequestPostProcessor token = businessFor("user_reuses_name", "reuses-name");
+		String serviceId = createService(token, "Clog removal");
+
+		mockMvc.perform(delete("/api/v1/me/business/services/" + serviceId).with(token))
+				.andExpect(status().isNoContent());
+
+		mockMvc.perform(post("/api/v1/me/business/services").with(token)
+						.contentType(MediaType.APPLICATION_JSON)
+						.content(serviceJson("Clog removal", tradeId("PLUMBER"), "QUOTE_ONLY", null)))
+				.andExpect(status().isCreated());
 	}
 
 	/**
@@ -169,20 +416,22 @@ class TradesAndServicesTests {
 	@Test
 	void quoteOnlyMustNotCarryAPrice() throws Exception {
 		RequestPostProcessor token = businessFor("user_quote_price", "quote-price");
+		String plumber = claimPrimaryTrade(token);
 
 		mockMvc.perform(post("/api/v1/me/business/services").with(token)
 						.contentType(MediaType.APPLICATION_JSON)
-						.content(serviceJson("Leak diagnosis", null, "QUOTE_ONLY", "150.00")))
+						.content(serviceJson("Leak diagnosis", plumber, "QUOTE_ONLY", "150.00")))
 				.andExpect(status().isBadRequest());
 	}
 
 	@Test
 	void aFlatPriceIsMandatory() throws Exception {
 		RequestPostProcessor token = businessFor("user_flat_no_price", "flat-no-price");
+		String plumber = claimPrimaryTrade(token);
 
 		mockMvc.perform(post("/api/v1/me/business/services").with(token)
 						.contentType(MediaType.APPLICATION_JSON)
-						.content(serviceJson("Water heater swap", null, "FLAT", null)))
+						.content(serviceJson("Water heater swap", plumber, "FLAT", null)))
 				.andExpect(status().isBadRequest());
 	}
 
@@ -194,51 +443,55 @@ class TradesAndServicesTests {
 	@Test
 	void aRealisticallyLargeFlatPriceIsAccepted() throws Exception {
 		RequestPostProcessor token = businessFor("user_big_job", "big-job");
+		String plumber = claimPrimaryTrade(token);
 
 		mockMvc.perform(post("/api/v1/me/business/services").with(token)
 						.contentType(MediaType.APPLICATION_JSON)
-						.content(serviceJson("Whole-house repipe", null, "FLAT", "28000.00")))
+						.content(serviceJson("Whole-house repipe", plumber, "FLAT", "28000.00")))
 				.andExpect(status().isCreated());
 	}
 
 	@Test
 	void aGrosslySlippedFlatPriceIsRejected() throws Exception {
 		RequestPostProcessor token = businessFor("user_slipped_job", "slipped-job");
+		String plumber = claimPrimaryTrade(token);
 
 		mockMvc.perform(post("/api/v1/me/business/services").with(token)
 						.contentType(MediaType.APPLICATION_JSON)
-						.content(serviceJson("Whole-house repipe", null, "FLAT", "2800000.00")))
+						.content(serviceJson("Whole-house repipe", plumber, "FLAT", "2800000.00")))
 				.andExpect(status().isBadRequest());
 	}
 
 	/**
-	 * The same width at a service price, and here it was worse than a 500. The insert reached
-	 * the database, and the catch that translates a lost name race answered "a service called
-	 * 'Huge' already exists" — about a name that was free, on a write that failed for a reason
-	 * nobody was told.
+	 * The same width at a service price, and here it is worse than a 500. The insert reaches the
+	 * database, and without this the catch that translates a lost name race answers "a service
+	 * called 'Huge' already exists" — about a name that was free, on a write that failed for a
+	 * reason nobody was told.
 	 */
 	@Test
 	void anAmountWiderThanTheColumnIsNotReportedAsADuplicateName() throws Exception {
 		RequestPostProcessor token = businessFor("user_wide_price", "wide-price");
+		String plumber = claimPrimaryTrade(token);
 
 		mockMvc.perform(post("/api/v1/me/business/services").with(token)
 						.contentType(MediaType.APPLICATION_JSON)
-						.content(serviceJson("Huge", null, "FLAT", "99999999999999999999")))
+						.content(serviceJson("Huge", plumber, "FLAT", "99999999999999999999")))
 				.andExpect(status().isBadRequest());
 	}
 
 	@Test
 	void twoServicesCannotShareANameEvenInDifferentCase() throws Exception {
 		RequestPostProcessor token = businessFor("user_dup_service", "dup-service");
+		String plumber = claimPrimaryTrade(token);
 
 		mockMvc.perform(post("/api/v1/me/business/services").with(token)
 						.contentType(MediaType.APPLICATION_JSON)
-						.content(serviceJson("Clog removal", null, "QUOTE_ONLY", null)))
+						.content(serviceJson("Clog removal", plumber, "QUOTE_ONLY", null)))
 				.andExpect(status().isCreated());
 
 		mockMvc.perform(post("/api/v1/me/business/services").with(token)
 						.contentType(MediaType.APPLICATION_JSON)
-						.content(serviceJson("CLOG REMOVAL", null, "QUOTE_ONLY", null)))
+						.content(serviceJson("CLOG REMOVAL", plumber, "QUOTE_ONLY", null)))
 				.andExpect(status().isConflict());
 	}
 
@@ -250,7 +503,8 @@ class TradesAndServicesTests {
 		mockMvc.perform(put("/api/v1/me/business/services/" + serviceId).with(token)
 						.contentType(MediaType.APPLICATION_JSON)
 						.content("""
-								{"version":99,"name":"Renamed","estimatedDurationMinutes":60,"pricingMode":"QUOTE_ONLY"}"""))
+								{"version":99,"tradeId":"%s","name":"Renamed","estimatedDurationMinutes":60,
+								 "pricingMode":"QUOTE_ONLY"}""".formatted(tradeId("PLUMBER"))))
 				.andExpect(status().isConflict());
 	}
 
@@ -309,8 +563,8 @@ class TradesAndServicesTests {
 	}
 
 	/**
-	 * The case the old message could not describe at all: the right number of ids, one of them
-	 * wrong. It answered "expected 2, got 2" — perfectly true, and no help in finding which.
+	 * The case a count cannot describe: the right number of ids, one of them wrong. "Expected 2,
+	 * got 2" is perfectly true and no help in finding which.
 	 */
 	@Test
 	void anOrderOfTheRightLengthWithAWrongIdNamesBothSides() throws Exception {
@@ -427,39 +681,34 @@ class TradesAndServicesTests {
 		mockMvc.perform(put("/api/v1/me/business/services/" + serviceId).with(token)
 						.contentType(MediaType.APPLICATION_JSON)
 						.content("""
-								{"version":0,"name":"%s","estimatedDurationMinutes":60,
-								 "pricingMode":"QUOTE_ONLY","active":false}""".formatted(name)))
+								{"version":0,"tradeId":"%s","name":"%s","estimatedDurationMinutes":60,
+								 "pricingMode":"QUOTE_ONLY","active":false}""".formatted(tradeId("PLUMBER"), name)))
 				.andExpect(status().isOk())
 				.andExpect(jsonPath("$.active").value(false));
 	}
 
-	/** Registers, creates a business, and returns the token that owns it. */
 	private RequestPostProcessor businessFor(String subject, String slug) throws Exception {
 		return BusinessFixtures.businessFor(mockMvc, subject, slug);
 	}
 
+	/**
+	 * For the tests below that are about a service's id, its position or its removal rather than
+	 * about which trade it sits under.
+	 */
 	private String createService(RequestPostProcessor token, String name) throws Exception {
-		String body = mockMvc.perform(post("/api/v1/me/business/services").with(token)
-						.contentType(MediaType.APPLICATION_JSON)
-						.content(serviceJson(name, null, "QUOTE_ONLY", null)))
-				.andExpect(status().isCreated())
-				.andReturn().getResponse().getContentAsString();
-
-		return JsonPath.read(body, "$.id");
+		return BusinessFixtures.givenAService(mockMvc, token, name);
 	}
 
-	/** Reads an id out of the live catalogue rather than hard-coding one from the migration. */
+	private UUID businessIdOf(String slug) {
+		return jdbc.queryForObject("SELECT id FROM business_profile WHERE slug = ?", UUID.class, slug);
+	}
+
+	private String claimPrimaryTrade(RequestPostProcessor token) throws Exception {
+		return BusinessFixtures.claimPrimaryTrade(mockMvc, token, "PLUMBER");
+	}
+
 	private String tradeId(String code) throws Exception {
-		String body = mockMvc.perform(get("/api/v1/trades"))
-				.andExpect(status().isOk())
-				.andReturn().getResponse().getContentAsString();
-
-		List<String> ids = JsonPath.read(body, "$[?(@.code=='" + code + "')].id");
-		if (ids.isEmpty()) {
-			throw new IllegalStateException("No trade " + code + " in the catalogue");
-		}
-
-		return ids.getFirst();
+		return BusinessFixtures.tradeId(mockMvc, code);
 	}
 
 	private static String tradesJson(String primary, String... additional) {
@@ -470,16 +719,6 @@ class TradesAndServicesTests {
 	}
 
 	private static String serviceJson(String name, String tradeId, String pricingMode, String price) {
-		return """
-				{
-				  "name": "%s",
-				  %s
-				  "estimatedDurationMinutes": 60,
-				  "pricingMode": "%s"%s
-				}""".formatted(
-				name,
-				tradeId == null ? "" : "\"tradeId\": \"" + tradeId + "\",",
-				pricingMode,
-				price == null ? "" : ",\n  \"price\": \"" + price + "\"");
+		return BusinessFixtures.serviceJson("", name, tradeId, pricingMode, price);
 	}
 }

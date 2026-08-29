@@ -31,16 +31,22 @@ public class BusinessService implements Businesses, OnboardingProgress {
 	private final CatalogStateRepository states;
 	private final CatalogTimeZoneRepository timeZones;
 	private final CalendarReadiness calendar;
+	private final Geocoder geocoder;
+	private final PublishService publishing;
 
 	BusinessService(BusinessProfileRepository repository,
 			CatalogStateRepository states,
 			CatalogTimeZoneRepository timeZones,
-			CalendarReadiness calendar) {
+			CalendarReadiness calendar,
+			Geocoder geocoder,
+			PublishService publishing) {
 
 		this.repository = repository;
 		this.states = states;
 		this.timeZones = timeZones;
 		this.calendar = calendar;
+		this.geocoder = geocoder;
+		this.publishing = publishing;
 	}
 
 	@Transactional(readOnly = true)
@@ -93,12 +99,42 @@ public class BusinessService implements Businesses, OnboardingProgress {
 	}
 
 	/**
-	 * @return whether the slug can currently be taken. A snapshot, not a reservation —
-	 *         two callers may hold the same answer at once, and the unique index decides.
+	 * Where the address in this write sits, resolved on every create and every replace.
+	 *
+	 * <p>Unconditionally, rather than only when the address changed. It is one indexed lookup, and
+	 * the alternative is a comparison that has to stay correct — a business that moves and keeps
+	 * its old point disappears from the searches it belongs in and appears in ones it does not,
+	 * with nothing about the profile looking wrong.
+	 *
+	 * <p><strong>{@code input.coordinates()} is deliberately not read.</strong> The contract offers
+	 * it as an override for a dragged map pin, but there is no pin to drag, and the wizard sends
+	 * the field on every save — it echoes back whatever the server last stored, so that saving
+	 * steps 1 and 2 does not wipe the coordinates. Honouring it would therefore mean honouring an
+	 * echo: the first geocode would freeze, and moving the business would never move the point.
+	 * A request cannot distinguish the two, so nothing here tries. The override becomes
+	 * implementable when a pin exists and the client can say it was moved.
+	 *
+	 * @return {@code null} when the address cannot be located, which stores no coordinates and is
+	 *         what the profile does today
+	 */
+	private Geocode locate(BusinessInput input) {
+		return geocoder.locate(input.address()).orElse(null);
+	}
+
+	/**
+	 * Answered for a caller rather than about the namespace in the abstract.
+	 *
+	 * <p>A business's own slug is not taken <em>from it</em>, so reporting it as unavailable to the
+	 * person who holds it would be a wrong answer rather than a conservative one. Asked here rather
+	 * than corrected by the client, which would be this rule re-implemented across the wire.
+	 *
+	 * @return whether the slug can currently be taken by this owner. A snapshot, not a
+	 *         reservation — two callers may hold the same answer at once, and the unique index
+	 *         decides.
 	 */
 	@Transactional(readOnly = true)
-	public boolean isSlugAvailable(String slug) {
-		return !repository.existsBySlug(slug);
+	public boolean isSlugAvailableFor(UUID ownerUserId, String slug) {
+		return !repository.existsBySlugAndOwnerUserIdNot(slug, ownerUserId);
 	}
 
 	/**
@@ -124,7 +160,7 @@ public class BusinessService implements Businesses, OnboardingProgress {
 		}
 
 		try {
-			return repository.saveAndFlush(new BusinessProfile(ownerUserId, input)).toDetails();
+			return repository.saveAndFlush(new BusinessProfile(ownerUserId, input, locate(input))).toDetails();
 		}
 		catch (DataIntegrityViolationException lostTheRace) {
 			if (Violations.broke(lostTheRace, Violations.BUSINESS_BY_OWNER)) {
@@ -171,16 +207,32 @@ public class BusinessService implements Businesses, OnboardingProgress {
 					"Your profile changed since you loaded it. Reload and apply your edit again.");
 		}
 
+		// Asked here for its position in the order, not because this is where the rule lives: it
+		// belongs to the transition and is enforced inside `apply` a few lines down, whichever
+		// caller gets there. Ahead of the time zone question because a request that changes both
+		// would otherwise be sent back to confirm a calendar move and then refused anyway.
+		profile.requireSlugStillOpen(input.slug());
 		requireTimeZoneChangeConfirmed(profile, input, timeZoneChangeConfirmed);
 
-		if (repository.existsBySlugAndOwnerUserIdNot(input.slug(), ownerUserId)) {
+		// Only when the slug is actually moving. An update is a full replacement, so the stored
+		// slug arrives back unchanged on nearly every save of steps 1 and 2 — and for a published
+		// profile the line above has just proved it is identical. The unique index is what makes
+		// this safe to skip: a real collision still comes back as the violation caught below.
+		if (profile.slugWouldMove(input.slug())
+				&& repository.existsBySlugAndOwnerUserIdNot(input.slug(), ownerUserId)) {
 			throw new SlugTakenException(input.slug());
 		}
 
-		profile.apply(input);
+		// Read before the change, because that is the question: was this profile bookable a moment
+		// ago, and would it still be. Cheap for a draft, which is most saves — `isBookable` answers
+		// on the status without running the checklist at all.
+		boolean wasBookable = publishing.isBookable(profile.id(), profile.status());
 
+		profile.apply(input, locate(input));
+
+		BusinessDetails saved;
 		try {
-			return Optional.of(repository.saveAndFlush(profile).toDetails());
+			saved = repository.saveAndFlush(profile).toDetails();
 		}
 		catch (DataIntegrityViolationException lostTheRace) {
 			// Only the slug index is reachable from here: this path updates a row rather than
@@ -191,6 +243,15 @@ public class BusinessService implements Businesses, OnboardingProgress {
 
 			throw lostTheRace;
 		}
+
+		// After the write, so the checklist reads the profile as it would stand. Until
+		// ADDRESS_GEOCODED there was nothing here for it to catch — none of the other conditions
+		// live in steps 1 and 2 — and a live profile whose postal code stopped resolving would
+		// have stayed published, complete-looking, and in no radius search at all. Throwing rolls
+		// the address back with the transaction.
+		publishing.requireStillBookable(profile.id(), wasBookable);
+
+		return Optional.of(saved);
 	}
 
 	/**

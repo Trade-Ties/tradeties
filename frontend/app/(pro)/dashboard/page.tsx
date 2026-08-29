@@ -4,13 +4,12 @@ export default async function DashboardPage() {
   const { user } = await portalSession();
 
   return (
-    <div className="mx-auto w-full max-w-5xl px-6 py-16">
+    <div className="w-full max-w-5xl px-8 py-10">
       <h1 className="text-3xl font-semibold tracking-tight">
         Welcome{user.firstName ? `, ${user.firstName}` : ""}
       </h1>
-      <p className="mt-3 text-muted-foreground">
-        Your business account is active. This is where your calendar and incoming requests
-        will live.
+      <p>
+        This is your dashboard. This is wehere the calendar, inbox and other details are displayed. 
       </p>
     </div>
   );

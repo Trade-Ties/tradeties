@@ -24,6 +24,6 @@ class CalendarReadinessAdapter implements CalendarReadiness {
 	@Override
 	@Transactional(readOnly = true)
 	public boolean hasWorkingHours(UUID businessId) {
-		return !hours.findByBusinessId(businessId).isEmpty();
+		return hours.existsByBusinessId(businessId);
 	}
 }

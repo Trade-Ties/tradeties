@@ -1,5 +1,5 @@
-import Link from "next/link";
-
+import { AppSidebar } from "@/components/app-sidebar";
+import { SidebarInset, SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { isTradesperson } from "@/lib/api/identity";
 import { portalSession } from "@/lib/portal/session";
 
@@ -13,38 +13,28 @@ export default async function DashboardLayout({ children }: { children: React.Re
   }
 
   return (
-    <div className="flex min-h-screen flex-col">
-      <header className="border-b border-border">
-        <div className="mx-auto flex w-full max-w-5xl items-center justify-between px-6 py-4">
-          <div className="flex items-baseline gap-3">
-            <Link href="/" className="text-lg font-semibold tracking-tight">
-              TradeTies
-            </Link>
-            <span className="text-sm text-muted-foreground">Portal</span>
-          </div>
+    <SidebarProvider
+      style={
+        { "--sidebar-width-icon": "3.5rem", "--portal-header": "3.25rem" } as React.CSSProperties
+      }
+    >
+      <AppSidebar user={user} />
 
-          <div className="flex items-center gap-4">
-            <span className="hidden text-sm text-muted-foreground sm:inline">{user.email}</span>
-            <form action={signOutFromPortal}>
-              <button
-                type="submit"
-                className="rounded-md border border-border px-3 py-1.5 text-sm font-medium transition-colors hover:bg-accent hover:text-accent-foreground"
-              >
-                Sign out
-              </button>
-            </form>
-          </div>
-        </div>
-      </header>
+      <SidebarInset>
+        {/* On mobile the sidebar is a sheet, and this trigger is the only way to open it. */}
+        <header className="flex h-(--portal-header) items-center border-b border-border px-4">
+          <SidebarTrigger />
+        </header>
 
-      <main className="flex-1">{children}</main>
-    </div>
+        <div className="flex-1">{children}</div>
+      </SidebarInset>
+    </SidebarProvider>
   );
 }
 
 /**
- * Signed in without a business role because registration failed or the token was rejected.
- * Offer a way out instead of an empty dashboard; keep the user-facing message cause-neutral.
+ * Rendered when the session carries no business role — registration failed, or the token was
+ * rejected. The two are indistinguishable here, so the message names no cause.
  */
 function RegistrationIncomplete({ email }: { email: string | null }) {
   return (

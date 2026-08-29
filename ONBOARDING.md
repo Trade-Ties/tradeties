@@ -34,7 +34,7 @@ Register `http://localhost:3000/callback` as a redirect URI in the WorkOS dashbo
 Details are in the [README](README.md#getting-started).
 
 Finally, prove the checkout is healthy before you change anything. Start Docker Desktop first
-— the backend tests provision PostgreSQL through Testcontainers:
+— the backend tests provision PostgreSQL themselves and need it:
 
 ```bash
 pnpm install
@@ -172,8 +172,8 @@ fill in all four:
 | **How to test it** | the steps someone follows to see it work. "CI is green" is not a test plan |
 | **Risk** | what breaks if this is wrong, and who notices. "Low, UI only" is a fine answer when true |
 
-**Why** and **Contract impact** are the draft of your merge message — you will paste them
-again in step 7, so write them properly now.
+All four are the draft of your merge message — you will paste them again in step 7,
+headings included, so write them properly now.
 
 ---
 
@@ -215,8 +215,8 @@ and rebase are off on purpose.
 GitHub's merge dialog has two fields:
 
 - **Title** — describes the *feature*, not the edits.
-- **Second field** — a full body, not a subtitle. Paste your **Why** and **Contract impact**
-  here. If you split the change into several commits, say why.
+- **Second field** — a full body, not a subtitle. Paste all four sections from the pull
+  request, headings included. If you split the change into several commits, say why.
 
 No file names, no function names, no list of the commits. Those are one `git log` away. The
 merge message carries the part that is nowhere else.
@@ -238,6 +238,9 @@ Actions. See [BRANCHING.md](BRANCHING.md) — you do not need it for day-to-day 
 
 - **Docker must be running** for anything touching the backend — tests and
   `spring-boot:test-run` both need it.
+- **`spring-boot:test-run` throws your data away**, and **port 5432 may already be taken**
+  by a natively installed PostgreSQL. Both bite on the first day and both are covered in
+  [infra/README.md](infra/README.md) — read it before you start entering data.
 - **Never commit `.env` files.** They are ignored repo-wide; commit the `.env.example`
   template instead.
 - **Never commit generated sources.** `frontend/lib/api/schema.d.ts` and everything under

@@ -1,132 +1,93 @@
-import { Input } from "@/components/ui/input";
-import { Switch } from "@/components/ui/switch";
+import { FieldGrid, SelectField, toOptions } from "@/components/ui/field";
+import { CountField } from "../AmountField";
+import { BOOKING_HORIZON_MAX, BOOKING_HORIZON_MIN } from "../limits";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import { FieldRow } from "../FieldRow";
-import {
+  BUFFER_OPTIONS,
   MINIMUM_NOTICE_OPTIONS,
   START_TIME_GRID_OPTIONS,
-  BUFFER_OPTIONS,
-} from "../constants";
-import type { StepProps, BookingPrefs } from "../types";
+} from "../options";
+import type { BookingPolicyForm, StepProps } from "../types";
 
-export function BookingStep({ data, update }: StepProps<BookingPrefs>) {
+const GRID_OPTIONS = toOptions(START_TIME_GRID_OPTIONS, (m) => `${m} minutes`);
+const TRAVEL_TIME_OPTIONS = toOptions(BUFFER_OPTIONS, (m) =>
+  m === 0 ? "None" : `${m} minutes`
+);
+
+export function BookingStep({ data, update }: StepProps<BookingPolicyForm>) {
   return (
-    <div className="space-y-5">
-      <FieldRow label="Bookable up to *" hint="How far ahead clients can book">
-        <div className="relative w-56">
-          <Input
-            value={String(data.bookableAheadDays)}
-            onChange={(e) => {
-              const digits = e.target.value.replace(/[^\d]/g, "");
-              const n = digits === "" ? 0 : Math.min(730, Number(digits));
-              update({ ...data, bookableAheadDays: n });
-            }}
-            onBlur={() => {
-              // Clamp into the valid 1–730 range once they're done typing.
-              if (data.bookableAheadDays < 1) update({ ...data, bookableAheadDays: 1 });
-            }}
-            inputMode="numeric"
-            className="pr-28"
-          />
-          <span className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm">
-            days in advance
-          </span>
-        </div>
-      </FieldRow>
+    <>
+      <FieldGrid columns={3}>
+        <CountField
+          label="Bookable up to"
+          required
+          suffix="days"
+          hint={`How far ahead the calendar is open. ${BOOKING_HORIZON_MAX} at most.`}
+          value={data.bookingHorizonDays}
+          // The ceiling is safe to apply per keystroke — it can only ever shorten what is
+          // already there. The floor is not, which is why an empty box stays empty here.
+          onValueChange={(digits) =>
+            update({
+              ...data,
+              bookingHorizonDays:
+                digits === "" ? "" : String(Math.min(BOOKING_HORIZON_MAX, Number(digits))),
+            })
+          }
+          // Clamped on the way out rather than on each keystroke: a floor applied while typing
+          // turns the empty box you just cleared back into a 1 under the cursor.
+          onBlur={() => {
+            const days = Number(data.bookingHorizonDays);
+            if (data.bookingHorizonDays === "" || days < BOOKING_HORIZON_MIN) {
+              update({ ...data, bookingHorizonDays: String(BOOKING_HORIZON_MIN) });
+            }
+          }}
+        />
 
-      <FieldRow label="Minimum notice *" hint="Shortest warning you'll accept before a job">
-        <Select
-          value={String(data.minimumNoticeHours)}
-          onValueChange={(v) => update({ ...data, minimumNoticeHours: Number(v ?? 24) })}
-        >
-          <SelectTrigger className="w-56">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {MINIMUM_NOTICE_OPTIONS.map((o) => (
-              <SelectItem key={o.value} value={String(o.value)}>
-                {o.label}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </FieldRow>
+        <SelectField
+          label="Minimum notice"
+          required
+          hint="Shortest warning you'll take a job on."
+          options={MINIMUM_NOTICE_OPTIONS}
+          value={data.minLeadTimeHours}
+          onValueChange={(minLeadTimeHours) => update({ ...data, minLeadTimeHours })}
+        />
 
-      <FieldRow label="Appointments per day">
-        <div className="space-y-3">
-          <label className="flex items-center gap-3 text-sm cursor-pointer">
-            <Switch
-              checked={data.unlimitedPerDay}
-              onCheckedChange={(v) =>
-                update({ ...data, unlimitedPerDay: v, maxPerDay: v ? "" : data.maxPerDay })
-              }
-            />
-            Unlimited
-          </label>
+        <SelectField
+          label="Start times every"
+          required
+          hint="The minutes a job may start on."
+          options={GRID_OPTIONS}
+          value={data.slotGranularityMinutes}
+          onValueChange={(slotGranularityMinutes) =>
+            update({ ...data, slotGranularityMinutes })
+          }
+        />
+      </FieldGrid>
 
-          {!data.unlimitedPerDay && (
-            <Input
-              value={data.maxPerDay}
-              onChange={(e) =>
-                update({ ...data, maxPerDay: e.target.value.replace(/[^\d]/g, "") })
-              }
-              placeholder="e.g. 4"
-              inputMode="numeric"
-              className="w-32"
-            />
-          )}
-        </div>
-      </FieldRow>
+      <FieldGrid columns={3}>
+        <SelectField
+          label="Travel time"
+          required
+          hint="Held open between two jobs."
+          options={TRAVEL_TIME_OPTIONS}
+          value={data.appointmentBufferMinutes}
+          onValueChange={(appointmentBufferMinutes) =>
+            update({ ...data, appointmentBufferMinutes })
+          }
+        />
 
-      <FieldRow
-        label="Start time grid *"
-        hint="Appointments can only start on these intervals"
-      >
-        <div className="grid grid-cols-3 gap-1 rounded-lg border p-1 max-w-sm">
-          {START_TIME_GRID_OPTIONS.map((m) => {
-            const active = data.startTimeGridMinutes === m;
-            return (
-              <button
-                key={m}
-                type="button"
-                onClick={() => update({ ...data, startTimeGridMinutes: m })}
-                className={[
-                  "rounded-md px-3 py-1.5 text-sm font-medium transition-colors",
-                  active
-                    ? "bg-primary text-primary-foreground"
-                    : "text-muted-foreground hover:bg-muted",
-                ].join(" ")}
-              >
-                {m} min
-              </button>
-            );
-          })}
-        </div>
-      </FieldRow>
-
-      <FieldRow label="Travel time *" hint="Buffer held open between appointments">
-        <Select
-          value={String(data.bufferMinutes)}
-          onValueChange={(v) => update({ ...data, bufferMinutes: Number(v ?? 0) })}
-        >
-          <SelectTrigger className="w-56">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {BUFFER_OPTIONS.map((m) => (
-              <SelectItem key={m} value={String(m)}>
-                {m === 0 ? "None" : `${m} minutes`}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </FieldRow>
-    </div>
+        {/* Empty is the answer for "no cap" — the contract's own "unlimited" flag is computed
+            from this on the way to the wire rather than stored beside it, so the two cannot
+            come to disagree. */}
+        <CountField
+          label="Appointments per day"
+          placeholder="No limit"
+          hint="Leave empty to take as many as fit."
+          value={data.maxAcceptedAppointmentsPerDay}
+          onValueChange={(maxAcceptedAppointmentsPerDay) =>
+            update({ ...data, maxAcceptedAppointmentsPerDay })
+          }
+        />
+      </FieldGrid>
+    </>
   );
 }

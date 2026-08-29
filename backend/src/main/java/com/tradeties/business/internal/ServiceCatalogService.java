@@ -15,7 +15,6 @@ import com.tradeties.business.OnboardingStep;
 import com.tradeties.business.ServiceDefinition;
 import com.tradeties.business.ServiceDetails;
 import com.tradeties.business.ServiceNameTakenException;
-import com.tradeties.business.ServiceUsage;
 import com.tradeties.business.StaleVersionException;
 
 import org.springframework.dao.DataIntegrityViolationException;
@@ -37,17 +36,20 @@ public class ServiceCatalogService {
 	private final BusinessProfileRepository businesses;
 	private final ServiceOfferingRepository services;
 	private final BusinessTradeRepository trades;
-	private final ServiceUsage usage;
+	private final ServiceRemoval removal;
+	private final PublishService publishing;
 
 	ServiceCatalogService(BusinessProfileRepository businesses,
 			ServiceOfferingRepository services,
 			BusinessTradeRepository trades,
-			ServiceUsage usage) {
+			ServiceRemoval removal,
+			PublishService publishing) {
 
 		this.businesses = businesses;
 		this.services = services;
 		this.trades = trades;
-		this.usage = usage;
+		this.removal = removal;
+		this.publishing = publishing;
 	}
 
 	@Transactional(readOnly = true)
@@ -120,41 +122,37 @@ public class ServiceCatalogService {
 	}
 
 	/**
-	 * Either way the caller's intent — "stop offering this" — is satisfied. The row has to
-	 * survive when an appointment names it: a service that vanishes takes the history of every job
-	 * that used it with it.
+	 * Either way the caller's intent — "stop offering this" — is satisfied. Which of the two
+	 * happens is {@link ServiceRemoval}'s to decide, so that a trade being given up removes the
+	 * services filed under it by the same rule.
 	 *
-	 * <p><strong>The question is asked, not attempted.</strong> Trying the delete and catching the
-	 * foreign key violation cannot work: PostgreSQL aborts the entire transaction on a failed
-	 * statement, so the fallback would run where not even a bare {@code SELECT 1} is permitted
-	 * ({@code SQLSTATE 25P02}).
-	 *
-	 * <p>The row is locked before the question is put, so the answer cannot go stale between asking
+	 * <p>The row is locked before it is handed over, so the answer cannot go stale between asking
 	 * and acting — see {@code ServiceOfferingRepository#lockByIdAndBusinessId}.
 	 */
 	@Transactional
-	public boolean removeForOwner(UUID ownerUserId, UUID serviceId) {
-		Optional<UUID> businessId = businessIdOf(ownerUserId);
-		if (businessId.isEmpty()) {
+	public boolean removeForOwner(UUID ownerUserId, UUID serviceId, boolean unpublishConfirmed) {
+		Optional<BusinessProfile> owned = businesses.findByOwnerUserId(ownerUserId);
+		if (owned.isEmpty()) {
 			return false;
 		}
-		UUID business = businessId.get();
+		BusinessProfile business = owned.get();
 
-		Optional<ServiceOffering> found = services.lockByIdAndBusinessId(serviceId, business);
+		Optional<ServiceOffering> found = services.lockByIdAndBusinessId(serviceId, business.id());
 		if (found.isEmpty()) {
 			return false;
 		}
 
-		ServiceOffering service = found.get();
-		if (usage.isReferenced(serviceId)) {
-			service.deactivate();
-			services.saveAndFlush(service);
-		}
-		else {
-			services.delete(service);
-		}
+		// Read before the removal, because afterwards there is nothing left to read it from.
+		boolean wasBookable = publishing.isBookable(business.id(), business.status());
 
-		recordStepReached(business);
+		removal.removeAll(List.of(found.get()));
+		services.flush();
+
+		// Asked rather than refused, which is the opposite of what a trade change gets and
+		// deliberately so — see `unpublishIfNoLongerBookable`.
+		publishing.unpublishIfNoLongerBookable(business, wasBookable, unpublishConfirmed);
+
+		recordStepReached(business.id());
 		return true;
 	}
 
@@ -165,8 +163,8 @@ public class ServiceCatalogService {
 	 *
 	 * <p><strong>Every service is renumbered, not only the ones the client named.</strong> The named
 	 * active ones take the front in the order given, and the deactivated ones follow behind, keeping
-	 * the relative order they already had. Leaving the latter on their old numbers is what let them
-	 * collide with a freshly renumbered active one.
+	 * the relative order they already had. Left on their old numbers they would collide with a
+	 * freshly renumbered active one.
 	 */
 	@Transactional
 	public Optional<List<ServiceDetails>> reorderForOwner(UUID ownerUserId, List<UUID> orderedIds) {
@@ -287,15 +285,19 @@ public class ServiceCatalogService {
 	}
 
 	/**
-	 * A service may only be filed under a trade the business actually holds. The composite
-	 * foreign key guarantees it; this check is what turns the guarantee into a message that
-	 * says which trade was wrong.
+	 * Every service sits under exactly one trade, and only under a trade the business actually
+	 * holds. The composite foreign key guarantees both; this check is what turns the guarantee
+	 * into a message that says which trade was wrong.
+	 *
+	 * <p>The null case is stated here as well as in the contract. These are public service
+	 * methods, and a missing trade that reached the insert would arrive as a NOT NULL violation
+	 * naming a column instead of a 400 naming the field.
 	 */
 	private void requireHeldTrade(UUID businessId, UUID tradeId) {
 		if (tradeId == null) {
-			return;
+			throw new InvalidSelectionException("A service must name the trade it sits under");
 		}
-		if (!trades.existsByIdBusinessIdAndIdTradeId(businessId, tradeId)) {
+		if (!trades.existsByIdBusinessIdAndIdTradeIdAndDeletedAtIsNull(businessId, tradeId)) {
 			throw new InvalidSelectionException("This business does not hold the trade " + tradeId);
 		}
 	}

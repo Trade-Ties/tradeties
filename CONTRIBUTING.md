@@ -173,6 +173,40 @@ a file sits, which git already knows from the path. Use `build`/`chore` for tool
 Good bodies answer: what was wrong, why the obvious alternative was rejected, what a
 reviewer would otherwise assume incorrectly, and why an odd-looking hunk is in the diff.
 
+### The four sections
+
+The message that lands on `main` — the merge message, or the commit message itself when a
+change is one commit — carries the four headings of the
+[pull request template](.github/pull_request_template.md):
+
+```
+## Why
+
+Prose, wrapped at 72. Problem first, then the decision. Feature altitude:
+name things by the role they play, not by the path they sit at. More than
+one commit, or deliberately only one? Say so, in its own paragraph.
+
+## Contract impact
+
+None
+
+## How to test it
+
+The steps somebody follows to see this work, in the order they follow them.
+
+## Risk
+
+What breaks if this is wrong, and who notices.
+```
+
+All four, filled in, every time. **How to test it** and **Risk** are not review scaffolding
+that gets dropped at merge time — they are worth more in `git log` a month later, when the
+change is under suspicion or the Promote button is asking about a migration, than they were
+in the review that week.
+
+The commits *inside* a branch keep the plain body above. They explain their own diff; the
+four sections are the record of a change arriving on `main`.
+
 ### Breaking changes
 
 Mark them twice — in the header and in a footer:
@@ -249,7 +283,8 @@ underneath it as well — which is why **Create a merge commit** is the only mer
 repository leaves enabled, in the settings and again in the ruleset.
 
 GitHub's merge dialog takes the message. The second field is a full body, not a subtitle:
-paste the same text you would have passed to `git commit -F`.
+paste all four sections of the template into it, headings and all — the same text you would
+have passed to `git commit -F`.
 
 ---
 
@@ -283,10 +318,12 @@ count, and it expires with it.
   with `git diff --cached --name-status` — a deletion appears as `D`.
 - **`.env` files are ignored repo-wide.** Commit `frontend/.env.example` instead; the
   `!.env.example` exception in `frontend/.gitignore` is what allows it.
-- **Docker must run** for anything that touches the backend — tests and
-  `spring-boot:test-run` provision PostgreSQL through Testcontainers.
-- **Never commit generated sources.** Backend generates into `target/`, frontend into
-  `lib/api/`. Both are ignored.
+- **Docker must run** for anything that touches the backend — every way of getting
+  PostgreSQL needs it. See [infra/README.md](infra/README.md).
+- **Never commit generated sources.** The backend generates into `backend/target/`, the frontend
+  into `frontend/lib/api/schema.d.ts`. Both are ignored. Note the file, not the directory:
+  everything else under `frontend/lib/api/` is hand-written — the typed client, the failure
+  shapes, the per-resource callers — and is committed like any other source.
 
 ---
 
@@ -376,7 +413,8 @@ would have had to land as a single commit.
 ### The merge message it shipped with
 
 A merge message describes the *feature*, not the edits, and records why the split was
-allowed. This is the real one, abridged:
+allowed. This is the real one, abridged. It predates the four sections, so read it as the
+`## Why` of a message that today carries three more headings beside it:
 
 ```
 Merge branch 'feat/tradesperson-identity'
@@ -399,3 +437,7 @@ as a single commit instead.
 Note what it does not contain: file names, function names, or a list of the commits. Those
 are one `git log` away. The message carries the part that is nowhere else — why the feature
 exists and why it landed in this shape.
+
+Written today it would keep that text under `## Why` and add the other three: `Additive`
+under **Contract impact**, the sign-in at `/portal` through to the dashboard under **How to
+test it**, and the WorkOS round trip as the part that breaks loudly under **Risk**.

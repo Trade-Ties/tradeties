@@ -7,16 +7,25 @@ import { withAuth } from "@workos-inc/authkit-nextjs";
 import { fetchCurrentUser } from "@/lib/api/identity";
 
 /**
- * Returns the authenticated WorkOS user and their TradeTies roles, redirecting if unsigned.
- * Cached so layouts and pages share one backend call per request.
+ * The caller's access token, without the roles that come with it.
+ *
+ * Split out so a page's data fetches can start without waiting for `/api/v1/me`: the roles gate
+ * what is rendered, not what may be fetched. `withAuth` only reads the session the proxy put on
+ * the request, so asking for it twice costs nothing.
  */
+export const portalToken = cache(async () => {
+  const { accessToken } = await withAuth({ ensureSignedIn: true });
+
+  return accessToken;
+});
+
+/** The signed-in user and their TradeTies roles. Redirects instead of returning if unsigned. */
 export const portalSession = cache(async () => {
   const { user, accessToken } = await withAuth({ ensureSignedIn: true });
 
   return {
     user,
     accessToken,
-    /** `null` if the backend was unreachable; empty roles if signed in but not registered. */
     marketplaceUser: await fetchCurrentUser(accessToken),
   };
 });

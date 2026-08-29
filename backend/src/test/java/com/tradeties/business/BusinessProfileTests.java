@@ -152,8 +152,8 @@ class BusinessProfileTests {
 	 * every {@code 400} in {@code openapi.yaml} that points at the {@code Problem} schema
 	 * becomes a promise the API does not keep.
 	 *
-	 * <p>That setting was switched off once and nothing in 130-odd tests noticed, because they
-	 * all stop at the status code. This line is what notices.
+	 * <p>Nothing else notices if that setting is switched off: every other test here stops at the
+	 * status code.
 	 */
 	@Test
 	void aPayloadThatViolatesTheContractIsRejectedBeforeTheDatabase() throws Exception {
@@ -239,20 +239,36 @@ class BusinessProfileTests {
 				.andExpect(status().isConflict());
 	}
 
+	/**
+	 * Availability is a question about the caller, not about the namespace in the abstract.
+	 *
+	 * <p>The slug a business already holds is not taken <em>from it</em>, and the update of steps 1
+	 * and 2 is a full replacement — the slug arrives on every write whether or not anybody
+	 * touched it. Answering "unavailable" to the holder would have the URL field report the
+	 * business's own address as gone, which is a wrong answer rather than a cautious one. It is
+	 * still taken for everybody else, which is the half a unique index alone would give.
+	 */
 	@Test
-	void theSlugCheckFollowsWhatIsStored() throws Exception {
-		RequestPostProcessor token = registeredTradesperson("user_checks_slug");
+	void theSlugCheckAnswersForTheCaller() throws Exception {
+		RequestPostProcessor holder = registeredTradesperson("user_checks_slug");
 
-		mockMvc.perform(get("/api/v1/me/business/slug-available").with(token).param("slug", "still-free"))
+		mockMvc.perform(get("/api/v1/me/business/slug-available").with(holder).param("slug", "still-free"))
 				.andExpect(status().isOk())
 				.andExpect(jsonPath("$.available").value(true));
 
-		mockMvc.perform(post("/api/v1/me/business").with(token)
+		mockMvc.perform(post("/api/v1/me/business").with(holder)
 						.contentType(MediaType.APPLICATION_JSON)
 						.content(profileJson("still-free")))
 				.andExpect(status().isCreated());
 
-		mockMvc.perform(get("/api/v1/me/business/slug-available").with(token).param("slug", "still-free"))
+		mockMvc.perform(get("/api/v1/me/business/slug-available").with(holder).param("slug", "still-free"))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.available").value(true));
+
+		RequestPostProcessor somebodyElse = registeredTradesperson("user_wants_that_slug");
+
+		mockMvc.perform(
+				get("/api/v1/me/business/slug-available").with(somebodyElse).param("slug", "still-free"))
 				.andExpect(status().isOk())
 				.andExpect(jsonPath("$.available").value(false));
 	}

@@ -2,6 +2,7 @@ package com.tradeties.business;
 
 import java.net.URI;
 
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ProblemDetail;
@@ -21,16 +22,38 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 class BusinessExceptionHandler {
 
 	/**
-	 * The only RFC 9457 {@code type} this module hands out, because this is the one 409 a client has
-	 * to tell apart from the rest: it is answered by asking the tradesperson and sending the request
-	 * again, not by showing the message. A client matching on {@code detail} instead would break the
-	 * first time somebody reworded a sentence written for people.
+	 * A {@code type} of its own, because this 409 is answered by asking the tradesperson and sending
+	 * the request again rather than by showing the message. A client matching on {@code detail}
+	 * instead would break the first time somebody reworded a sentence written for people.
 	 *
-	 * <p>A URN rather than an https URL, because nothing is served at the other end and a URL would
-	 * promise that something is.
+	 * <p>A URN rather than an https URL, because nothing is served at the other end.
 	 */
 	private static final URI UNCONFIRMED_TIME_ZONE_CHANGE =
 			URI.create("urn:tradeties:problem:unconfirmed-time-zone-change");
+
+	/**
+	 * A {@code type} of its own for the same reason {@link #UNCONFIRMED_TIME_ZONE_CHANGE} has one:
+	 * the client answers this by asking a question and sending the request again.
+	 */
+	private static final URI UNCONFIRMED_UNPUBLISH =
+			URI.create("urn:tradeties:problem:unconfirmed-unpublish");
+
+	private static final URI SLUG_LOCKED = URI.create("urn:tradeties:problem:slug-locked");
+
+	/**
+	 * Where a published profile lives, for the one message that has to name the whole address.
+	 *
+	 * <p>Configured rather than compiled into the domain: which host serves a profile is a
+	 * deployment's answer — staging, a rename, a per-environment domain. Here because this class is
+	 * the edge where a domain refusal becomes something written for a client. The wizard keeps its
+	 * own copy for composing links, which is the one thing these two cannot share.
+	 */
+	private final String profileUrlPrefix;
+
+	BusinessExceptionHandler(
+			@Value("${tradeties.profile-url-prefix}") String profileUrlPrefix) {
+		this.profileUrlPrefix = profileUrlPrefix;
+	}
 
 	@ExceptionHandler(BusinessAlreadyExistsException.class)
 	ProblemDetail handleAlreadyExists(BusinessAlreadyExistsException exception) {
@@ -43,10 +66,31 @@ class BusinessExceptionHandler {
 	}
 
 	/**
-	 * A version conflict this module raised itself, so the message is one we wrote and goes out as
-	 * it stands. That is the difference from {@link #handleConcurrentWrite}, and the whole reason
-	 * {@link StaleVersionException} exists — this module raises version conflicts about five
-	 * different things, and one shared sentence was right for only one of them.
+	 * A {@code type} of its own, because there is something for the client to do about it.
+	 *
+	 * <p>Reaching here means the client's {@code slugLocked} is stale — a second tab published
+	 * while this one was open. Told only in prose it cannot learn that, so it goes on holding the
+	 * refused slug and every later save of steps 1 and 2 is refused identically. Told by
+	 * {@code type}, it re-reads the profile and puts the stored URL back.
+	 *
+	 * <p>The stored slug stays in the sentence rather than becoming an extension member: the
+	 * message has to read on its own for any client, and the wizard has the value from the re-read.
+	 */
+	@ExceptionHandler(SlugLockedException.class)
+	ProblemDetail handleSlugLocked(SlugLockedException exception) {
+		ProblemDetail problem = conflict("Your profile URL was fixed when you published. "
+				+ profileUrlPrefix + exception.storedSlug()
+				+ " is the address your customers have, so it cannot be changed here.");
+		problem.setTitle("Profile URL is fixed");
+		problem.setType(SLUG_LOCKED);
+		return problem;
+	}
+
+	/**
+	 * A version conflict this module raised itself, so the message is one written here and goes out
+	 * as it stands. That is the difference from {@link #handleConcurrentWrite}, and the reason
+	 * {@link StaleVersionException} exists: this module raises version conflicts about five
+	 * different things, and one shared sentence fits only one of them.
 	 */
 	@ExceptionHandler(StaleVersionException.class)
 	ProblemDetail handleStaleVersion(StaleVersionException exception) {
@@ -103,8 +147,26 @@ class BusinessExceptionHandler {
 		return problem;
 	}
 
+	@ExceptionHandler(UnconfirmedUnpublishException.class)
+	ProblemDetail handleUnconfirmedUnpublish(UnconfirmedUnpublishException exception) {
+		ProblemDetail problem = conflict(exception.getMessage());
+		problem.setTitle("Unconfirmed unpublish");
+		problem.setType(UNCONFIRMED_UNPUBLISH);
+		return problem;
+	}
+
 	@ExceptionHandler(ProfileSuspendedException.class)
 	ProblemDetail handleSuspended(ProfileSuspendedException exception) {
+		return conflict(exception.getMessage());
+	}
+
+	/**
+	 * A conflict rather than the 422 below, although both are about the checklist. This one
+	 * refuses a write that was not asking to publish, and the whole answer is the sentence — see
+	 * {@link LiveProfileNotReadyException} for why the two are not one exception.
+	 */
+	@ExceptionHandler(LiveProfileNotReadyException.class)
+	ProblemDetail handleLiveProfileNotReady(LiveProfileNotReadyException exception) {
 		return conflict(exception.getMessage());
 	}
 
