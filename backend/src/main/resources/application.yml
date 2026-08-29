@@ -43,14 +43,6 @@ spring:
     default-property-inclusion: non_null
     time-zone: UTC
 
-  # Applies to the one outbound client there is, the Census geocoder. Short on purpose: the
-  # caller's fallback is the ZIP centroid it already has, so waiting is worth less than
-  # giving up and trying again on the next pass.
-  http:
-    client:
-      connect-timeout: 3s
-      read-timeout: 10s
-
   security:
     oauth2:
       resourceserver:
@@ -86,6 +78,12 @@ tradeties:
   # test or an air-gapped environment can point it somewhere that is not the internet.
   census:
     base-url: ${CENSUS_GEOCODER_URL:https://geocoding.geo.census.gov}
+
+    # Short on purpose. The caller already holds a usable point, so waiting is worth less
+    # than giving up and trying again on the next pass. Read by CensusClientConfiguration,
+    # which explains why they are not spring.http.client.* properties.
+    connect-timeout: 3s
+    read-timeout: 10s
 
     # The background pass that sharpens ZIP centroids into address-level points. It never
     # blocks anything -- every profile already has a point -- so the numbers below are about
