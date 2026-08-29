@@ -20,14 +20,14 @@ import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.RequestBuilder;
 import org.springframework.test.web.servlet.request.RequestPostProcessor;
 
 /**
  * Onboarding step 9 — the checklist, and the two moves it guards.
  *
  * <p>None of it is a database constraint, because none of it is a rule about a stored row: a
- * draft mid-edit may fail every line here and still be a valid profile. Most of the conditions
- * additionally read from two tables, which no CHECK can do.
+ * draft mid-edit may fail every line here and still be a valid profile.
  *
  * <p>The profile URL is moved by the same call and is not here: see {@link SlugFreezeTests}.
  */
@@ -460,32 +460,10 @@ class PublishTests {
 		mockMvc.perform(moveRequest(token, slug, postalCode)).andExpect(status().isOk());
 	}
 
-	private org.springframework.test.web.servlet.RequestBuilder moveRequest(
-			RequestPostProcessor token, String slug, String postalCode) throws Exception {
+	private RequestBuilder moveRequest(RequestPostProcessor token, String slug, String postalCode)
+			throws Exception {
 
-		String stored = mockMvc.perform(get("/api/v1/me/business").with(token))
-				.andExpect(status().isOk())
-				.andReturn().getResponse().getContentAsString();
-
-		return put("/api/v1/me/business").with(token)
-						.contentType(MediaType.APPLICATION_JSON)
-						.content("""
-								{
-								  "version": %s,
-								  "slug": "%s",
-								  "legalName": "Acme Plumbing LLC",
-								  "displayName": "Acme Plumbing",
-								  "phone": "+13035550101",
-								  "email": "dispatch@acme.example",
-								  "address": {
-								    "street1": "123 Main St",
-								    "city": "Denver",
-								    "state": "CO",
-								    "postalCode": "%s"
-								  },
-								  "timeZone": "America/Denver",
-								  "serviceRadiusMiles": 25
-								}""".formatted(JsonPath.read(stored, "$.version").toString(), slug, postalCode));
+		return BusinessFixtures.moveRequest(mockMvc, token, slug, postalCode);
 	}
 
 	private RequestPostProcessor businessFor(String subject, String slug) throws Exception {

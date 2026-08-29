@@ -375,29 +375,7 @@ class GeocodeRefinerTests {
 	 * version first rather than assuming it.
 	 */
 	private void moveTo(RequestPostProcessor token, String slug, String postalCode) throws Exception {
-		String stored = mockMvc.perform(get("/api/v1/me/business").with(token))
-				.andExpect(status().isOk())
-				.andReturn().getResponse().getContentAsString();
-
-		mockMvc.perform(put("/api/v1/me/business").with(token)
-						.contentType(MediaType.APPLICATION_JSON)
-						.content("""
-								{
-								  "version": %s,
-								  "slug": "%s",
-								  "legalName": "Acme Plumbing LLC",
-								  "displayName": "Acme Plumbing",
-								  "phone": "+13035550101",
-								  "email": "dispatch@acme.example",
-								  "address": {
-								    "street1": "123 Main St",
-								    "city": "Denver",
-								    "state": "CO",
-								    "postalCode": "%s"
-								  },
-								  "timeZone": "America/Denver",
-								  "serviceRadiusMiles": 25
-								}""".formatted(JsonPath.read(stored, "$.version").toString(), slug, postalCode)))
+		mockMvc.perform(BusinessFixtures.moveRequest(mockMvc, token, slug, postalCode))
 				.andExpect(status().isOk());
 	}
 

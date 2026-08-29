@@ -473,7 +473,6 @@ class BusinessController implements BusinessApi {
 				request.getPhone(),
 				request.getEmail(),
 				toDomain(request.getAddress()),
-				toDomain(request.getCoordinates()),
 				request.getTimeZone(),
 				request.getServiceRadiusMiles());
 	}
@@ -488,7 +487,6 @@ class BusinessController implements BusinessApi {
 				request.getPhone(),
 				request.getEmail(),
 				toDomain(request.getAddress()),
-				toDomain(request.getCoordinates()),
 				request.getTimeZone(),
 				request.getServiceRadiusMiles());
 	}
@@ -500,21 +498,6 @@ class BusinessController implements BusinessApi {
 				required(address.getCity(), "city"),
 				address.getState(),
 				address.getPostalCode());
-	}
-
-	/**
-	 * Wire coordinates are {@code double} because JSON has nothing better; the column is
-	 * {@code NUMERIC(9,6)}. Converting through {@link BigDecimal#valueOf(double)} keeps the
-	 * decimal value the client actually sent rather than the binary approximation of it.
-	 */
-	private static GeoPoint toDomain(Coordinates coordinates) {
-		if (coordinates == null) {
-			return null;
-		}
-
-		return new GeoPoint(
-				BigDecimal.valueOf(coordinates.getLatitude()),
-				BigDecimal.valueOf(coordinates.getLongitude()));
 	}
 
 	private static BusinessProfile toWire(BusinessDetails details) {

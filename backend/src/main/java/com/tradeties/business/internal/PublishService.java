@@ -25,9 +25,10 @@ import org.springframework.transaction.annotation.Transactional;
 /**
  * Onboarding step 9: the checklist, and the two moves it guards.
  *
- * <p>Every condition here reads from at least two tables, which is precisely why none of them
- * is a constraint (DATAMODEL section 13.4). The database holds what one row can decide; this
- * class holds what only the whole profile can.
+ * <p>What none of these conditions are is row-local. Each is a rule about going live rather
+ * than about a stored row — a draft mid-edit may fail every one of them and is still a valid
+ * profile — which is why they live here and not in the schema (DATAMODEL section 13.4). Most
+ * read from more than one table; the admission test is the first sentence, not that one.
  */
 @Service
 public class PublishService {
@@ -211,7 +212,7 @@ public class PublishService {
 
 	/**
 	 * Package-private rather than private: the two guards above are asked around another service's
-	 * change, and a second copy of these five conditions is the copy that goes stale.
+	 * change, and a second copy of these conditions is the copy that goes stale.
 	 */
 	ProfileReadiness evaluate(UUID businessId) {
 		List<ServiceOffering> activeServices =

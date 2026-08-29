@@ -123,7 +123,6 @@ class ViolationsTests {
 				"+13035550101",
 				"dispatch@acme.example",
 				new PostalAddress("123 Main St", null, "Denver", "CO", "80202"),
-				null,
 				"America/Denver",
 				25);
 	}

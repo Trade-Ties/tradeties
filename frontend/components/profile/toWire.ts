@@ -208,10 +208,9 @@ export function toUpdateBusiness(
   /**
    * Where the address geocoded to, echoed back rather than resent as nothing.
    *
-   * The update is a full replacement and the controller reads `coordinates` off the request, so
-   * a body that leaves it out stores null. Nobody types this and no screen shows it, which is
-   * exactly why it has to be carried: the wizard would otherwise undo a geocode on every save
-   * of steps 1 and 2, silently and forever. See `StoredState.coordinates`.
+   * The server discards it — it derives the point from the address on every write — so this
+   * cannot undo a geocode and is not load-bearing. It is sent because the update is a full
+   * replacement and the contract carries the field. See `StoredState.coordinates`.
    */
   coordinates: Coordinates | null,
   timeZoneChangeConfirmed = false

@@ -8,6 +8,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.tradeties.BusinessFixtures;
 import com.tradeties.TestcontainersConfiguration;
 
 import org.junit.jupiter.api.Test;
@@ -145,15 +146,7 @@ class GeocodingTests {
 	}
 
 	private RequestPostProcessor register(String subject) throws Exception {
-		RequestPostProcessor token = jwt().jwt(t -> t.subject(subject).claim("email", subject + "@example.com"));
-
-		mockMvc.perform(post("/api/v1/me/registration").with(token)
-						.contentType(MediaType.APPLICATION_JSON)
-						.content("""
-								{"intent":"TRADESPERSON"}"""))
-				.andExpect(status().isOk());
-
-		return token;
+		return BusinessFixtures.registeredTradesperson(mockMvc, subject);
 	}
 
 	private org.springframework.test.web.servlet.RequestBuilder createRequest(
@@ -174,22 +167,6 @@ class GeocodingTests {
 	}
 
 	private static String businessJson(String slug, String postalCode, String extra) {
-		return """
-				{
-				  %s
-				  "slug": "%s",
-				  "legalName": "Acme Plumbing LLC",
-				  "displayName": "Acme Plumbing",
-				  "phone": "+13035550101",
-				  "email": "dispatch@acme.example",
-				  "address": {
-				    "street1": "123 Main St",
-				    "city": "Denver",
-				    "state": "CO",
-				    "postalCode": "%s"
-				  },
-				  "timeZone": "America/Denver",
-				  "serviceRadiusMiles": 25
-				}""".formatted(extra, slug, postalCode);
+		return BusinessFixtures.businessJson(slug, postalCode, extra);
 	}
 }

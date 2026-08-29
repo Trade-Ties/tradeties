@@ -13,6 +13,7 @@ import java.sql.SQLException;
 
 import javax.sql.DataSource;
 
+import com.tradeties.BusinessFixtures;
 import com.tradeties.TestcontainersConfiguration;
 
 import org.junit.jupiter.api.Test;
@@ -38,6 +39,13 @@ import org.springframework.test.web.servlet.request.RequestPostProcessor;
  * <p>What a replay cannot check is that the real run had a seeded {@code zip_centroid} to join
  * against, because by then it always has. That is what {@link #theBackfillRunsAfterTheSeed}
  * is for, and it is the failure this file was moved to a repeatable migration to prevent.
+ *
+ * <p><strong>The replay is unscoped, because the migration is.</strong> It carries no slug
+ * predicate, so it repairs any profile in the shared database that is missing coordinates —
+ * including fixtures other classes left behind. Adding a {@code WHERE} would scope it and would
+ * also stop it being the real statement, which is the one property worth more. It is safe as
+ * long as every assertion here names its own slug, which they all do; a test that counted rows,
+ * or asserted on a profile it did not create, would be the one to break it.
  */
 @SpringBootTest
 @AutoConfigureMockMvc
@@ -176,36 +184,13 @@ class GeocodeBackfillTests {
 	}
 
 	private RequestPostProcessor register(String subject) throws Exception {
-		RequestPostProcessor token = jwt().jwt(t -> t.subject(subject).claim("email", subject + "@example.com"));
-
-		mockMvc.perform(post("/api/v1/me/registration").with(token)
-						.contentType(MediaType.APPLICATION_JSON)
-						.content("""
-								{"intent":"TRADESPERSON"}"""))
-				.andExpect(status().isOk());
-
-		return token;
+		return BusinessFixtures.registeredTradesperson(mockMvc, subject);
 	}
 
 	private void create(RequestPostProcessor token, String slug, String postalCode) throws Exception {
 		mockMvc.perform(post("/api/v1/me/business").with(token)
 						.contentType(MediaType.APPLICATION_JSON)
-						.content("""
-								{
-								  "slug": "%s",
-								  "legalName": "Acme Plumbing LLC",
-								  "displayName": "Acme Plumbing",
-								  "phone": "+13035550101",
-								  "email": "dispatch@acme.example",
-								  "address": {
-								    "street1": "123 Main St",
-								    "city": "Denver",
-								    "state": "CO",
-								    "postalCode": "%s"
-								  },
-								  "timeZone": "America/Denver",
-								  "serviceRadiusMiles": 25
-								}""".formatted(slug, postalCode)))
+						.content(BusinessFixtures.businessJson(slug, postalCode, "")))
 				.andExpect(status().isCreated());
 	}
 }

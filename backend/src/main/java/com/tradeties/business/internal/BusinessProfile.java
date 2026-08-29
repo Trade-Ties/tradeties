@@ -268,12 +268,6 @@ class BusinessProfile {
 	}
 
 	/**
-	 * Whether the address resolved to a point, which is what the publishing checklist asks.
-	 *
-	 * <p>Latitude alone answers for both columns: a CHECK in V3 keeps them null or set together,
-	 * so there is no half-located row for the second half of the test to catch.
-	 */
-	/**
 	 * The stored address as one value, for the background geocoder — which needs the fields and
 	 * nothing else on the profile. {@link #toDetails} assembles the same thing on its way past;
 	 * this exists so a caller that wants only the address does not have to build the rest.
@@ -282,6 +276,12 @@ class BusinessProfile {
 		return new PostalAddress(street1, street2, city, state, postalCode);
 	}
 
+	/**
+	 * Whether the address resolved to a point, which is what the publishing checklist asks.
+	 *
+	 * <p>Latitude alone answers for both columns: a CHECK in V3 keeps them null or set together,
+	 * so there is no half-located row for the second half of the test to catch.
+	 */
 	boolean hasCoordinates() {
 		return latitude != null;
 	}
