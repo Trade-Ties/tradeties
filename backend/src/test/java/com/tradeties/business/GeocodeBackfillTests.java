@@ -2,6 +2,7 @@ package com.tradeties.business;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.jwt;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -27,19 +28,25 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.RequestPostProcessor;
 
 /**
- * The one-off that catches up the profiles saved before anything geocoded.
+ * The catch-up for profiles saved before anything geocoded.
  *
  * <p>Flyway has already run it by the time any test starts, and against an empty schema it had
  * nothing to do — so each test here stages the row the migration exists for and replays the
  * statement. Replayed <em>from the migration file</em>, not from a copy of it pasted in: a copy
  * would keep passing after somebody edited the real one.
+ *
+ * <p>What a replay cannot check is that the real run had a seeded {@code zip_centroid} to join
+ * against, because by then it always has. That is what {@link #theBackfillRunsAfterTheSeed}
+ * is for, and it is the failure this file was moved to a repeatable migration to prevent.
  */
 @SpringBootTest
 @AutoConfigureMockMvc
 @Import(TestcontainersConfiguration.class)
 class GeocodeBackfillTests {
 
-	private static final String MIGRATION = "db/migration/V12__geocode_existing_profiles.sql";
+	private static final String SEED = "db/migration/R__zip_centroid.sql";
+
+	private static final String MIGRATION = "db/migration/R__zip_centroid_backfill.sql";
 
 	private static final BigDecimal DENVER_LATITUDE = new BigDecimal("39.751526");
 	private static final BigDecimal BOULDER_LATITUDE = new BigDecimal("40.045690");
@@ -52,6 +59,27 @@ class GeocodeBackfillTests {
 
 	@Autowired
 	DataSource dataSource;
+
+	/**
+	 * The ordering the backfill depends on, and the reason it is a repeatable migration at all.
+	 *
+	 * <p>It joins {@code zip_centroid}, which {@code R__zip_centroid.sql} fills. Flyway runs every
+	 * repeatable migration after all versioned ones, so a numbered file joined an empty table and
+	 * updated nothing — on precisely the deployment that had profiles to catch up, and where no
+	 * test could see it because a test database starts with no rows to backfill.
+	 *
+	 * <p>Among themselves, repeatables run in order of description, so the seed has to sort first.
+	 * It does because its description is a prefix of the backfill's — a property of the two names
+	 * and of nothing else, so renaming either half fails here rather than in production.
+	 */
+	@Test
+	void theBackfillRunsAfterTheSeed() {
+		assertTrue(new ClassPathResource(SEED).exists(), SEED);
+		assertTrue(new ClassPathResource(MIGRATION).exists(), MIGRATION);
+
+		assertTrue(descriptionOf(MIGRATION).compareTo(descriptionOf(SEED)) > 0,
+				"the backfill must sort after the seed, or it joins an empty zip_centroid");
+	}
 
 	@Test
 	void aProfileLeftWithoutAPointIsGivenOne() throws Exception {
@@ -122,6 +150,13 @@ class GeocodeBackfillTests {
 				SET latitude = NULL, longitude = NULL, geocode_precision = NULL
 				WHERE slug = ?
 				""", slug);
+	}
+
+	/** The description Flyway orders repeatable migrations by: the name between {@code R__} and the extension. */
+	private static String descriptionOf(String migration) {
+		return migration
+				.substring(migration.lastIndexOf("/R__") + "/R__".length(), migration.length() - ".sql".length())
+				.replace('_', ' ');
 	}
 
 	private void replayTheMigration() throws SQLException {
