@@ -2188,6 +2188,11 @@ components:
         code simply did not resolve to a point. It is a condition anyway, because the
         alternative is a profile that is live, looks complete, and appears in no radius
         search at all.
+
+        It fails for two different reasons and `detail` is what tells them apart: the address
+        has not been looked up yet, which clears on its own, or it has been and could not be
+        placed, which needs the postal code corrected. Show `detail` rather than a wording of
+        your own — this is the condition where the difference matters most.
       enum:
         - ADDRESS_GEOCODED
         - PRIMARY_TRADE

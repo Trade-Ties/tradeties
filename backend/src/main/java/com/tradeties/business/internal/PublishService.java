@@ -245,14 +245,27 @@ public class PublishService {
 	 * address edit on a live profile. One string, so the two cannot come to disagree.
 	 */
 	private ReadinessCheck addressGeocoded(UUID businessId) {
-		boolean located = businesses.findById(businessId)
-				.map(BusinessProfile::hasCoordinates)
-				.orElse(false);
+		Optional<BusinessProfile> profile = businesses.findById(businessId);
 
-		return located
-				? ReadinessCheck.passed(ReadinessCheckCode.ADDRESS_GEOCODED, "Your address is on the map.")
+		if (profile.map(BusinessProfile::hasCoordinates).orElse(false)) {
+			return ReadinessCheck.passed(ReadinessCheckCode.ADDRESS_GEOCODED, "Your address is on the map.");
+		}
+
+		// Failing either way — a profile with no point may not go live. What differs is whether
+		// anything has looked yet: a postal code with no centroid is placed by the address-level
+		// service minutes later, and until that has run, calling it unlocatable is an accusation
+		// the profile has not earned. Somebody would correct a postal code that was right.
+		//
+		// Neither sentence promises the wait ends, and that is deliberate. This detail is read
+		// out twice — here, describing a stored profile, and by LiveProfileNotReadyException,
+		// refusing an edit that is being rolled back as it is composed. In the second there is
+		// nothing to come back to: the address was never stored, so nothing will look it up, and
+		// "try again shortly" would send somebody round a loop that cannot end.
+		return profile.map(BusinessProfile::geocodeAttempted).orElse(true)
+				? ReadinessCheck.failed(ReadinessCheckCode.ADDRESS_GEOCODED,
+						"We're unable to locate this ZIP code.")
 				: ReadinessCheck.failed(ReadinessCheckCode.ADDRESS_GEOCODED,
-						"We're unable to locate this ZIP code.");
+						"We haven't placed this ZIP code yet.");
 	}
 
 	private ReadinessCheck primaryTrade(UUID businessId) {

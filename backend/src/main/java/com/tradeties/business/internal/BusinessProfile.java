@@ -287,6 +287,18 @@ class BusinessProfile {
 	}
 
 	/**
+	 * Whether the address-level geocoder has already had a go at this address.
+	 *
+	 * <p>Only interesting when there is no point: it separates "we have not looked yet" from "we
+	 * looked and could not place it", which are the same absence of coordinates and quite
+	 * different news for the person waiting. A move clears the stamp, so an address that has just
+	 * changed is correctly back to not-looked-yet.
+	 */
+	boolean geocodeAttempted() {
+		return geocodeAttemptedAt != null;
+	}
+
+	/**
 	 * The URL is the holder's to choose until somebody else holds a copy of it.
 	 *
 	 * <p>Sending the stored value back is not a change and is always allowed. It has to be: the

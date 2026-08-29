@@ -80,18 +80,46 @@ class PublishTests {
 	void aProfileWhoseZipCannotBePlacedIsNotPublishable() throws Exception {
 		RequestPostProcessor token = completeBusinessFor("user_unplaceable", "unplaceable");
 		moveTo(token, "unplaceable", "00000");
+		// The address-level pass has looked and could not place it either, which is the state
+		// that makes "unable to locate" true. Stamped by hand because the pass is off in tests.
+		jdbcTemplate.update(
+				"UPDATE business_profile SET geocode_attempted_at = now() WHERE slug = 'unplaceable'");
 
 		mockMvc.perform(get("/api/v1/me/business/readiness").with(token))
 				.andExpect(status().isOk())
 				.andExpect(jsonPath("$.ready").value(false))
 				.andExpect(check(0, "ADDRESS_GEOCODED", false))
-				.andExpect(jsonPath("$.checks[0].detail").value(containsString("ZIP code")));
+				.andExpect(jsonPath("$.checks[0].detail").value(containsString("unable to locate")));
 
 		mockMvc.perform(post("/api/v1/me/business/publish").with(token))
 				.andExpect(status().isUnprocessableEntity());
 
 		mockMvc.perform(get("/api/v1/me/business").with(token))
 				.andExpect(jsonPath("$.status").value("DRAFT"));
+	}
+
+	/**
+	 * The same absence of coordinates, and different news for the person reading it.
+	 *
+	 * <p>A postal code with no centroid has none the moment it is saved, and the address-level
+	 * pass reaches it minutes later. Telling the holder their ZIP code cannot be located while
+	 * nothing has looked at it yet is an accusation the profile has not earned — and one they
+	 * would act on by changing a postal code that was right.
+	 *
+	 * <p>Still refused: a profile with no point may not go live either way.
+	 */
+	@Test
+	void aZipNobodyHasLookedUpYetIsNotCalledUnlocatable() throws Exception {
+		RequestPostProcessor token = completeBusinessFor("user_unlooked", "unlooked");
+		moveTo(token, "unlooked", "00000");
+
+		mockMvc.perform(get("/api/v1/me/business/readiness").with(token))
+				.andExpect(status().isOk())
+				.andExpect(check(0, "ADDRESS_GEOCODED", false))
+				.andExpect(jsonPath("$.checks[0].detail").value(containsString("haven't placed")));
+
+		mockMvc.perform(post("/api/v1/me/business/publish").with(token))
+				.andExpect(status().isUnprocessableEntity());
 	}
 
 	/** The other half: correcting the postal code puts the profile back within reach of going live. */
@@ -131,7 +159,7 @@ class PublishTests {
 				// with. An untyped conflict here means the version sent was stale, and a client
 				// that read this one as that would re-read the profile and resend the same body.
 				.andExpect(jsonPath("$.type").value("urn:tradeties:problem:live-profile-not-ready"))
-				.andExpect(jsonPath("$.detail").value(containsString("We're unable to locate this ZIP code.")));
+				.andExpect(jsonPath("$.detail").value(containsString("We haven't placed this ZIP code yet.")));
 
 		mockMvc.perform(get("/api/v1/me/business").with(token))
 				.andExpect(jsonPath("$.status").value("PUBLISHED"))
