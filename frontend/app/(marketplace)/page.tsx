@@ -1,6 +1,7 @@
 import Link from "next/link";
 
 import { SiteHeader } from "@/components/marketing/SiteHeader";
+import { SiteFooter } from "@/components/marketing/SiteFooter";
 import { HeroSearch } from "@/components/marketing/HeroSearch";
 import { AvailabilityRail } from "@/components/marketing/AvailabilityRail";
 import { Badge } from "@/components/ui/badge";
@@ -69,8 +70,14 @@ export default function MarketplaceLandingPage() {
     <>
       <SiteHeader />
 
-      {/* Hero */}
-      <section className="hero-wash overflow-hidden pb-16 pt-[84px]">
+      {/*
+        pb-1 rather than 0: without *some* bottom padding here, the
+        paragraph's own mb-9 collapses straight through this section's
+        bottom edge instead of being rendered inside it, and the gradient
+        cuts off before the gap it's supposed to fill — which is exactly
+        what made the search bar look like it had drifted from its old spot.
+      */}
+      <section className="hero-wash overflow-hidden pb-1 pt-[84px]">
         <div className="mx-auto max-w-[1180px] px-6">
           <Badge className="animate-tt-rise mb-[22px] h-auto gap-2 rounded-full border-transparent bg-go-bg py-1.5 pl-2.5 pr-3.5 text-[13px] font-semibold text-[#07734F] [animation-delay:40ms]">
             <span className="animate-tt-pulse size-[7px] rounded-full bg-go" />
@@ -87,10 +94,18 @@ export default function MarketplaceLandingPage() {
             Book an available plumber, electrician, carpenter or HVAC professional near you —
             without waiting for callbacks.
           </p>
-
-          <HeroSearch />
         </div>
       </section>
+
+      {/*
+        Rendered as a sibling of the hero section, not nested inside it — a
+        `position: sticky` element can only stay stuck for as long as its
+        immediate parent's box is on screen, and the hero section is nowhere
+        near tall enough to keep the bar pinned for the rest of the page.
+        Living directly in the page's own (full-height) flow lets it stick
+        all the way down instead of releasing right after the hero.
+      */}
+      <HeroSearch />
 
       {/* Availability rail */}
       <AvailabilityRail />
@@ -166,6 +181,7 @@ export default function MarketplaceLandingPage() {
             <Button
               variant="secondary"
               render={<Link href="/profile/create" />}
+              nativeButton={false}
               className="relative z-10 h-auto whitespace-nowrap rounded-full px-8 py-4 text-base font-bold text-brand hover:bg-brand-50"
             >
               Create your profile
@@ -174,19 +190,7 @@ export default function MarketplaceLandingPage() {
         </div>
       </section>
 
-      {/* Footer */}
-      <footer className="border-t border-line py-10">
-        <div className="mx-auto flex max-w-[1180px] flex-wrap items-center justify-between gap-5 px-6 text-sm text-faint">
-          <span>© 2026 TradeTies</span>
-          <nav className="flex flex-wrap gap-6">
-            {["About us", "Help centre", "How it works", "For professionals", "Terms", "Privacy"].map((l) => (
-              <a key={l} href="#" className="no-underline hover:text-brand">
-                {l}
-              </a>
-            ))}
-          </nav>
-        </div>
-      </footer>
+      <SiteFooter />
     </>
   );
 }
