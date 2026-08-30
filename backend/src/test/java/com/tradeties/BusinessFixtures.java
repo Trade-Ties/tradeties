@@ -213,12 +213,22 @@ public final class BusinessFixtures {
 	public static RequestPostProcessor publishableBusinessFor(MockMvc mockMvc, String subject,
 			String slug) throws Exception {
 
+		return publishableBusinessFor(mockMvc, subject, slug, "PLUMBER");
+	}
+
+	/**
+	 * The same, under a trade of the caller's choosing — for the search, where what separates two
+	 * fixtures is which trade they offer.
+	 */
+	public static RequestPostProcessor publishableBusinessFor(MockMvc mockMvc, String subject,
+			String slug, String tradeCode) throws Exception {
+
 		RequestPostProcessor token = businessFor(mockMvc, subject, slug);
-		String plumber = claimTradeAndHours(mockMvc, token);
+		String trade = claimTradeAndHours(mockMvc, token, tradeCode);
 
 		mockMvc.perform(post("/api/v1/me/business/services").with(token)
 						.contentType(MediaType.APPLICATION_JSON)
-						.content(serviceJson("", "Clog removal", plumber, "STARTING_AT", "149.00")))
+						.content(serviceJson("", "Clog removal", trade, "STARTING_AT", "149.00")))
 				.andExpect(status().isCreated());
 
 		setPricing(mockMvc, token, null);
@@ -234,7 +244,14 @@ public final class BusinessFixtures {
 	public static String claimTradeAndHours(MockMvc mockMvc, RequestPostProcessor token)
 			throws Exception {
 
-		String plumber = claimPrimaryTrade(mockMvc, token, "PLUMBER");
+		return claimTradeAndHours(mockMvc, token, "PLUMBER");
+	}
+
+	/** The same two steps, under a named trade. */
+	public static String claimTradeAndHours(MockMvc mockMvc, RequestPostProcessor token,
+			String tradeCode) throws Exception {
+
+		String trade = claimPrimaryTrade(mockMvc, token, tradeCode);
 
 		StringBuilder days = new StringBuilder();
 		for (int day = 1; day <= 7; day++) {
@@ -249,7 +266,7 @@ public final class BusinessFixtures {
 						.content("{\"days\":[" + days + "]}"))
 				.andExpect(status().isOk());
 
-		return plumber;
+		return trade;
 	}
 
 	/**

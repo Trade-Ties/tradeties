@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { addDays, format } from "date-fns";
 import { CalendarIcon, Check, ChevronLeft, ChevronRight } from "lucide-react";
 
@@ -25,6 +26,7 @@ const WHEN_OPTIONS: { mode: Exclude<WhenMode, "custom">; label: string; sublabel
 ];
 
 export function HeroSearch() {
+  const router = useRouter();
   const [job, setJob] = useState("");
   const [zip, setZip] = useState("");
 
@@ -49,9 +51,29 @@ export function HeroSearch() {
     setWhenOpen(false);
   };
 
+  /**
+   * The ZIP is the only field the search cannot do without, and it is checked here rather than
+   * left to the server: a round trip to be told "five digits, please" is a worse answer than the
+   * field simply not submitting.
+   *
+   * `when` travels in the URL and is not sent to the search. Availability is a property of a slot,
+   * not of a business, and slots are chosen on the profile — so this carries the customer's answer
+   * forward to where it is asked again, instead of pretending the list was filtered by it.
+   */
+  const search = (event: React.FormEvent) => {
+    event.preventDefault();
+    if (zip.length !== 5) return;
+
+    const params = new URLSearchParams({ zip });
+    if (job.trim()) params.set("job", job.trim());
+    params.set("when", whenMode === "custom" && customDate ? format(customDate, "yyyy-MM-dd") : whenMode);
+
+    router.push(`/search?${params}`);
+  };
+
   return (
     <>
-      <div className="animate-tt-rise ml-0 grid max-w-[980px] grid-cols-1 items-center gap-1.5 rounded-3xl border border-line bg-white p-2.5 shadow-lift [animation-delay:200ms] min-[880px]:grid-cols-[2.1fr_1fr_1.15fr_auto] min-[880px]:gap-1 min-[880px]:p-2">
+      <form onSubmit={search} className="animate-tt-rise ml-0 grid max-w-[980px] grid-cols-1 items-center gap-1.5 rounded-3xl border border-line bg-white p-2.5 shadow-lift [animation-delay:200ms] min-[880px]:grid-cols-[2.1fr_1fr_1.15fr_auto] min-[880px]:gap-1 min-[880px]:p-2">
         <div className="min-w-0 rounded-2xl px-[18px] py-2.5 transition-colors focus-within:bg-brand-50">
           <Label
             htmlFor="job"
@@ -64,6 +86,7 @@ export function HeroSearch() {
             type="text"
             value={job}
             onChange={(e) => setJob(e.target.value)}
+            maxLength={300}
             placeholder={DEFAULT_JOB_SUGGESTIONS.placeholder}
             className="h-auto w-full border-0 bg-transparent p-0 text-[15.5px] font-medium text-brand shadow-none outline-none placeholder:font-normal placeholder:text-faint focus-visible:ring-0"
           />
@@ -193,16 +216,21 @@ export function HeroSearch() {
           </Popover>
         </div>
 
-        <Button className="h-auto whitespace-nowrap rounded-2xl px-7 py-4 text-[15.5px] font-semibold">
+        <Button
+          type="submit"
+          disabled={zip.length !== 5}
+          className="h-auto whitespace-nowrap rounded-2xl px-7 py-4 text-[15.5px] font-semibold"
+        >
           See who&apos;s free
         </Button>
-      </div>
+      </form>
 
       <div className="animate-tt-rise mt-[22px] flex flex-wrap items-center gap-2 [animation-delay:280ms]">
         <span className="mr-1 text-[13.5px] text-faint">Common jobs</span>
         {DEFAULT_JOB_SUGGESTIONS.jobs.map((label) => (
           <Button
             key={label}
+            type="button"
             variant="outline"
             onClick={() => setJob(label)}
             className="h-auto rounded-full border-line px-[15px] py-[7px] text-[13.5px] font-medium text-muted-ink hover:border-brand-100 hover:bg-brand-50 hover:text-brand"

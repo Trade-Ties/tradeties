@@ -9,8 +9,16 @@ name: tradeties
 services:
   postgres:
     # Pinned to the same tag as TestcontainersConfiguration, so tests and local
-    # development cannot disagree about the major version.
-    image: postgres:18-alpine
+    # development cannot disagree about the major version -- or, since the search
+    # slice, about whether PostGIS is present at all. A migration that runs here
+    # and not there is the kind of difference that only fails on somebody else's
+    # machine.
+    #
+    # PostGIS rather than plain postgres because the radius search stores a
+    # service area as geography and asks which ones contain a point. The image is
+    # the official postgres one with the extension built in; the extension itself
+    # is still created by a Flyway migration, as btree_gist already is.
+    image: postgis/postgis:18-3.6-alpine
 
     # The defaults in application.yml are exactly these, so `./mvnw spring-boot:run`
     # needs no environment at all.
@@ -29,6 +37,11 @@ services:
       # Mounting the old path here would leave the real data directory on an
       # anonymous volume, and every `docker compose down` would look like it had
       # persisted while quietly dropping everything.
+      #
+      # The PostGIS image is built on that same base and declares both
+      # identically, which is what lets an existing pgdata volume survive the
+      # switch. Verified rather than assumed: `docker image inspect` reports the
+      # same VOLUME and the same PGDATA for both tags.
       - pgdata:/var/lib/postgresql
       - ./postgres/initdb:/docker-entrypoint-initdb.d:ro
 

@@ -2,6 +2,8 @@ package com.tradeties.business;
 
 import java.net.URI;
 
+import jakarta.validation.ConstraintViolationException;
+
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.http.HttpStatus;
@@ -14,11 +16,17 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
  * Scoped to {@code business} rather than registered globally: a shared handler would end up
  * importing every module's exceptions.
  *
+ * <p>Both controllers of the module, because both raise the same exceptions from the same
+ * services — {@link MarketplaceController} answers an unknown postal code with the
+ * {@link InvalidSelectionException} that {@code BusinessController} answers an unknown state
+ * with, and one sentence about a missing catalogue entry should not read two ways depending on
+ * which door it came through.
+ *
  * <p>404 and 403 are absent on purpose. Those are decisions the controller makes about a request,
  * not conditions the domain reports, so they are thrown there as {@code ResponseStatusException}
  * and need no translation.
  */
-@RestControllerAdvice(assignableTypes = BusinessController.class)
+@RestControllerAdvice(assignableTypes = { BusinessController.class, MarketplaceController.class })
 class BusinessExceptionHandler {
 
 	/**
@@ -51,6 +59,20 @@ class BusinessExceptionHandler {
 	 */
 	private static final URI LIVE_PROFILE_NOT_READY =
 			URI.create("urn:tradeties:problem:live-profile-not-ready");
+
+	/**
+	 * The first {@code type} that is not a 409, and the reason it earns one is the same: this
+	 * status is answered for more than one reason, and the two need different answers.
+	 *
+	 * <p>A selection that does not exist is the caller's to correct — a state, a trade, a time
+	 * zone, a postal code. A parameter outside the bounds the contract declares is not: nobody
+	 * chose it, a client sent it, and the person in front of that client cannot fix it.
+	 *
+	 * <p>Untyped is the safer default of the two, so the type goes on this one rather than on the
+	 * parameter violation. A client that recognises nothing shows its generic message; the
+	 * alternative would have it explain a malformed request as a postal code nobody has heard of.
+	 */
+	private static final URI INVALID_SELECTION = URI.create("urn:tradeties:problem:invalid-selection");
 
 	/**
 	 * Where a published profile lives, for the one message that has to name the whole address.
@@ -130,11 +152,31 @@ class BusinessExceptionHandler {
 		return conflict(exception.getMessage());
 	}
 
+	/**
+	 * A query parameter that fails the contract's own pattern or bounds.
+	 *
+	 * <p>Reachable only from the search, which is the first operation to constrain a parameter
+	 * rather than a body. Spring answers a bad <em>body</em> with a problem detail on its own;
+	 * a bad parameter arrives as this and, unhandled, leaves as a 500 — a contract violation
+	 * reported as a fault of the server.
+	 *
+	 * <p>The message is not passed on. It names the Java method and parameter, which is nothing
+	 * a client can act on and something a stranger has no business seeing.
+	 */
+	@ExceptionHandler(ConstraintViolationException.class)
+	ProblemDetail handleInvalidParameter(ConstraintViolationException exception) {
+		ProblemDetail problem = ProblemDetail.forStatus(HttpStatus.BAD_REQUEST);
+		problem.setTitle("Invalid request");
+		problem.setDetail("A query parameter does not match what this operation accepts.");
+		return problem;
+	}
+
 	@ExceptionHandler(InvalidSelectionException.class)
 	ProblemDetail handleInvalidSelection(InvalidSelectionException exception) {
 		ProblemDetail problem = ProblemDetail.forStatus(HttpStatus.BAD_REQUEST);
 		problem.setTitle("Invalid selection");
 		problem.setDetail(exception.getMessage());
+		problem.setType(INVALID_SELECTION);
 		return problem;
 	}
 

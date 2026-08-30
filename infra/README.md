@@ -145,17 +145,27 @@ with `ON DELETE SET NULL (trade_id)` — nulling one *named* column instead of
 every column in the key. That column list is 15+ syntax; on 14 the migration
 fails outright, and without it dropping a trade would try to null `business_id`
 as well and take the service down with it. `compose.yaml` and
-`TestcontainersConfiguration` are both pinned to `postgres:18-alpine`; keep the
-deployed version at or above the tested one.
+`TestcontainersConfiguration` are both pinned to `postgis/postgis:18-3.6-alpine`;
+keep the deployed version at or above the tested one.
 
-**The `btree_gist` extension.** `CREATE EXTENSION IF NOT EXISTS btree_gist` is
-the first statement of `V3`, because `V4`'s exclusion constraint on working
-hours combines equality on `(business_id, day_of_week)` with range overlap in
-one constraint, which plain GiST cannot express. Creating an extension needs a
-role that is permitted to — the Compose superuser is, but on a managed database
-that is usually a one-off grant by an administrator, not something the
-application user has by default. Get it wrong and the very first migration run
-fails.
+**Three extensions, none of them optional.**
+
+| Extension | Created in | Because |
+| --- | --- | --- |
+| `btree_gist` | `V3` | `V4`'s exclusion constraint on working hours combines equality on `(business_id, day_of_week)` with range overlap in one constraint, which plain GiST cannot express |
+| `postgis` | `V16` | a business stores where it travels as a `geography` polygon, and the search asks which of those shapes contains the customer's point |
+| `pg_trgm` | `V17` | a trigram index on `display_name`, for a business name typed with a typo |
+
+Creating an extension needs a role that is permitted to — the Compose superuser
+is, but on a managed database that is usually a one-off grant by an
+administrator, not something the application user has by default. Get it wrong
+and the very first migration run fails.
+
+PostGIS is the one to settle before choosing a host. `btree_gist` and `pg_trgm`
+ship with PostgreSQL itself; PostGIS does not, and where a managed offering does
+not carry it, no grant makes it appear. `DatabaseExtensionsTests` asserts all
+three are available, so a database that cannot serve them fails the suite
+instead of the first migration that needs one.
 
 ## Traefik
 

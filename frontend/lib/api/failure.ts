@@ -41,6 +41,18 @@ export const UNCONFIRMED_UNPUBLISH = "urn:tradeties:problem:unconfirmed-unpublis
 export const LIVE_PROFILE_NOT_READY = "urn:tradeties:problem:live-profile-not-ready";
 
 /**
+ * A value the request named is not in a catalogue the server keeps — a state, a trade, a time
+ * zone, a postal code. The `400` worth putting in front of somebody, because it is theirs to
+ * correct.
+ *
+ * The other `400` carries no type: a request outside the bounds the contract itself declares,
+ * which is this client's own bug and nothing the person using it can act on. Recognise this one
+ * and let everything else fall to the generic message — the reverse would explain a malformed
+ * request as a postal code nobody has heard of.
+ */
+export const INVALID_SELECTION = "urn:tradeties:problem:invalid-selection";
+
+/**
  * The status carried when the request never reached the backend at all.
  *
  * Zero rather than 503: nothing answered, so there is no status to report. Callers that branch

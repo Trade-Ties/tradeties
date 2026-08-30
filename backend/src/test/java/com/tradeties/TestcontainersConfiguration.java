@@ -51,12 +51,23 @@ public class TestcontainersConfiguration {
 	 */
 	private static final AtomicBoolean FIRST_CONTEXT = new AtomicBoolean(true);
 
-	/** Pinned, not {@code :latest} — a build should not change because upstream did. */
+	/**
+	 * Pinned, not {@code :latest} — a build should not change because upstream did.
+	 *
+	 * <p>PostGIS rather than plain postgres, and the same tag {@code infra/compose.yaml} carries.
+	 * The search slice stores a service area as {@code geography} and indexes it, so a suite on
+	 * the plain image would fail the migration that creates the extension — and the two must not
+	 * be able to disagree about which database the code is written against.
+	 *
+	 * <p>It costs about 290 MB over {@code postgres:18-alpine} and a slower first pull. Every run
+	 * after that is the same container start; the image is not rebuilt per run.
+	 */
 	@Bean
 	@ServiceConnection
 	@ConditionalOnProperty(name = "tradeties.test.compose-db", havingValue = "false", matchIfMissing = true)
 	PostgreSQLContainer postgresContainer() {
-		return new PostgreSQLContainer(DockerImageName.parse("postgres:18-alpine"));
+		return new PostgreSQLContainer(DockerImageName.parse("postgis/postgis:18-3.6-alpine")
+				.asCompatibleSubstituteFor("postgres"));
 	}
 
 	/**
