@@ -1,7 +1,8 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { format } from "date-fns";
 import { ArrowLeft, CalendarDays, CalendarIcon, MapPin } from "lucide-react";
 
@@ -12,74 +13,81 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { FilterPill } from "@/components/marketing/FilterPill";
-import { ProCard } from "@/components/marketing/ProCard";
-import { PROS } from "@/components/marketing/pros-data";
+import { ProCard, type ProCardSlot, type ProCardView } from "@/components/marketing/ProCard";
 import {
   availabilityLabel,
-  dateMatchesAvailability,
   parseWhenParam,
-  slotTimeBucket,
   today,
   type AvailabilityFilter,
-  type TimeBucket,
 } from "@/components/marketing/when-filter";
+import type { components } from "@/lib/api/schema";
 
-const TIME_OPTIONS: { value: TimeBucket; label: string; hint?: string }[] = [
-  { value: "all", label: "All times" },
-  { value: "morning", label: "Morning", hint: "Before 12 PM" },
-  { value: "afternoon", label: "Afternoon", hint: "12 PM – 5 PM" },
-  { value: "evening", label: "Evening", hint: "After 5 PM" },
-];
+type SearchResults = components["schemas"]["BusinessSearchResults"];
+type SearchResult = components["schemas"]["BusinessSearchResult"];
 
-export function JobSearchResults({ job, zip, when }: { job: string; zip: string; when: string }) {
-  const initialWhen = parseWhenParam(when);
+/**
+ * What the hero search bar leads to: the businesses whose own service area reaches this postal
+ * code, nearest first.
+ *
+ * <p>The list comes from the server and the whole search lives in the URL, so editing it navigates
+ * rather than filtering in place. That is not a smaller version of filtering — the search reads a
+ * description, matches it to a trade and measures a radius, none of which a browser can redo over
+ * the twenty rows it happens to be holding.
+ *
+ * The `when` answer is carried and shown, and it deliberately does not narrow the list. Each
+ * business reports its next three openings, which is not its calendar: a business free on Tuesday
+ * may well have its next three on Monday, so hiding it from a Tuesday filter would be a claim the
+ * data cannot make. The customer's answer travels to the profile, where the day is chosen against
+ * the whole diary.
+ */
+export function JobSearchResults({
+  job,
+  zip,
+  when,
+  found,
+}: {
+  job: string;
+  zip: string;
+  when: string;
+  found: SearchResults;
+}) {
+  const router = useRouter();
 
-  // "Committed" values — what's actually displayed and filtered by.
-  const [displayJob, setDisplayJob] = useState(job);
-  const [displayZip, setDisplayZip] = useState(zip);
-  const [availability, setAvailability] = useState<AvailabilityFilter>(initialWhen.availability);
-  const [customDate, setCustomDate] = useState<Date | undefined>(initialWhen.customDate);
-  const whenLabel = availabilityLabel(availability, customDate);
+  const asked = parseWhenParam(when);
+  const whenLabel = availabilityLabel(asked.availability, asked.customDate);
 
-  const [timeFilter, setTimeFilter] = useState<TimeBucket>("all");
+  const results = found.results ?? [];
+  const trades = found.matchedTrades ?? [];
 
-  // "Your job" edit mode. The job/ZIP inputs below are bound straight to
-  // displayJob/displayZip — the same state the card shows when not
-  // editing — rather than a separate draft that gets seeded from it each
-  // time editing opens: one state variable for "what's shown" can't ever
-  // render blank when edit mode mounts, whereas a copy-on-open draft is
-  // exactly the kind of extra synchronization step that goes stale. Only
-  // "When" still uses a draft, since picking a day should preview in the
-  // form without immediately re-filtering the results underneath until
-  // "Save changes" is pressed. "Cancel" reverts job/ZIP from a snapshot
-  // taken when editing opened, so it still discards those too.
+  // Drafts only. What is displayed is what the URL says, so there is no second copy of the search
+  // to fall out of step with it — cancelling is dropping the draft, not restoring a snapshot.
   const [editing, setEditing] = useState(false);
-  const [jobSnapshot, setJobSnapshot] = useState(job);
-  const [zipSnapshot, setZipSnapshot] = useState(zip);
-  const [availabilityDraft, setAvailabilityDraft] = useState<AvailabilityFilter>(initialWhen.availability);
-  const [customDateDraft, setCustomDateDraft] = useState<Date | undefined>(initialWhen.customDate);
+  const [jobDraft, setJobDraft] = useState(job);
+  const [zipDraft, setZipDraft] = useState(zip);
+  const [availabilityDraft, setAvailabilityDraft] = useState<AvailabilityFilter>(asked.availability);
+  const [customDateDraft, setCustomDateDraft] = useState<Date | undefined>(asked.customDate);
   const [dateCalendarOpen, setDateCalendarOpen] = useState(false);
 
   const startEditing = () => {
-    setJobSnapshot(displayJob);
-    setZipSnapshot(displayZip);
-    setAvailabilityDraft(availability);
-    setCustomDateDraft(customDate);
+    setJobDraft(job);
+    setZipDraft(zip);
+    setAvailabilityDraft(asked.availability);
+    setCustomDateDraft(asked.customDate);
     setEditing(true);
   };
 
-  const saveEdits = () => {
-    setDisplayJob((v) => v.trim());
-    setDisplayZip((v) => v.trim());
-    setAvailability(availabilityDraft);
-    setCustomDate(customDateDraft);
-    setEditing(false);
-  };
+  const runSearch = (event: React.FormEvent) => {
+    event.preventDefault();
+    if (zipDraft.length !== 5) return;
 
-  const cancelEdits = () => {
-    setDisplayJob(jobSnapshot);
-    setDisplayZip(zipSnapshot);
+    const params = new URLSearchParams({ zip: zipDraft });
+    if (jobDraft.trim()) params.set("job", jobDraft.trim());
+
+    const answer = whenParam(availabilityDraft, customDateDraft);
+    if (answer) params.set("when", answer);
+
     setEditing(false);
+    router.push(`/browse?${params}`);
   };
 
   const pickPresetAvailabilityDraft = (option: Exclude<AvailabilityFilter, "any" | "date">) => {
@@ -87,16 +95,6 @@ export function JobSearchResults({ job, zip, when }: { job: string; zip: string;
     setCustomDateDraft(undefined);
     setDateCalendarOpen(false);
   };
-
-  const filtered = useMemo(() => {
-    return PROS.filter((p) =>
-      p.slots.some(
-        (s) =>
-          dateMatchesAvailability(s.date, availability, customDate) &&
-          (timeFilter === "all" || slotTimeBucket(s.time) === timeFilter)
-      )
-    );
-  }, [availability, customDate, timeFilter]);
 
   return (
     <section className="pb-20 pt-8">
@@ -113,17 +111,21 @@ export function JobSearchResults({ job, zip, when }: { job: string; zip: string;
 
         <div className="mb-8">
           <h1 className="mb-1.5 text-[clamp(24px,3vw,32px)] font-extrabold tracking-[-0.03em]">
-            Available professionals for your job
+            {results.length === 0
+              ? `No one travels to ${zip} yet`
+              : `${results.length} professional${results.length === 1 ? "" : "s"} near ${zip}`}
           </h1>
           <div className="flex flex-wrap items-center gap-2 text-[14.5px] text-muted-ink">
-            {displayJob && <span>{displayJob}</span>}
-            {displayJob && displayZip && <span className="text-[#CBD6E2]">•</span>}
-            {displayZip && <span>{displayZip}</span>}
-            {(displayJob || displayZip) && <span className="text-[#CBD6E2]">•</span>}
+            {job && <span>{job}</span>}
+            {job && <span className="text-[#CBD6E2]">•</span>}
+            <span>{zip}</span>
+            <span className="text-[#CBD6E2]">•</span>
             <Badge className="h-auto border-transparent bg-brand-50 px-2.5 py-0.5 text-[12.5px] font-semibold text-brand-500">
               {whenLabel}
             </Badge>
           </div>
+
+          {job && <Understood job={job} trades={trades} />}
         </div>
 
         <div className="grid grid-cols-1 gap-8 min-[960px]:grid-cols-[280px_1fr]">
@@ -138,7 +140,7 @@ export function JobSearchResults({ job, zip, when }: { job: string; zip: string;
               <h2 className="mb-3 text-[12px] font-bold uppercase tracking-[0.04em] text-faint">Your job</h2>
 
               {editing ? (
-                <div>
+                <form onSubmit={runSearch}>
                   <div className="mb-3">
                     <Label
                       htmlFor="job-draft"
@@ -148,8 +150,9 @@ export function JobSearchResults({ job, zip, when }: { job: string; zip: string;
                     </Label>
                     <Input
                       id="job-draft"
-                      value={displayJob}
-                      onChange={(e) => setDisplayJob(e.target.value)}
+                      value={jobDraft}
+                      onChange={(e) => setJobDraft(e.target.value)}
+                      maxLength={300}
                       placeholder="Describe the job"
                     />
                   </div>
@@ -163,8 +166,8 @@ export function JobSearchResults({ job, zip, when }: { job: string; zip: string;
                     </Label>
                     <Input
                       id="zip-draft"
-                      value={displayZip}
-                      onChange={(e) => setDisplayZip(e.target.value.replace(/\D/g, "").slice(0, 5))}
+                      value={zipDraft}
+                      onChange={(e) => setZipDraft(e.target.value.replace(/\D/g, "").slice(0, 5))}
                       inputMode="numeric"
                       maxLength={5}
                       placeholder="80202"
@@ -193,6 +196,7 @@ export function JobSearchResults({ job, zip, when }: { job: string; zip: string;
                       <PopoverTrigger
                         render={
                           <Button
+                            type="button"
                             variant="outline"
                             className={
                               availabilityDraft === "date"
@@ -228,27 +232,32 @@ export function JobSearchResults({ job, zip, when }: { job: string; zip: string;
                   </div>
 
                   <div className="flex gap-2">
-                    <Button onClick={saveEdits} className="h-auto flex-1 rounded-full py-2.5 text-[14px] font-semibold">
-                      Save changes
+                    <Button
+                      type="submit"
+                      disabled={zipDraft.length !== 5}
+                      className="h-auto flex-1 rounded-full py-2.5 text-[14px] font-semibold"
+                    >
+                      Search again
                     </Button>
                     <Button
+                      type="button"
                       variant="outline"
-                      onClick={cancelEdits}
+                      onClick={() => setEditing(false)}
                       className="h-auto flex-1 rounded-full border-line py-2.5 text-[14px] font-semibold text-brand"
                     >
                       Cancel
                     </Button>
                   </div>
-                </div>
+                </form>
               ) : (
                 <div>
                   <p className="mb-4 text-[15px] font-semibold leading-snug text-brand">
-                    {displayJob || "No job description given"}
+                    {job || "No job description given"}
                   </p>
 
                   <div className="mb-2 flex items-center gap-2 text-[13.5px] text-muted-ink">
                     <MapPin className="size-4 shrink-0" />
-                    {displayZip || "No ZIP given"}
+                    {zip}
                   </div>
                   <div className="mb-5 flex items-center gap-2 text-[13.5px] text-muted-ink">
                     <CalendarDays className="size-4 shrink-0" />
@@ -256,6 +265,7 @@ export function JobSearchResults({ job, zip, when }: { job: string; zip: string;
                   </div>
 
                   <Button
+                    type="button"
                     variant="outline"
                     onClick={startEditing}
                     className="h-auto w-full rounded-full border-line py-2.5 text-[14px] font-semibold text-brand"
@@ -282,37 +292,39 @@ export function JobSearchResults({ job, zip, when }: { job: string; zip: string;
                 </div>
                 <div>
                   <p className="m-0 text-[15px] font-bold text-brand">
-                    {filtered.length} professional{filtered.length === 1 ? "" : "s"} available
-                    {whenLabel !== "Any time" && ` ${whenLabel.toLowerCase()}`}
+                    {results.length} professional{results.length === 1 ? "" : "s"} whose area reaches you
                   </p>
-                  <p className="m-0 text-[13px] text-muted-ink">Book in minutes and lock in your slot.</p>
+                  <p className="m-0 text-[13px] text-muted-ink">
+                    Nearest first. Each card shows that business&apos;s next openings.
+                  </p>
                 </div>
-              </div>
-              <div className="flex flex-wrap gap-1.5">
-                {TIME_OPTIONS.map((o) => (
-                  <FilterPill key={o.value} active={timeFilter === o.value} onClick={() => setTimeFilter(o.value)}>
-                    {o.label}
-                    {o.hint && <span className="ml-1 font-normal opacity-70">{o.hint}</span>}
-                  </FilterPill>
-                ))}
               </div>
             </div>
 
-            {filtered.length === 0 ? (
+            {results.length === 0 ? (
               <p className="rounded-2xl border border-dashed border-line bg-canvas px-5 py-14 text-center text-[14.5px] text-muted-ink">
-                No professionals match right now.{" "}
-                <button
-                  type="button"
-                  onClick={() => setTimeFilter("all")}
-                  className="font-semibold text-brand-500 hover:underline"
-                >
-                  Clear time filter
-                </button>
+                {trades.length > 0 ? (
+                  <>
+                    Nobody offering {trades.map((t) => t.displayName).join(" or ")} travels to {zip} yet.{" "}
+                    <Link
+                      href={`/browse?zip=${zip}`}
+                      className="font-semibold text-brand-500 hover:underline"
+                    >
+                      Search without a description
+                    </Link>{" "}
+                    to see everyone who does.
+                  </>
+                ) : (
+                  <>
+                    No tradesperson travels to {zip} yet. The marketplace is new — this is a gap in who
+                    has signed up, not in what you asked.
+                  </>
+                )}
               </p>
             ) : (
               <div className="grid grid-cols-[repeat(auto-fill,260px)] items-start gap-5">
-                {filtered.map((p) => (
-                  <ProCard key={p.name} pro={p} />
+                {results.map((result) => (
+                  <ProCard key={result.slug} view={viewOf(result)} />
                 ))}
               </div>
             )}
@@ -321,4 +333,131 @@ export function JobSearchResults({ job, zip, when }: { job: string; zip: string;
       </div>
     </section>
   );
+}
+
+/**
+ * What the description was read as, in plain words rather than as buttons.
+ *
+ * Not clickable on purpose. Narrowing to one of several would mean asking the search for a trade,
+ * and the contract takes a description — so a chip that looked pressable would either do nothing
+ * or quietly run a different search. Saying what happened is honest; the choice becomes a choice
+ * when the API can take one.
+ */
+function Understood({ job, trades }: { job: string; trades: NonNullable<SearchResults["matchedTrades"]> }) {
+  if (trades.length === 0) {
+    return (
+      <p className="mt-2 text-[14.5px] text-muted-ink">
+        We could not tell which trade <span className="text-brand">“{job}”</span> needs, so this is
+        everyone who travels to you.
+      </p>
+    );
+  }
+
+  return (
+    <p className="mt-2 text-[14.5px] text-muted-ink">
+      <span className="text-brand">“{job}”</span> read as{" "}
+      <span className="font-medium text-brand">{trades.map((t) => t.displayName).join(" · ")}</span>
+      {trades.length > 1 ? " — the description fits more than one, so all of them are shown." : null}
+    </p>
+  );
+}
+
+/**
+ * The inverse of what the hero search bar sends, so a search edited here leaves the same kind of
+ * URL as one started there — and null where there is nothing to say, rather than a parameter
+ * meaning "no preference" that the reader of the URL has to know to ignore.
+ */
+function whenParam(availability: AvailabilityFilter, customDate: Date | undefined): string | null {
+  switch (availability) {
+    case "today":
+      return "today";
+    case "tomorrow":
+      return "tomorrow";
+    case "week":
+      return "flexible";
+    case "date":
+      return customDate ? format(customDate, "yyyy-MM-dd") : null;
+    default:
+      return null;
+  }
+}
+
+/** One search result in the card's own terms, with nothing invented to fill a gap. */
+function viewOf(result: SearchResult): ProCardView {
+  const badges: string[] = [];
+  if (result.licensed) badges.push("Licensed");
+  if (result.licenseVerified) badges.push("Licence verified");
+
+  return {
+    initials: initialsOf(result.displayName),
+    color: colorOf(result.slug),
+    title: result.displayName,
+    subtitle: `${result.city}, ${result.state}`,
+    trade: result.primaryTrade ?? undefined,
+    distance: miles(result.distanceMiles),
+    rateFrom: result.hourlyRate ? rate(result.hourlyRate) : undefined,
+    badges,
+    slots: (result.nextSlots ?? []).map((slot) => opening(slot, result.timeZone)),
+    // Nothing can accept a booking yet, so the times are shown as what they are.
+    bookable: false,
+  };
+}
+
+/**
+ * One opening, printed on the tradesperson's own clock.
+ *
+ * The zone comes from the business, never from the reader: the working day being described is the
+ * tradesperson's, and a customer reading it in their own zone would be told an hour nobody agreed
+ * to. It is also what makes this deterministic — the server pass and the browser format the same
+ * instant against the same zone, so the label survives hydration instead of being rewritten.
+ *
+ * The weekday is always shown. Deriving "today" would mean reading a clock, and a clock read once
+ * on the server and again in the browser is the nondeterminism this exists to avoid — for a badge
+ * that a day of required notice makes almost unreachable anyway.
+ */
+function opening(instant: string, timeZone: string): ProCardSlot {
+  const at = new Date(instant);
+  const label = new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    weekday: "short",
+    hour: "numeric",
+    minute: "2-digit",
+  }).format(at);
+
+  return { key: instant, label, today: false };
+}
+
+/**
+ * Whole miles, and "under a mile" below one.
+ *
+ * A decimal place would be a lie about a number measured between two postal-code centres: honest
+ * enough to order a list by, not honest enough to print as 3.4.
+ */
+function miles(distance: number): string {
+  return distance < 1 ? "under a mile" : `${Math.round(distance)} mi`;
+}
+
+/** The wire carries four decimal places because money is stored that way; nobody reads $85.0000. */
+function rate(amount: string): string {
+  const value = Number(amount);
+  return Number.isInteger(value) ? String(value) : value.toFixed(2);
+}
+
+function initialsOf(displayName: string): string {
+  const words = displayName.split(/\s+/).filter(Boolean);
+  return words.slice(0, 2).map((word) => word[0]!.toUpperCase()).join("");
+}
+
+/**
+ * A colour per business, derived from the slug rather than stored.
+ *
+ * Deterministic on purpose: the same business is the same colour on every render and on both
+ * sides of hydration, and a marketplace that has never asked anybody for a brand colour has none
+ * to show.
+ */
+const AVATAR_COLORS = ["#1E4E82", "#0E9F6E", "#B4530A", "#0A2F5C", "#6D3FA8", "#B91C1C", "#CA8A04", "#C2410C"];
+
+function colorOf(slug: string): string {
+  const sum = [...slug].reduce((total, character) => total + character.charCodeAt(0), 0);
+  return AVATAR_COLORS[sum % AVATAR_COLORS.length]!;
 }

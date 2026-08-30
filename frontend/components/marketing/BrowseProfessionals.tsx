@@ -28,7 +28,7 @@ import { Slider } from "@/components/ui/slider";
 import { Switch } from "@/components/ui/switch";
 import { Button } from "@/components/ui/button";
 import { FilterPill } from "@/components/marketing/FilterPill";
-import { ProCard } from "@/components/marketing/ProCard";
+import { ProCard, proCardView } from "@/components/marketing/ProCard";
 import { PROS, SERVICES_BY_TRADE, TRADE_ICONS, TRADE_LIST, type Pro } from "@/components/marketing/pros-data";
 import { dateMatchesAvailability, parseWhenParam, today, type AvailabilityFilter } from "@/components/marketing/when-filter";
 
@@ -462,7 +462,7 @@ export function BrowseProfessionals() {
             // up flush with the right edge, same as the Sort control above.
             <div className="grid grid-cols-[repeat(auto-fill,260px)] items-start gap-5 self-start">
               {filtered.map((p) => (
-                <ProCard key={p.name} pro={p} />
+                <ProCard key={p.name} view={proCardView(p)} />
               ))}
             </div>
           )}
