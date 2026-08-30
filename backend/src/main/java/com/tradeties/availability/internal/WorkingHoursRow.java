@@ -53,6 +53,10 @@ class WorkingHoursRow {
 		this.endsAt = (short) block.endsAtMinutes();
 	}
 
+	UUID businessId() {
+		return businessId;
+	}
+
 	DayOfWeek day() {
 		return DayOfWeek.of(dayOfWeek);
 	}
