@@ -28,6 +28,7 @@ export function SiteHeader() {
           <Button
             variant="ghost"
             render={<Link href="#how" />}
+            nativeButton={false}
             className="hidden h-auto rounded-full px-3.5 py-2 text-[14.5px] font-medium text-muted-ink hover:bg-brand-50 hover:text-brand min-[1040px]:inline-flex"
           >
             How it works
@@ -37,6 +38,7 @@ export function SiteHeader() {
 
           <Button
             render={<Link href="/portal" />}
+            nativeButton={false}
             className="h-auto whitespace-nowrap rounded-full px-[19px] py-2.5 text-[14.5px] font-semibold"
           >
             For professionals
@@ -66,6 +68,7 @@ export function SiteHeader() {
                 key={label}
                 variant="ghost"
                 render={<a href={href} />}
+                nativeButton={false}
                 onClick={() => setMobileOpen(false)}
                 className="h-auto w-full justify-start rounded-none border-b border-line px-1 py-3 text-base font-medium text-brand hover:bg-transparent"
               >
@@ -74,6 +77,7 @@ export function SiteHeader() {
             ))}
             <Button
               render={<Link href="/portal" />}
+            nativeButton={false}
               className="mt-4 h-auto w-full rounded-full py-[11px] text-[14.5px] font-semibold"
             >
               For professionals
