@@ -55,7 +55,8 @@ class SecurityConfig {
 	 * states and of time zones, which the customer-side search reads without a token. The search
 	 * itself is the second — {@code GET /api/v1/businesses} is the demand side of the marketplace,
 	 * and DECISIONS section 1 has it working for somebody who has never signed in. It answers with
-	 * business names, towns and distances; nothing in it names a person.
+	 * business names, towns, distances, hourly rates, two licence flags and the start times each
+	 * business is next free; nothing in it names a person.
 	 *
 	 * <p>Listed one path at a time rather than as {@code /api/v1/reference/**} or a prefix, so
 	 * that opening the next one is a decision somebody has to write down here. The GET is part of

@@ -1,5 +1,9 @@
 package com.tradeties.business;
 
+import java.math.BigDecimal;
+import java.math.RoundingMode;
+import java.time.ZoneOffset;
+
 import com.tradeties.business.internal.BusinessSearchService;
 import com.tradeties.generated.api.MarketplaceApi;
 
@@ -15,7 +19,9 @@ import org.springframework.web.bind.annotation.RestController;
  * shapes, and the DECISIONS rule that customers stay anonymous is easier to keep true when the
  * anonymous surface is one small class one can read end to end.
  *
- * <p>Nothing it returns identifies a person: a business name, a town, a distance and a slug.
+ * <p>Nothing it returns identifies a person: a business name, a town, a distance, a slug, an
+ * hourly rate, two licence flags and a handful of start times. The list has grown and the
+ * property has not, which is the only thing about it worth checking when it grows again.
  */
 @RestController
 class MarketplaceController implements MarketplaceApi {
@@ -60,6 +66,20 @@ class MarketplaceController implements MarketplaceApi {
 				.city(result.city())
 				.state(result.state())
 				.primaryTrade(result.primaryTrade())
-				.distanceMiles(result.distanceMiles());
+				.distanceMiles(result.distanceMiles())
+				.timeZone(result.timeZone())
+				.hourlyRate(toWire(result.hourlyRate()))
+				.licensed(result.licensed())
+				.licenseVerified(result.licenseVerified())
+				.nextSlots(result.nextSlots().stream().map(slot -> slot.atOffset(ZoneOffset.UTC)).toList());
+	}
+
+	/**
+	 * Money as a decimal string at the scale the column stores, which is what the contract asks
+	 * for and the same shape the tradesperson's own side of the API sends. A rate that had been
+	 * through a JSON number would be a rate that eventually disagrees with the invoice.
+	 */
+	private static String toWire(BigDecimal amount) {
+		return amount == null ? null : amount.setScale(4, RoundingMode.UNNECESSARY).toPlainString();
 	}
 }

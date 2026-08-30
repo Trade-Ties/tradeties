@@ -1,10 +1,26 @@
 package com.tradeties.business;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import java.time.DayOfWeek;
+import java.time.Duration;
+import java.time.Instant;
+import java.time.LocalDate;
+import java.time.LocalTime;
+import java.time.OffsetDateTime;
+import java.time.ZoneId;
+import java.time.ZonedDateTime;
+import java.util.List;
+import java.util.Map;
+import java.util.UUID;
+
+import com.jayway.jsonpath.JsonPath;
 import com.tradeties.BusinessFixtures;
 import com.tradeties.TestcontainersConfiguration;
 
@@ -38,6 +54,18 @@ class BusinessSearchTests {
 	private static final String DENVER = "80202";
 	private static final String BOULDER = "80301";
 	private static final String COLORADO_SPRINGS = "80903";
+
+	/** The zone every fixture business keeps its hours in, and the one its slots read back in. */
+	private static final ZoneId MOUNTAIN = ZoneId.of("America/Denver");
+
+	private static final String DELETE_WORKING_HOURS = """
+			DELETE FROM availability_working_hours
+			WHERE business_id = (SELECT id FROM business_profile WHERE slug = ?)""";
+
+	private static final String INSERT_LICENCE = """
+			INSERT INTO business_license (id, business_id, state, license_number, expires_on,
+				created_at, updated_at, version)
+			VALUES (?, (SELECT id FROM business_profile WHERE slug = ?), 'CO', ?, ?, now(), now(), 0)""";
 
 	@Autowired
 	MockMvc mockMvc;
@@ -203,13 +231,155 @@ class BusinessSearchTests {
 				.andExpect(slug("find-nopoint", false));
 	}
 
+	/**
+	 * The rate comes off the profile's own pricing, as a string at the scale the column stores —
+	 * the same shape the tradesperson's side of the API sends it back in.
+	 */
+	@Test
+	void aResultCarriesTheRateTheBusinessCharges() throws Exception {
+		RequestPostProcessor token = publish("user_find_rate", "find-rate", DENVER, "PLUMBER");
+		BusinessFixtures.setPricing(mockMvc, token, "85.00");
+
+		assertEquals("85.0000", result(DENVER, "find-rate").get("hourlyRate"));
+	}
+
+	/**
+	 * Pricing is an onboarding step a published profile need not have reached. Absent is common,
+	 * it is not a fault, and above all it does not make the business unfindable.
+	 */
+	@Test
+	void aBusinessThatHasNotPricedItselfIsStillFound() throws Exception {
+		publish("user_find_norate", "find-norate", DENVER, "PLUMBER");
+
+		assertNull(result(DENVER, "find-norate").get("hourlyRate"));
+	}
+
+	/**
+	 * Two flags and not one. A licence on file is a different claim from a licence somebody has
+	 * checked, and collapsing them would put the issuing state's word behind a number that was
+	 * merely typed in.
+	 */
+	@Test
+	void aLicenceCountsOnceOnFileAndIsVerifiedOnlyOnceChecked() throws Exception {
+		publish("user_find_lic", "find-lic", DENVER, "PLUMBER");
+		givenALicence("find-lic", "CO-FIND-1", LocalDate.now().plusYears(1));
+
+		Map<String, Object> onFile = result(DENVER, "find-lic");
+		assertEquals(true, onFile.get("licensed"));
+		assertEquals(false, onFile.get("licenseVerified"));
+
+		jdbcTemplate.update("UPDATE business_license SET verified_at = now() WHERE license_number = ?",
+				"CO-FIND-1");
+
+		assertEquals(true, result(DENVER, "find-lic").get("licenseVerified"));
+	}
+
+	/** A badge is a statement about today, so a licence that has run out makes neither of them. */
+	@Test
+	void anExpiredLicenceCountsForNothing() throws Exception {
+		publish("user_find_exp", "find-exp", DENVER, "PLUMBER");
+		givenALicence("find-exp", "CO-FIND-2", LocalDate.now().minusDays(1));
+		jdbcTemplate.update("UPDATE business_license SET verified_at = now() WHERE license_number = ?",
+				"CO-FIND-2");
+
+		Map<String, Object> expired = result(DENVER, "find-exp");
+		assertEquals(false, expired.get("licensed"));
+		assertEquals(false, expired.get("licenseVerified"));
+	}
+
+	/**
+	 * The fixture works Mondays, nine to five, and its rules ask for a day of notice — so what
+	 * comes back is Monday mornings, never today, and always in order.
+	 *
+	 * <p>Asserted as properties rather than as three timestamps. The suite runs on whichever day
+	 * it runs on, and a list of literal instants would be a test that only passes on Tuesdays.
+	 */
+	@Test
+	void theSlotsOfferedFollowTheWorkingWeek() throws Exception {
+		publish("user_find_slots", "find-slots", DENVER, "PLUMBER");
+
+		Map<String, Object> found = result(DENVER, "find-slots");
+
+		// The zone travels with the slots. Without it the client has an instant and no clock to
+		// read it on, and would fall back to the reader's — an hour the tradesperson never offered.
+		assertEquals(MOUNTAIN.getId(), found.get("timeZone"));
+
+		List<String> slots = slotsOf(found);
+		assertEquals(3, slots.size(), "the search offers three start times per result");
+
+		Instant previous = null;
+		for (String slot : slots) {
+			ZonedDateTime local = OffsetDateTime.parse(slot).atZoneSameInstant(MOUNTAIN);
+
+			assertEquals(DayOfWeek.MONDAY, local.getDayOfWeek(), slot + " is not a Monday");
+			assertTrue(!local.toLocalTime().isBefore(LocalTime.of(9, 0))
+							&& !local.toLocalTime().isAfter(LocalTime.of(16, 30)),
+					slot + " falls outside the nine-to-five the fixture works");
+			assertTrue(local.toInstant().isAfter(Instant.now().plus(Duration.ofHours(23))),
+					slot + " is inside the day of notice the booking rules require");
+
+			if (previous != null) {
+				assertTrue(local.toInstant().isAfter(previous), "slots came back out of order");
+			}
+			previous = local.toInstant();
+		}
+	}
+
+	/**
+	 * No working hours at all is onboarding step 7 not reached, which is a different statement
+	 * from "closed all week". Both mean there is nothing to offer, and both answer with an empty
+	 * list — never a missing field the client has to defend itself against.
+	 */
+	@Test
+	void aBusinessWithoutAWorkingWeekOffersNoSlots() throws Exception {
+		publish("user_find_noslots", "find-noslots", DENVER, "PLUMBER");
+		jdbcTemplate.update(DELETE_WORKING_HOURS, "find-noslots");
+
+		assertEquals(List.of(), slotsOf(result(DENVER, "find-noslots")));
+	}
+
+	/**
+	 * One search result, read as a map.
+	 *
+	 * <p>Filtered in JSONPath but asserted in Java, rather than the other way round: a null field
+	 * is dropped by a JSONPath filter expression, so "the rate is absent" and "the business is
+	 * absent" would otherwise be the same green.
+	 */
+	private Map<String, Object> result(String zip, String slug) throws Exception {
+		String body = mockMvc.perform(get("/api/v1/businesses").param("zip", zip))
+				.andExpect(status().isOk())
+				.andReturn().getResponse().getContentAsString();
+
+		List<Map<String, Object>> found = JsonPath.read(body, "$.results[?(@.slug=='" + slug + "')]");
+		assertEquals(1, found.size(), slug + " should appear exactly once");
+
+		return found.get(0);
+	}
+
+	@SuppressWarnings("unchecked")
+	private static List<String> slotsOf(Map<String, Object> result) {
+		return (List<String>) result.get("nextSlots");
+	}
+
+	/**
+	 * Inserted rather than posted. The endpoint cannot express either half of what these tests
+	 * need — an expiry already in the past, or a verification only the issuing state performs.
+	 */
+	private void givenALicence(String slug, String number, LocalDate expiresOn) {
+		jdbcTemplate.update(INSERT_LICENCE, UUID.randomUUID(), slug, number,
+				java.sql.Date.valueOf(expiresOn));
+	}
+
 	/** Present or absent by slug, so a shared database cannot make this flaky. */
 	private static org.springframework.test.web.servlet.ResultMatcher slug(String slug, boolean expected) {
 		return jsonPath("$.results[?(@.slug=='" + slug + "')]",
 				expected ? Matchers.hasSize(1) : Matchers.empty());
 	}
 
-	private void publish(String subject, String slug, String postalCode, String tradeCode) throws Exception {
+	/** @return the owner's token, for the tests that go on to price the business */
+	private RequestPostProcessor publish(String subject, String slug, String postalCode, String tradeCode)
+			throws Exception {
+
 		RequestPostProcessor token =
 				BusinessFixtures.publishableBusinessFor(mockMvc, subject, slug, tradeCode);
 
@@ -217,5 +387,7 @@ class BusinessSearchTests {
 				.andExpect(status().isOk());
 
 		mockMvc.perform(post("/api/v1/me/business/publish").with(token)).andExpect(status().isOk());
+
+		return token;
 	}
 }

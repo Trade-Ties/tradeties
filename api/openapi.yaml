@@ -1244,9 +1244,20 @@ components:
     BusinessSearchResult:
       type: object
       description: |
-        One tradesperson who would come. Enough to choose between them and no more — the
-        profile is where the services, the rates and the licences are.
-      required: [slug, displayName, city, state, distanceMiles]
+        One tradesperson who would come, and enough to choose between them: who they are,
+        how far away, what they charge by the hour, whether a licence is on file and when
+        they are next free. The profile is still where the individual services, the
+        minimums, the call-out fees and the licence numbers themselves are.
+
+        **Nothing here identifies a person.** A business name, a town, a distance, a rate,
+        two flags and a handful of start times. That is the property this whole operation
+        is anonymous on the strength of, and it is the thing to re-read before adding a
+        field.
+
+        **What is absent is absent for a reason.** There is no rating, no completed-job
+        count and no photograph, because this marketplace has none of those — not because
+        they were left out of the response.
+      required: [slug, displayName, city, state, distanceMiles, timeZone, licensed, licenseVerified, nextSlots]
       properties:
         slug:
           $ref: "#/components/schemas/Slug"
@@ -1274,6 +1285,66 @@ components:
             From the centre of the searched postal code to the business, straight line.
             Not a drive time, and accurate to about the size of a ZIP area on each end —
             it orders the list honestly and should not be printed to a decimal place.
+        hourlyRate:
+          description: |
+            What this business charges by the hour, or absent for one that has not filled
+            its pricing in. Absent is common and is not a signal — it means the question
+            has not been answered, not that the work is free or that the business is
+            hiding something.
+
+            A starting point and not a quote. The minimum billable time, the call-out fee
+            and whatever a specific service costs all live on the profile, and a customer
+            who multiplies this by an hour has not been told the price.
+          oneOf:
+            - $ref: "#/components/schemas/MoneyAmount"
+            - type: "null"
+        licensed:
+          type: boolean
+          description: |
+            Whether a licence that has not expired is on file for this business.
+
+            False is not an accusation. Plenty of trades need no licence in plenty of
+            states, and a profile completed before the licence step reads the same way.
+            Worth showing as a badge when true and worth saying nothing at all when
+            false — an explicit "not licensed" would be a claim this data cannot support.
+        licenseVerified:
+          type: boolean
+          description: |
+            Whether one of those licences has been checked against the issuing state
+            rather than merely typed in. Always false while `licensed` is false.
+
+            Deliberately not called "verified": what was checked is the licence, and a
+            badge that says anything broader is claiming an identity check nobody has
+            performed.
+        timeZone:
+          type: string
+          description: |
+            The IANA zone the business keeps its hours in, and the one `nextSlots` means
+            something in. Sent because a time without a zone is not a time: a slot rendered
+            in the reader's own zone is the wrong hour for anybody who is not standing where
+            they usually stand, and it is the tradesperson's working day being described.
+          maxLength: 64
+          examples: ["America/Denver"]
+        nextSlots:
+          type: array
+          description: |
+            The soonest start times this business is free, earliest first, at most three.
+
+            Computed from the working week, the booking rules and any declared absence —
+            never stored, so it cannot go stale. An empty list is an ordinary answer: a
+            business closed all week, one that has not set its calendar up, or one whose
+            next opening is past its own booking horizon.
+
+            **Not a hold.** Nothing is reserved by appearing here, and the list is a
+            moment old by the time it is drawn.
+
+            Sent as instants, to be read against `timeZone` rather than against the
+            reader's own. Nine in the morning is nine where the tradesperson works, and
+            that is the number both sides of a booking have to agree on.
+          maxItems: 3
+          items:
+            type: string
+            format: date-time
 
     Trade:
       type: object
