@@ -122,6 +122,23 @@ docker compose exec -T postgres \
   psql -v ON_ERROR_STOP=1 -v dev_owner=user_01ABC... -U tradeties -d tradeties < postgres/dev-seed.sql
 ```
 
+### Marketplace inventory
+
+One business is enough to open the portal and not enough to search. `postgres/dev-seed-marketplace.sql`
+adds 24 more — 5 plumbers, 3 electricians, 2 carpenters, 2 roofers and one business
+for every remaining trade, spread over five Denver ZIP codes (80202, 80204, 80206,
+80209, 80239) with service radii from 10 to 50 miles:
+
+```bash
+docker compose exec -T postgres \
+  psql -v ON_ERROR_STOP=1 -U tradeties -d tradeties < postgres/dev-seed-marketplace.sql
+```
+
+Same rules as above: run it after the backend has started once, and running it twice
+does nothing the second time. These businesses belong to placeholder subjects nobody
+can sign in as — they are inventory for the customer side, not businesses to
+administer. Use `dev-seed.sql` with your own subject for that.
+
 ## Environment
 
 Docker Compose reads `infra/.env` automatically. Every variable has a working
