@@ -3,12 +3,21 @@ package com.tradeties.business;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.ZoneOffset;
+import java.util.ArrayList;
+import java.util.List;
 
 import com.tradeties.business.internal.BusinessSearchService;
+import com.tradeties.business.internal.PublicProfileService;
 import com.tradeties.generated.api.MarketplaceApi;
+import com.tradeties.generated.model.PublicBusinessProfile;
+import com.tradeties.generated.model.PublicLicense;
+import com.tradeties.generated.model.PublicPricing;
+import com.tradeties.generated.model.PublicService;
 
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.server.ResponseStatusException;
 
 /**
  * The customer's half of the API, and the only part of it that takes no token.
@@ -19,17 +28,21 @@ import org.springframework.web.bind.annotation.RestController;
  * shapes, and the DECISIONS rule that customers stay anonymous is easier to keep true when the
  * anonymous surface is one small class one can read end to end.
  *
- * <p>Nothing it returns identifies a person: a business name, a town, a distance, a slug, an
- * hourly rate, two licence flags and a handful of start times. The list has grown and the
- * property has not, which is the only thing about it worth checking when it grows again.
+ * <p>Nothing it returns identifies a person: a business name, a town, a distance, a slug, what
+ * the work costs, what each service takes, the licences on file and a handful of start times.
+ * The list has grown again and the property has not, which is the only thing about it worth
+ * checking when it grows next. What has never been on it is the part that matters — no street,
+ * no coordinates, no legal name, no phone and no email.
  */
 @RestController
 class MarketplaceController implements MarketplaceApi {
 
 	private final BusinessSearchService search;
+	private final PublicProfileService profiles;
 
-	MarketplaceController(BusinessSearchService search) {
+	MarketplaceController(BusinessSearchService search, PublicProfileService profiles) {
 		this.search = search;
+		this.profiles = profiles;
 	}
 
 	/**
@@ -47,6 +60,106 @@ class MarketplaceController implements MarketplaceApi {
 			String zip, String job, String name, Integer page) {
 
 		return ResponseEntity.ok(toWire(search.search(zip, job, name, page)));
+	}
+
+	/**
+	 * One 404 for three states, and it is the answer rather than a shortcut. A slug nobody holds,
+	 * a profile still in draft and one the marketplace has suspended are indistinguishable from
+	 * out here on purpose — the same reasoning that makes someone else's resource read as missing
+	 * on the owner side, applied to a rule about publishing instead of about ownership.
+	 */
+	@Override
+	public ResponseEntity<PublicBusinessProfile> getBusinessBySlug(String slug) {
+
+		return ResponseEntity.ok(profiles.findBySlug(slug)
+				.map(MarketplaceController::toWire)
+				.orElseThrow(MarketplaceController::noSuchProfile));
+	}
+
+	private static ResponseStatusException noSuchProfile() {
+		return new ResponseStatusException(HttpStatus.NOT_FOUND, "No business is published under this address");
+	}
+
+	/**
+	 * <strong>Read the omissions, not the fields.</strong> What makes this operation anonymous is
+	 * everything {@link PublicProfile} does not carry, and the one thing that could undo it is a
+	 * field added here later without that being re-read.
+	 */
+	private static PublicBusinessProfile toWire(PublicProfile profile) {
+		TradeSelection trades = profile.trades();
+
+		List<TradeOption> held = new ArrayList<>(trades.additional());
+		if (trades.primary() != null) {
+			held.addFirst(trades.primary());
+		}
+
+		return new PublicBusinessProfile()
+				.slug(profile.slug())
+				.displayName(profile.displayName())
+				.description(profile.description())
+				.websiteUrl(profile.websiteUrl())
+				.city(profile.city())
+				.state(profile.state())
+				.timeZone(profile.timeZone())
+				.trades(held.stream().map(ReferenceController::toWire).toList())
+				.primaryTradeId(trades.primary() == null ? null : trades.primary().id())
+				.services(profile.services().stream().map(MarketplaceController::toWire).toList())
+				.pricing(toWire(profile.pricing()))
+				.licenses(profile.licenses().stream().map(MarketplaceController::toWire).toList());
+	}
+
+	/**
+	 * The same service the owner sees, minus the three fields that are only about editing it: the
+	 * version to write back with, the sort order to move it by, and the active flag — every
+	 * service here is active, because the inactive ones were never fetched.
+	 */
+	private static PublicService toWire(ServiceDetails details) {
+		return new PublicService()
+				.id(details.id())
+				.tradeId(details.tradeId())
+				.name(details.name())
+				.description(details.description())
+				.estimatedDurationMinutes(details.estimatedDurationMinutes())
+				.pricingMode(com.tradeties.generated.model.ServicePricingMode.valueOf(details.pricingMode().name()))
+				.price(toWire(details.price()));
+	}
+
+	private static PublicPricing toWire(PricingTerms terms) {
+		return new PublicPricing()
+				.currency(terms.currency())
+				.hourlyRate(toWire(terms.hourlyRate()))
+				.minimumBillableMinutes(terms.minimumBillableMinutes())
+				.billingIncrementMinutes(terms.billingIncrementMinutes())
+				.serviceCallFee(toWire(terms.serviceCallFee()))
+				.serviceCallFeeWaivedIfHired(terms.serviceCallFeeWaivedIfHired())
+				.travelFeeMode(com.tradeties.generated.model.TravelFeeMode.valueOf(terms.travelFeeMode().name()))
+				.travelFlatFee(toWire(terms.travelFlatFee()))
+				.travelRatePerMile(toWire(terms.travelRatePerMile()))
+				.freeTravelRadiusMiles(terms.freeTravelRadiusMiles())
+				.materialPricingMode(
+						com.tradeties.generated.model.MaterialPricingMode.valueOf(terms.materialPricingMode().name()))
+				.materialMarkupPercent(toWirePercent(terms.materialMarkupPercent()))
+				.cancellationFee(toWire(terms.cancellationFee()))
+				.cancellationNoticeHours(terms.cancellationNoticeHours());
+	}
+
+	/**
+	 * {@code verified}, not {@code verifiedAt}: when TradeTies checked is the marketplace's own
+	 * record, and whether it did is the whole of what a customer reads from it.
+	 */
+	private static PublicLicense toWire(LicenseDetails details) {
+		return new PublicLicense()
+				.state(details.state())
+				.licenseNumber(details.licenseNumber())
+				.licenseType(details.licenseType())
+				.issuedOn(details.issuedOn())
+				.expiresOn(details.expiresOn())
+				.verified(details.verifiedAt() != null);
+	}
+
+	/** Percentages sit in {@code NUMERIC(5,2)}, so their canonical scale is two, not four. */
+	private static String toWirePercent(BigDecimal percent) {
+		return percent == null ? null : percent.setScale(2, RoundingMode.UNNECESSARY).toPlainString();
 	}
 
 	private static com.tradeties.generated.model.BusinessSearchResults toWire(BusinessSearchResults found) {

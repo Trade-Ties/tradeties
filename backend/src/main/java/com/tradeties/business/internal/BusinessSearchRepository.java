@@ -2,6 +2,7 @@ package com.tradeties.business.internal;
 
 import java.math.BigDecimal;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
 import com.tradeties.business.NextAvailability;
@@ -166,6 +167,25 @@ interface BusinessSearchRepository extends Repository<BusinessProfile, UUID> {
 			@Param("tradeIds") List<UUID> tradeIds,
 			@Param("name") String name,
 			@Param("ceiling") int ceiling);
+
+	/**
+	 * One business by the URL it was published under — and only while it is published.
+	 *
+	 * <p><strong>The status is in the query and not in the caller</strong>, for the reason every
+	 * lookup in {@link BusinessProfileRepository} takes an owner: a signature that cannot express
+	 * the unpublished case is one nobody can forget to narrow. A draft, a suspension and a slug
+	 * nobody holds then come back the same way — as an empty {@link Optional} — which is the one
+	 * 404 the contract promises for all three.
+	 *
+	 * <p>The entity rather than a projection, unlike everything above it. The search reads fifty
+	 * businesses to draw eleven columns; this reads one to draw the page about it, and a
+	 * projection would be a second list of fields to keep in step with the first.
+	 */
+	@Query("""
+			select b from BusinessProfile b
+			where b.slug = :slug
+			  and b.status = com.tradeties.business.BusinessStatus.PUBLISHED""")
+	Optional<BusinessProfile> findPublishedBySlug(@Param("slug") String slug);
 
 	/**
 	 * The shape {@link #findServing} answers in, before it becomes a {@code BusinessSearchResult}.

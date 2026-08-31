@@ -330,6 +330,54 @@ paths:
         "400":
           $ref: "#/components/responses/BadRequest"
 
+  /api/v1/businesses/{slug}:
+    parameters:
+      - name: slug
+        in: path
+        required: true
+        description: |
+          The URL segment this business was published under. Frozen from the first
+          publish onwards, which is what makes a link to this page worth printing on a
+          van.
+        schema:
+          $ref: "#/components/schemas/Slug"
+    get:
+      tags: [marketplace]
+      operationId: getBusinessBySlug
+      security: []
+      summary: One tradesperson, as a customer sees them.
+      description: |
+        What a search result has no room for: every service with the time it takes, the
+        terms the work is charged on, and the licences on file.
+
+        **A service is read before a calendar can be drawn.** What a service carries is a
+        duration, and a duration is what gives an appointment a length —
+        `AT_LEAST_ONE_SERVICE` is a publishing condition for that reason. So free slots
+        are a question about a *service*, not about a business, and this is where the
+        customer answers it.
+
+        **Published profiles only, and one `404` for everything else.** A slug nobody
+        holds, a profile still in draft, one the marketplace has suspended: all the same
+        answer. Telling them apart would publish TradeTies' moderation decisions to
+        anybody who can type a URL.
+
+        **What is missing is missing on purpose, and it is what the search leaves out
+        too.** No street address — a trade address is often somebody's home — no
+        coordinates, and no legal name. No phone number and no email either: the request
+        flow is the contact channel, and a dispatch line printed here would route around
+        the appointment this page exists to arrange.
+
+        Anonymous, like the search. No token is taken and none is needed.
+      responses:
+        "200":
+          description: The profile.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PublicBusinessProfile"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
   /api/v1/me/business:
     get:
       tags: [business]
@@ -1179,6 +1227,11 @@ components:
         query by owner rather than checking ownership afterwards, so someone else's
         resource is indistinguishable from a missing one — deliberately. A 403 would
         confirm that the thing exists.
+
+        The anonymous side says the same thing about a different rule: a profile that is
+        not published is not the customer's to see, so a draft, a suspension and a slug
+        nobody holds are one answer. Distinguishing them would publish a moderation
+        decision to anybody who can type a URL.
       content:
         application/problem+json:
           schema:
@@ -1425,6 +1478,250 @@ components:
           items:
             type: string
             format: date-time
+
+    PublicBusinessProfile:
+      type: object
+      description: |
+        One business as a customer sees it, and deliberately not the same object as
+        `BusinessProfile`. That one is the company as its owner sees it and carries what it
+        takes to *edit* a profile; this one carries what it takes to *choose* one and book it.
+
+        Everything here is either something the business published about itself or something
+        TradeTies checked. Nothing is about a person.
+      required: [slug, displayName, city, state, timeZone, trades, services, pricing, licenses]
+      properties:
+        slug:
+          $ref: "#/components/schemas/Slug"
+        displayName:
+          type: string
+          maxLength: 200
+        description:
+          type: [string, "null"]
+          maxLength: 2000
+        websiteUrl:
+          type: [string, "null"]
+          pattern: '^https?://.+'
+          maxLength: 2048
+        city:
+          type: string
+          maxLength: 100
+        state:
+          $ref: "#/components/schemas/UsStateCode"
+        timeZone:
+          allOf:
+            - $ref: "#/components/schemas/TimeZoneId"
+          description: |
+            The zone this business keeps its hours in, and the one every appointment time
+            around this profile means something in. Sent for the reason the search sends it: a
+            time without a zone is not a time, and a slot rendered on the reader's own clock is
+            the wrong hour for anybody who is not standing where they usually stand.
+        trades:
+          type: array
+          description: |
+            Every trade this business holds, in no particular order — `primaryTradeId` is what
+            says which one it leads with, rather than a position in this list.
+
+            Whole trades and not names, because `PublicService.tradeId` points at them: a
+            client that groups services by trade needs the ids, and one that draws an icon per
+            trade needs the codes.
+          items:
+            $ref: "#/components/schemas/Trade"
+        primaryTradeId:
+          type: string
+          format: uuid
+          description: |
+            Which of `trades` this business leads with. Absent only for a profile published
+            before the checklist required one, which is nothing the customer needs explaining —
+            a client that finds it missing shows the trades it has.
+        services:
+          type: array
+          description: |
+            What can actually be booked, in the order the business put them in.
+
+            **This is where a slot search starts.** A slot has no length until one of these is
+            chosen, so a calendar drawn before that would be offering start times nothing can
+            be booked at.
+
+            Never empty for a published profile: `AT_LEAST_ONE_SERVICE` is a publishing
+            condition, and its reason is exactly this one.
+          items:
+            $ref: "#/components/schemas/PublicService"
+        pricing:
+          allOf:
+            - $ref: "#/components/schemas/PublicPricing"
+          description: |
+            Always present, because `PRICING_SET` is a publishing condition too — a request
+            snapshots the cancellation fee when it is sent, so a business with no terms has
+            nothing that could be asked of it.
+        licenses:
+          type: array
+          description: |
+            The licences on file that have not expired, if any.
+
+            **Empty is not an accusation.** Plenty of trades need no licence in plenty of
+            states, and a profile completed before the licence step reads the same way. An
+            expired licence is absent for a different reason: a licence is a statement about
+            today, and an expired one is not a weaker version of it.
+          items:
+            $ref: "#/components/schemas/PublicLicense"
+
+    PublicService:
+      type: object
+      description: |
+        One thing this business does, with the two numbers a customer decides on: how long it
+        takes and what it costs.
+
+        `id` is what a booking will name, and `estimatedDurationMinutes` is what gives that
+        booking a length — which is why a service is chosen before the calendar is drawn.
+
+        **No `active`, no `sortOrder`, no `version`.** Only services still offered are listed,
+        already in the order they were put in, and there is nothing here to write. A
+        deactivated service is the record of an appointment that named it, which belongs to the
+        history rather than to the menu.
+      required: [id, tradeId, name, estimatedDurationMinutes, pricingMode]
+      properties:
+        id:
+          type: string
+          format: uuid
+        tradeId:
+          type: string
+          format: uuid
+          description: Which of the profile's `trades` this service is filed under.
+        name:
+          type: string
+          minLength: 1
+          maxLength: 160
+          examples: ["Clog removal"]
+        description:
+          type: [string, "null"]
+          maxLength: 2000
+        estimatedDurationMinutes:
+          type: integer
+          format: int32
+          description: |
+            The time this reserves in the calendar, which is not the time billed. What the
+            business sets aside; what the customer pays follows `pricing`.
+          minimum: 15
+          maximum: 480
+        pricingMode:
+          $ref: "#/components/schemas/ServicePricingMode"
+        price:
+          oneOf:
+            - $ref: "#/components/schemas/MoneyAmount"
+            - type: "null"
+          description: |
+            The fixed price, for a service that has one. Null for an hourly service, whose
+            rate is `pricing.hourlyRate` — and null there too is a question unanswered rather
+            than work given away.
+
+    PublicPricing:
+      type: object
+      description: |
+        What the work is charged on, before anyone has asked for a quote. The same terms
+        `Pricing` carries, minus the `version` there is nothing here to write with.
+
+        **`cancellationFee` and `cancellationNoticeHours` are the pair that has to be read
+        before a request is sent.** The fee is snapshotted onto the request at that moment, so
+        what was displayed is what binds — and a customer sending requests to several
+        businesses at once is being told, in dollars, what a double booking would cost.
+      required:
+        - currency
+        - minimumBillableMinutes
+        - billingIncrementMinutes
+        - serviceCallFeeWaivedIfHired
+        - travelFeeMode
+        - materialPricingMode
+        - cancellationFee
+        - cancellationNoticeHours
+      properties:
+        currency:
+          type: string
+          description: USD. Present so a later market does not have to change the shape.
+          minLength: 3
+          maxLength: 3
+        hourlyRate:
+          oneOf:
+            - $ref: "#/components/schemas/MoneyAmount"
+            - type: "null"
+        minimumBillableMinutes:
+          type: integer
+          format: int32
+          description: The "one hour minimum" every US trade quotes.
+          minimum: 1
+        billingIncrementMinutes:
+          type: integer
+          format: int32
+          minimum: 1
+        serviceCallFee:
+          oneOf:
+            - $ref: "#/components/schemas/MoneyAmount"
+            - type: "null"
+          description: The "$89 service call fee", charged for turning up.
+        serviceCallFeeWaivedIfHired:
+          type: boolean
+          description: Only meaningful with a fee — waiving one that does not exist is not a statement.
+        travelFeeMode:
+          $ref: "#/components/schemas/TravelFeeMode"
+        travelFlatFee:
+          oneOf:
+            - $ref: "#/components/schemas/MoneyAmount"
+            - type: "null"
+        travelRatePerMile:
+          oneOf:
+            - $ref: "#/components/schemas/MoneyAmount"
+            - type: "null"
+        freeTravelRadiusMiles:
+          type: [integer, "null"]
+          format: int32
+          minimum: 0
+        materialPricingMode:
+          $ref: "#/components/schemas/MaterialPricingMode"
+        materialMarkupPercent:
+          oneOf:
+            - $ref: "#/components/schemas/PercentAmount"
+            - type: "null"
+        cancellationFee:
+          $ref: "#/components/schemas/MoneyAmount"
+        cancellationNoticeHours:
+          type: integer
+          format: int32
+          description: |
+            Hours, not "one day": 24 answers "may I still cancel" with a subtraction, where
+            "the day before" has to be interpreted first.
+          minimum: 0
+          maximum: 720
+
+    PublicLicense:
+      type: object
+      description: |
+        A licence on file, without the `id` and `version` only its holder can use.
+
+        **`verified`, not `verifiedAt`.** *When* TradeTies checked is the marketplace's own
+        record; *whether* it did is what the customer reads. And what was checked is the
+        licence — a badge claiming anything broader would assert an identity check nobody
+        performed.
+      required: [state, licenseNumber, verified]
+      properties:
+        state:
+          $ref: "#/components/schemas/UsStateCode"
+        licenseNumber:
+          type: string
+          minLength: 1
+          maxLength: 64
+        licenseType:
+          type: [string, "null"]
+          maxLength: 120
+          examples: ["Master Plumber"]
+        issuedOn:
+          type: [string, "null"]
+          format: date
+        expiresOn:
+          type: [string, "null"]
+          format: date
+          description: Null means the licence does not expire, not that nobody filled it in.
+        verified:
+          type: boolean
+          description: Whether TradeTies checked this licence against the issuing state.
 
     Trade:
       type: object

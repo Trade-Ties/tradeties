@@ -55,6 +55,21 @@ public class TradeSelectionService {
 	}
 
 	/**
+	 * The same selection, reached by business rather than by owner — for the customer side, which
+	 * has no owner to reach it through.
+	 *
+	 * <p>Not a hole in the rule that every lookup carries its owner. That rule guards the step
+	 * where a caller is turned into a business, and this method is past it: the only thing that
+	 * hands out a business id anonymously is {@code findPublishedBySlug}, which answers for
+	 * published profiles alone. Which trades a published business holds is what the search already
+	 * says out loud.
+	 */
+	@Transactional(readOnly = true)
+	public TradeSelection findByBusinessId(UUID businessId) {
+		return toSelection(links.findByIdBusinessIdAndDeletedAtIsNull(businessId));
+	}
+
+	/**
 	 * Replaces the whole selection. Three things make this more than a delete-and-reinsert, and
 	 * none of them is optional.
 	 *
