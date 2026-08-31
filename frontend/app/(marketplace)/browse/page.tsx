@@ -12,6 +12,19 @@ function firstValue(value: string | string[] | undefined): string {
   return (Array.isArray(value) ? value[0] : value) ?? "";
 }
 
+/**
+ * The page from the URL, or null for the first one.
+ *
+ * Anything that is not a whole number counting from 1 is dropped rather than refused. It can only
+ * come from a hand-edited URL or a link that lost its query, and showing the first page is a
+ * better answer than an error about a parameter nobody typed on purpose. A number that is
+ * well-formed but past the last page is a different case and is left to the backend, which
+ * refuses it — being asked for page 900 is a client's own bug and should say so.
+ */
+function pageNumber(value: string): number | null {
+  return /^[1-9]\d*$/.test(value) ? Number(value) : null;
+}
+
 export default async function BrowsePage({
   searchParams,
 }: {
@@ -21,19 +34,24 @@ export default async function BrowsePage({
   const job = firstValue(params.job);
   const zip = firstValue(params.zip);
   const when = firstValue(params.when);
+  const page = pageNumber(firstValue(params.page));
 
   // Arriving with any of these means the hero search bar sent you here —
   // show the "results for your job" page instead of the full
   // filter-everything browse page. Visiting /browse directly (e.g. via
   // "Browse all professionals") has none of these set, so it keeps the
   // full experience unchanged.
+  //
+  // The page number is deliberately not among them: it says where in a
+  // search you are, not that there is one, and on its own it is nothing to
+  // page through.
   const cameFromSearch = job !== "" || zip !== "" || when !== "";
 
   return (
     <>
       <SiteHeader />
       {cameFromSearch ? (
-        <Searched job={job} zip={zip} when={when} />
+        <Searched job={job} zip={zip} when={when} page={page} />
       ) : (
         // BrowseProfessionals reads its own initial state via
         // useSearchParams(), which the App Router requires a Suspense
@@ -57,7 +75,17 @@ export default async function BrowsePage({
  * because there is nothing to ask about — a missing ZIP is reached by editing the URL or by a
  * link that lost its query, and it deserves an answer rather than a failed request.
  */
-async function Searched({ job, zip, when }: { job: string; zip: string; when: string }) {
+async function Searched({
+  job,
+  zip,
+  when,
+  page,
+}: {
+  job: string;
+  zip: string;
+  when: string;
+  page: number | null;
+}) {
   if (zip.length !== 5) {
     return (
       <Empty
@@ -67,7 +95,7 @@ async function Searched({ job, zip, when }: { job: string; zip: string; when: st
     );
   }
 
-  const result = await searchBusinesses(zip, job || null);
+  const result = await searchBusinesses(zip, job || null, page);
 
   // A postal code the backend cannot place is the one failure worth its own words — and it is
   // recognised by its problem type, not by the status. A description over the length the contract

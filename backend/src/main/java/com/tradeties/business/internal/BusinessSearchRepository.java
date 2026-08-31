@@ -11,13 +11,20 @@ import org.springframework.data.repository.Repository;
 import org.springframework.data.repository.query.Param;
 
 /**
- * The one query the customer side asks, kept apart from {@link BusinessProfileRepository} because
- * it is a different question. Everything there takes an owner and answers about one profile; this
- * takes no owner, reads across the whole table, and answers with what a stranger may see.
+ * What the customer side asks, kept apart from {@link BusinessProfileRepository} because it is a
+ * different question. Everything there takes an owner and answers about one profile; this takes no
+ * owner, reads across the whole table, and answers with what a stranger may see.
  *
  * <p>A bare {@link Repository} rather than a {@code JpaRepository}: there is nothing to save here
  * and no id to load by, and inheriting twenty write methods onto the anonymous read path would be
  * handing out more than this needs.
+ *
+ * <p><strong>Two queries, one condition.</strong> {@link #findServing} fetches a page and
+ * {@link #countServing} counts how many pages there could be, and the {@code WHERE} clause is
+ * written out in both. Nothing in the language keeps them in step — a filter added to one and
+ * forgotten in the other produces no error at all, just a count that disagrees with the list.
+ * {@code BusinessSearchPagingTests} walks every page and compares what it collected against the
+ * count, which is what turns that silence into a failing build.
  */
 interface BusinessSearchRepository extends Repository<BusinessProfile, UUID> {
 
@@ -52,9 +59,16 @@ interface BusinessSearchRepository extends Repository<BusinessProfile, UUID> {
 	 * setting it on the connection and a pooled connection carries that to whoever holds it next.
 	 * A deployment that changes the default changes these results, which is what the suite pins.
 	 *
-	 * <p>Ordered by distance, then slug. The second is not decoration: two businesses at the same
-	 * centroid — the common case, since most points are ZIP centroids — would otherwise swap
-	 * places between identical calls, which is what makes a list look untrustworthy.
+	 * <p>Ordered by distance, then slug. The second is not decoration, and paging is what made it
+	 * load-bearing: two businesses at the same centroid — the common case, since most points are
+	 * ZIP centroids — would otherwise swap places between identical calls. Before paging that
+	 * merely looked untrustworthy. Now it would put one of them on two pages and the other on
+	 * none, and nothing downstream could tell.
+	 *
+	 * <p>{@code OFFSET} rather than a cursor, and the cap is why. Deep offsets are what make this
+	 * form slow — PostgreSQL walks and discards every skipped row — and the largest offset this
+	 * can be asked for is the cap minus one page. There is nothing here for a cursor to make
+	 * faster, and a cursor would cost the page numbers the URL carries.
 	 *
 	 * <p>The licence flags are two {@code EXISTS} rather than a join, so a business holding four
 	 * licences stays one row. An expired one counts for neither: a badge is a statement about
@@ -101,13 +115,57 @@ interface BusinessSearchRepository extends Repository<BusinessProfile, UUID> {
 			            AND x.trade_id IN (:tradeIds)))
 			  AND (:name = '' OR b.display_name %> :name)
 			ORDER BY distanceMiles ASC, b.slug ASC
-			LIMIT :limit""", nativeQuery = true)
+			LIMIT :pageSize OFFSET :offset""", nativeQuery = true)
 	List<SearchRow> findServing(@Param("latitude") BigDecimal latitude,
 			@Param("longitude") BigDecimal longitude,
 			@Param("narrowByTrade") boolean narrowByTrade,
 			@Param("tradeIds") List<UUID> tradeIds,
 			@Param("name") String name,
-			@Param("limit") int limit);
+			@Param("pageSize") int pageSize,
+			@Param("offset") int offset);
+
+	/**
+	 * How many businesses {@link #findServing} would return in total, counted no further than
+	 * {@code ceiling}.
+	 *
+	 * <p><strong>Why it stops counting.</strong> The answer is a pager and a headline, and neither
+	 * changes between "300 matched" and "3000 matched". Counting the true figure means visiting
+	 * every matching row on every search to print a number nobody acts on. Passing the cap plus
+	 * one instead answers two questions at once: the exact count while it is small, and "more than
+	 * the cap" the moment it is not — the caller tells them apart by comparing.
+	 *
+	 * <p><strong>Why not {@code count(*) OVER ()} on the query above.</strong> It would be one
+	 * query instead of two and it would be wrong for the reason that matters: a window function is
+	 * evaluated over the whole result set before {@code LIMIT} narrows it, so it counts every
+	 * match anyway. The cap would exist and cost exactly what it was meant to save.
+	 *
+	 * <p><strong>Why the joins are missing.</strong> {@code findServing} joins trade and pricing to
+	 * add columns, and both are {@code LEFT} — a left join cannot change which rows match, so
+	 * counting without them counts the same set. Should one ever become an inner join, or gain an
+	 * {@code ON} condition that filters rather than describes, it belongs here too.
+	 */
+	@Query(value = """
+			SELECT count(*) FROM (
+			    SELECT 1
+			    FROM business_profile b
+			    WHERE b.status = 'PUBLISHED'
+			      AND ST_Covers(
+			              b.service_area,
+			              ST_SetSRID(ST_MakePoint(:longitude, :latitude), 4326)::geography)
+			      AND (:narrowByTrade = FALSE OR EXISTS (
+			              SELECT 1 FROM business_trade x
+			              WHERE x.business_id = b.id
+			                AND x.deleted_at IS NULL
+			                AND x.trade_id IN (:tradeIds)))
+			      AND (:name = '' OR b.display_name %> :name)
+			    LIMIT :ceiling
+			) counted""", nativeQuery = true)
+	int countServing(@Param("latitude") BigDecimal latitude,
+			@Param("longitude") BigDecimal longitude,
+			@Param("narrowByTrade") boolean narrowByTrade,
+			@Param("tradeIds") List<UUID> tradeIds,
+			@Param("name") String name,
+			@Param("ceiling") int ceiling);
 
 	/**
 	 * The shape {@link #findServing} answers in, before it becomes a {@code BusinessSearchResult}.

@@ -230,6 +230,11 @@ paths:
         here weighs a better trade match, a fuller profile or a review score, because
         the marketplace has no usage data to justify one yet.
 
+        **One page at a time, and only so many pages.** See `page` below. The order is
+        distance and then slug, and the second half is what makes paging trustworthy:
+        most points are ZIP centroids, so businesses at the same address are common, and
+        without a tiebreak one of them would appear on two pages and another on none.
+
         **Two things answer `400`, and a client has to tell them apart.** A postal code the
         Census does not list carries `type: urn:tradeties:problem:invalid-selection`; on this
         operation the only selection is the ZIP, so a client may name it. A parameter outside
@@ -285,19 +290,33 @@ paths:
           schema:
             type: string
             maxLength: 200
-        - name: limit
+        - name: page
           in: query
           required: false
           description: |
-            How many to return. A cap rather than paging: a customer who has scrolled
-            past fifty tradespeople is not going to find the right one at ninety, and
-            narrowing the description is the better answer than another page.
+            Which page of results to return, counting from 1.
+
+            **Paging and a cap, not one instead of the other.** Paging makes the list
+            reachable; the cap keeps it finite. At most 240 results can be reached — ten
+            pages of 24 — and a search that finds more says so through `totalCapped`
+            rather than offering an eleventh page. Nobody picks a tradesperson from
+            position 300, and narrowing the description is the better answer than
+            another page.
+
+            A page past the end is not a refusal. It answers `200` with an empty
+            `results` and the same `total`, because "you have run off the end of a list
+            that exists" is not the client's bug that a `400` would call it.
+
+            `maximum` below is the cap divided by the page size. Both of those live in
+            `tradeties.search.*` on the server and this number does not follow them on
+            its own — change one, change the other, and the server refuses an offset
+            past the cap regardless.
           schema:
             type: integer
             format: int32
             minimum: 1
-            maximum: 50
-            default: 20
+            maximum: 10
+            default: 1
       responses:
         "200":
           description: |
@@ -1232,7 +1251,7 @@ components:
         What a search found, and what it understood the description to mean. The second
         is not diagnostics — it is what a client needs to offer "did you mean plumbing
         or carpentry?" instead of quietly picking one.
-      required: [matchedTrades, results]
+      required: [matchedTrades, results, page, pageSize, total, totalCapped]
       properties:
         matchedTrades:
           type: array
@@ -1248,8 +1267,36 @@ components:
             $ref: "#/components/schemas/TradeMatch"
         results:
           type: array
+          description: |
+            One page of them, `pageSize` long at most and ordered by distance. Empty on
+            page 1 means nobody matched; empty on a later page means that page is past
+            the end.
           items:
             $ref: "#/components/schemas/BusinessSearchResult"
+        page:
+          type: integer
+          format: int32
+          description: Which page this is, counting from 1. Echoed so a client need not track it.
+        pageSize:
+          type: integer
+          format: int32
+          description: |
+            The most results a page carries. Server-side and not a parameter: it is a
+            layout decision, and a client that could ask for a page of 100000 would be
+            the cap by another route.
+        total:
+          type: integer
+          format: int32
+          description: |
+            How many results the search found — **counted no further than the cap.** When
+            `totalCapped` is true this is the cap itself and more exist, so render it as
+            "240+" rather than as a figure. Counting past the cap would mean counting
+            every match to print a number that changes no decision.
+        totalCapped:
+          type: boolean
+          description: |
+            True when more results exist than the cap can reach. The pager stops at
+            `maximum` pages either way; this is what lets the count say so honestly.
 
     TradeMatch:
       type: object

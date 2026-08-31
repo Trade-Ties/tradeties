@@ -33,22 +33,30 @@ class MarketplaceController implements MarketplaceApi {
 	}
 
 	/**
-	 * The contract already refused a postal code of the wrong shape and a limit out of range, so
+	 * The contract already refused a postal code of the wrong shape and a page out of range, so
 	 * what arrives here is well-formed. What it may still be is a code the Census does not list,
 	 * and that answers 400 through {@code InvalidSelectionException} — the same way an unknown
 	 * state does on the other side of the API.
+	 *
+	 * <p>A page within those bounds but past the end of the results is not among them. It answers
+	 * 200 with nothing on it, because the client asked a legal question about a list that exists
+	 * and the count in the reply already says where the list ended.
 	 */
 	@Override
 	public ResponseEntity<com.tradeties.generated.model.BusinessSearchResults> searchBusinesses(
-			String zip, String job, String name, Integer limit) {
+			String zip, String job, String name, Integer page) {
 
-		return ResponseEntity.ok(toWire(search.search(zip, job, name, limit)));
+		return ResponseEntity.ok(toWire(search.search(zip, job, name, page)));
 	}
 
 	private static com.tradeties.generated.model.BusinessSearchResults toWire(BusinessSearchResults found) {
 		return new com.tradeties.generated.model.BusinessSearchResults()
 				.matchedTrades(found.matchedTrades().stream().map(MarketplaceController::toWire).toList())
-				.results(found.results().stream().map(MarketplaceController::toWire).toList());
+				.results(found.results().stream().map(MarketplaceController::toWire).toList())
+				.page(found.page())
+				.pageSize(found.pageSize())
+				.total(found.total())
+				.totalCapped(found.totalCapped());
 	}
 
 	private static com.tradeties.generated.model.TradeMatch toWire(TradeMatch match) {

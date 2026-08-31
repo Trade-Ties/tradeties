@@ -110,6 +110,19 @@ export function JobSearchResults({
         </Button>
 
         <div className="mb-8">
+          {/*
+            KNOWN WRONG, until the pager lands. This counts `results`, and `results` is one page
+            — so a search that found 26 tradespeople announces 24 of them. `found.total` is the
+            number this sentence means, and `found.totalCapped` says whether to print it as
+            "240" or "240+"; the API started sending both when paging was added.
+
+            Not fixed here on purpose. A truthful count with no way to reach the rest is the
+            worse of the two states: "26 professionals" above 24 cards invites the reader to
+            look for two that are nowhere on the page. The heading and the pager are one change,
+            and this comment is here so the first is not made without the second.
+
+            The same count is repeated further down, above the grid.
+          */}
           <h1 className="mb-1.5 text-[clamp(24px,3vw,32px)] font-extrabold tracking-[-0.03em]">
             {results.length === 0
               ? `No one travels to ${zip} yet`
@@ -291,6 +304,12 @@ export function JobSearchResults({
                   <CalendarDays className="size-5 text-go" />
                 </div>
                 <div>
+                  {/*
+                    The second of the two page-counts named in the heading's comment above, and
+                    the more misleading of them: "whose area reaches you" is a claim about the
+                    whole search, and this counts one page of it. Both move to `found.total`
+                    together with the pager.
+                  */}
                   <p className="m-0 text-[15px] font-bold text-brand">
                     {results.length} professional{results.length === 1 ? "" : "s"} whose area reaches you
                   </p>
