@@ -25,6 +25,10 @@ import org.springframework.transaction.annotation.Transactional;
  * the distance are measured the same way. The description becomes a trade, because the customer
  * is never asked to pick one. What remains is a single query.
  *
+ * <p>A name, when one is given, narrows that query further and needs no step of its own: it is
+ * compared where it is stored, by letter groups rather than by meaning, which is the one question
+ * a description cannot answer.
+ *
  * <p>A fourth step joins the calendar to the answer. It is deliberately after the query and not
  * part of it: which businesses reach this postal code is a question about shapes and can be
  * indexed, while when each of them is next free is arithmetic over a working week, and folding
@@ -65,6 +69,7 @@ public class BusinessSearchService {
 	 * @param postalCode where the customer is. ZIP or ZIP+4; the five digits are what the table is
 	 *        keyed on
 	 * @param jobDescription the problem in the customer's words, or null
+	 * @param name part of a business name, or null. Blank and absent narrow the same nothing
 	 * @throws InvalidSelectionException for a postal code the Census does not list. Deliberately
 	 *         not an empty result: a typo and "nobody serves you" are different news, and the
 	 *         second one told about the first is what makes somebody correct an address that was
@@ -72,7 +77,7 @@ public class BusinessSearchService {
 	 *         exist, for the same reason
 	 */
 	@Transactional(readOnly = true)
-	public BusinessSearchResults search(String postalCode, String jobDescription, int limit) {
+	public BusinessSearchResults search(String postalCode, String jobDescription, String name, int limit) {
 		GeoPoint origin = Geocoder.fiveDigitZip(postalCode)
 				.flatMap(zips::findById)
 				.map(CatalogZip::toPoint)
@@ -84,6 +89,7 @@ public class BusinessSearchService {
 				.findServing(origin.latitude(), origin.longitude(),
 						!matched.isEmpty(),
 						matched.isEmpty() ? NOTHING_TO_NARROW_BY : matched.stream().map(TradeMatch::id).toList(),
+						name == null ? "" : name.trim(),
 						limit);
 
 		Map<UUID, List<Instant>> slots = availability.nextSlots(

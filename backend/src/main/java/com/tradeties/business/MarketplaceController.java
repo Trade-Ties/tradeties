@@ -40,9 +40,9 @@ class MarketplaceController implements MarketplaceApi {
 	 */
 	@Override
 	public ResponseEntity<com.tradeties.generated.model.BusinessSearchResults> searchBusinesses(
-			String zip, String job, Integer limit) {
+			String zip, String job, String name, Integer limit) {
 
-		return ResponseEntity.ok(toWire(search.search(zip, job, limit)));
+		return ResponseEntity.ok(toWire(search.search(zip, job, name, limit)));
 	}
 
 	private static com.tradeties.generated.model.BusinessSearchResults toWire(BusinessSearchResults found) {

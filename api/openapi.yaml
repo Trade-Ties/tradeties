@@ -216,6 +216,11 @@ paths:
         is what lets a client ask "did you mean plumbing or carpentry?" rather than
         guessing on the customer's behalf. One that names none does not narrow at all.
 
+        **`name` is the other half of the same box.** A customer who already knows the
+        business types its name; one who does not describes the problem. The two narrow
+        independently and may be combined, and neither is required — a postal code on its
+        own returns everyone who travels there.
+
         **Only published profiles, and only ones with a point.** A draft is nobody's to
         find, and a profile whose postal code never resolved has no service area — the
         same profile `ADDRESS_GEOCODED` refuses to publish, absent here for the same
@@ -252,6 +257,34 @@ paths:
           schema:
             type: string
             maxLength: 300
+        - name: name
+          in: query
+          required: false
+          description: |
+            Part of a business name, for the customer who already knows who they want.
+            Blank is the same as absent.
+
+            **Compared by letter groups, not by words.** `job` is read as language and
+            stemmed; this is matched on trigrams, so `Joes Plumbin` still finds
+            `Joe's Plumbing` and a name nobody can spell is still findable. It is the
+            question `job` cannot answer, which is why the two are separate parameters
+            rather than one box that guesses which was meant.
+
+            Matched against any run of the name rather than the whole of it, so `Okonkwo`
+            finds `Okonkwo Heating & Air` without the customer typing the rest.
+
+            **Narrows, it does not reorder.** Results stay in distance order, and a closer
+            business whose name matches less well is still listed first. Ranking by how
+            well a name matched would be a second sort competing with the first for no
+            reason the data supports.
+
+            Combined with `job` this is an AND: both must hold. The radius always holds —
+            this operation answers "who would come to this postal code", and a business
+            that does not travel to the customer is not made relevant by being named
+            correctly.
+          schema:
+            type: string
+            maxLength: 200
         - name: limit
           in: query
           required: false

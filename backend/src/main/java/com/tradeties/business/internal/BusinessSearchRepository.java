@@ -37,6 +37,21 @@ interface BusinessSearchRepository extends Repository<BusinessProfile, UUID> {
 	 * list is never read — pass anything non-empty — and every business that reaches the point
 	 * comes back.
 	 *
+	 * <p><strong>The name filter needs no such flag,</strong> because a string has an empty value
+	 * and a list does not. Blank narrows nothing, which is the same thing an absent parameter
+	 * means, so the two never have to be told apart.
+	 *
+	 * <p>{@code %>} is trigram word similarity, and it is the operator rather than the function on
+	 * purpose: only the operator can use the GIN index V17 created for exactly this, and the
+	 * function form would read every published row to answer. What it compares is the searched
+	 * name against any run of the stored one, so "Okonkwo" finds "Okonkwo Heating & Air" — plain
+	 * {@code %} compares the whole of both strings and would score that pair too low to match.
+	 *
+	 * <p>How close is close enough is PostgreSQL's {@code pg_trgm.word_similarity_threshold}, 0.6
+	 * by default. It is left at the default rather than set per query, because setting it means
+	 * setting it on the connection and a pooled connection carries that to whoever holds it next.
+	 * A deployment that changes the default changes these results, which is what the suite pins.
+	 *
 	 * <p>Ordered by distance, then slug. The second is not decoration: two businesses at the same
 	 * centroid — the common case, since most points are ZIP centroids — would otherwise swap
 	 * places between identical calls, which is what makes a list look untrustworthy.
@@ -84,12 +99,14 @@ interface BusinessSearchRepository extends Repository<BusinessProfile, UUID> {
 			          WHERE x.business_id = b.id
 			            AND x.deleted_at IS NULL
 			            AND x.trade_id IN (:tradeIds)))
+			  AND (:name = '' OR b.display_name %> :name)
 			ORDER BY distanceMiles ASC, b.slug ASC
 			LIMIT :limit""", nativeQuery = true)
 	List<SearchRow> findServing(@Param("latitude") BigDecimal latitude,
 			@Param("longitude") BigDecimal longitude,
 			@Param("narrowByTrade") boolean narrowByTrade,
 			@Param("tradeIds") List<UUID> tradeIds,
+			@Param("name") String name,
 			@Param("limit") int limit);
 
 	/**

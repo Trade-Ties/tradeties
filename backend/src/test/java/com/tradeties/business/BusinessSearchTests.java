@@ -58,6 +58,9 @@ class BusinessSearchTests {
 	/** The zone every fixture business keeps its hours in, and the one its slots read back in. */
 	private static final ZoneId MOUNTAIN = ZoneId.of("America/Denver");
 
+	private static final String RENAME = """
+			UPDATE business_profile SET display_name = ? WHERE slug = ?""";
+
 	private static final String DELETE_WORKING_HOURS = """
 			DELETE FROM availability_working_hours
 			WHERE business_id = (SELECT id FROM business_profile WHERE slug = ?)""";
@@ -368,6 +371,116 @@ class BusinessSearchTests {
 	private void givenALicence(String slug, String number, LocalDate expiresOn) {
 		jdbcTemplate.update(INSERT_LICENCE, UUID.randomUUID(), slug, number,
 				java.sql.Date.valueOf(expiresOn));
+	}
+
+	/**
+	 * The name narrows, and it narrows to the business that bears it.
+	 *
+	 * <p>Two assertions and not one. That the named business comes back proves the match; that a
+	 * business standing at the same address does not proves the parameter filtered rather than
+	 * being accepted and ignored — which is exactly how this looked before it was implemented.
+	 */
+	@Test
+	void aNameFindsTheBusinessThatBearsIt() throws Exception {
+		publish("user_find_name", "find-name", DENVER, "PLUMBER");
+		renameTo("find-name", "Okonkwo Heating & Air");
+		publish("user_find_name_other", "find-name-other", DENVER, "PLUMBER");
+
+		mockMvc.perform(get("/api/v1/businesses").param("zip", DENVER).param("name", "Okonkwo"))
+				.andExpect(status().isOk())
+				.andExpect(slug("find-name", true))
+				.andExpect(slug("find-name-other", false));
+	}
+
+	/**
+	 * The promise the trigram index was created for, in the words its migration used: a name
+	 * spelled wrong still finds the business.
+	 *
+	 * <p>"Joes Plumbin" against "Joe's Plumbing" scores 0.625 on word similarity, against a
+	 * threshold of 0.6 — measured, not assumed. It is close to the line on purpose: a test that
+	 * only searched for names spelled correctly would pass against plain equality and would prove
+	 * nothing about the letter groups.
+	 */
+	@Test
+	void aMisspelledNameStillFindsIt() throws Exception {
+		publish("user_find_typo", "find-typo", DENVER, "PLUMBER");
+		renameTo("find-typo", "Joe's Plumbing");
+
+		mockMvc.perform(get("/api/v1/businesses").param("zip", DENVER).param("name", "Joes Plumbin"))
+				.andExpect(status().isOk())
+				.andExpect(slug("find-typo", true));
+	}
+
+	/** Near enough is not the same as anything goes: an unrelated name matches nobody. */
+	@Test
+	void aNameNothingBearsFindsNobody() throws Exception {
+		publish("user_find_miss", "find-miss", DENVER, "PLUMBER");
+		renameTo("find-miss", "Okonkwo Heating & Air");
+
+		mockMvc.perform(get("/api/v1/businesses").param("zip", DENVER))
+				.andExpect(slug("find-miss", true));
+
+		mockMvc.perform(get("/api/v1/businesses").param("zip", DENVER).param("name", "Electric"))
+				.andExpect(status().isOk())
+				.andExpect(slug("find-miss", false));
+	}
+
+	/** Blank is absent. A search box the customer never typed in must not narrow anything. */
+	@Test
+	void aBlankNameNarrowsNothing() throws Exception {
+		publish("user_find_blank", "find-blank", DENVER, "PLUMBER");
+		renameTo("find-blank", "Okonkwo Heating & Air");
+
+		mockMvc.perform(get("/api/v1/businesses").param("zip", DENVER).param("name", "   "))
+				.andExpect(status().isOk())
+				.andExpect(slug("find-blank", true));
+	}
+
+	/**
+	 * Name and description are an AND, and this is the case that tells an AND from an OR.
+	 *
+	 * <p>The business is a plumber called "Okonkwo Heating & Air". Its name matches; the
+	 * description reads as an electrician and its trade does not. An OR would return it on the
+	 * strength of the name alone.
+	 */
+	@Test
+	void aNameAndADescriptionMustBothHold() throws Exception {
+		publish("user_find_both", "find-both", DENVER, "PLUMBER");
+		renameTo("find-both", "Okonkwo Heating & Air");
+
+		mockMvc.perform(get("/api/v1/businesses").param("zip", DENVER).param("name", "Okonkwo"))
+				.andExpect(slug("find-both", true));
+
+		mockMvc.perform(get("/api/v1/businesses")
+						.param("zip", DENVER)
+						.param("name", "Okonkwo")
+						.param("job", "the breaker keeps tripping"))
+				.andExpect(status().isOk())
+				.andExpect(slug("find-both", false));
+	}
+
+	/**
+	 * The radius still holds. A business that does not travel to the customer is not made
+	 * relevant by being named correctly, which is the whole reason this parameter lives on this
+	 * operation rather than on a lookup of its own.
+	 */
+	@Test
+	void aNameDoesNotReachPastTheServiceArea() throws Exception {
+		publish("user_find_far", "find-far", DENVER, "PLUMBER");
+		renameTo("find-far", "Okonkwo Heating & Air");
+
+		mockMvc.perform(get("/api/v1/businesses").param("zip", COLORADO_SPRINGS).param("name", "Okonkwo"))
+				.andExpect(status().isOk())
+				.andExpect(slug("find-far", false));
+	}
+
+	/**
+	 * Renamed in the database rather than through the API, because every fixture business is
+	 * called "Acme Plumbing" and a name search over identical names proves nothing. Nothing else
+	 * in the profile is touched.
+	 */
+	private void renameTo(String slug, String displayName) {
+		jdbcTemplate.update(RENAME, displayName, slug);
 	}
 
 	/** Present or absent by slug, so a shared database cannot make this flaky. */
