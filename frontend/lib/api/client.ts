@@ -19,3 +19,18 @@ export function apiClient(accessToken: string) {
     headers: { Authorization: `Bearer ${accessToken}` },
   });
 }
+
+/**
+ * The same backend, asked as nobody in particular.
+ *
+ * For the handful of operations the contract marks `security: []` — the reference catalogues and
+ * the customer search. Sending a token to those would work and would be wrong: it puts a
+ * signed-in tradesperson's identity on a request whose answer must not depend on it, and it makes
+ * every such page uncacheable for a reason nothing in the page needs.
+ *
+ * Separate from `apiClient` rather than an optional argument, so "is this call anonymous" is
+ * visible at the call site instead of buried in whether a variable happened to be undefined.
+ */
+export function publicApiClient() {
+  return createClient<paths>({ baseUrl: API_BASE_URL });
+}

@@ -98,6 +98,10 @@ class BookingPolicyRow {
 		this.appointmentBufferMinutes = rules.appointmentBufferMinutes();
 	}
 
+	UUID businessId() {
+		return businessId;
+	}
+
 	long version() {
 		return version;
 	}

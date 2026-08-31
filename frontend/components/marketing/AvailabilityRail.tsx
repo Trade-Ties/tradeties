@@ -5,7 +5,7 @@ import Link from "next/link";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
-import { ProCard } from "@/components/marketing/ProCard";
+import { ProCard, proCardView } from "@/components/marketing/ProCard";
 import { PROS, TRADE_ICONS, TRADE_LIST } from "@/components/marketing/pros-data";
 
 const TRADE_FILTERS = ["All", ...TRADE_LIST];
@@ -108,7 +108,7 @@ export function AvailabilityRail() {
               className="rail-scroll flex snap-x snap-mandatory scroll-smooth gap-4 overflow-x-auto p-1"
             >
               {filtered.map((p) => (
-                <ProCard key={p.name} pro={p} className="w-[271px] shrink-0 snap-start" />
+                <ProCard key={p.name} view={proCardView(p)} className="w-[271px] shrink-0 snap-start" />
               ))}
             </div>
 

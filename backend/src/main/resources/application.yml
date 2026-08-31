@@ -72,6 +72,25 @@ workos:
 tradeties:
   profile-url-prefix: ${PROFILE_URL_PREFIX:tradeties.com/pro/}
 
+  # The customer search answers one page at a time and stops at a cap. Paging makes the
+  # list reachable; the cap makes it finite, and the two solve different problems --
+  # see BusinessSearchService.
+  #
+  # Not environment variables. These are product decisions with a contract behind them,
+  # not deployment knobs, and `page`'s maximum in api/openapi.yaml is max-results divided
+  # by page-size, written there by hand. Changing either of these without changing that
+  # leaves the contract lying about how far a client may page. Tests override them to
+  # reach the cap without publishing 241 businesses.
+  search:
+    # 24 rather than the more usual 20 because the result grid is auto-fill: it renders
+    # two, three or four columns wide depending on the window, and 24 divides evenly by
+    # all three where 20 leaves a ragged row at three.
+    page-size: 24
+    # Ten pages. Raising it is one line and nobody notices; lowering it after customers
+    # have seen page 20 takes something away. So it starts small and moves if anybody
+    # ever asks, which nobody picking a tradesperson is likely to.
+    max-results: 240
+
   # The US Census Bureau's public geocoder, which sharpens a ZIP centroid into a position
   # along the address range. Free, keyless and US-only -- and with no availability promise
   # attached, which is exactly why nothing on the write path waits for it. Configurable so a

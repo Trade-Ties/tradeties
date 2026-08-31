@@ -31,6 +31,11 @@ tags:
     description: The authenticated principal and its role in the marketplace.
   - name: reference
     description: Catalogues the client renders but never owns. Public, and stable.
+  - name: marketplace
+    description: |
+      The customer's half: finding a tradesperson. Public, unauthenticated, and
+      deliberately anonymous — nothing here takes a token and nothing it returns
+      names a person.
   - name: business
     description: |
       The tradesperson's own business. Every operation here resolves the business
@@ -188,6 +193,142 @@ paths:
   # -------------------------------------------------------------------------
   # The business profile — onboarding steps 1 and 2.
   # -------------------------------------------------------------------------
+
+  /api/v1/businesses:
+    get:
+      tags: [marketplace]
+      operationId: searchBusinesses
+      security: []
+      summary: Tradespeople who would come to this postal code.
+      description: |
+        The customer side of the marketplace, and the first read that answers to nobody
+        in particular — no token, and nothing in the answer that identifies a person.
+
+        **The radius belongs to the business, not to the search.** Each tradesperson
+        declares how far they travel, so this does not return "everyone within N miles
+        of you"; it returns everyone whose own service area reaches you. Two businesses
+        the same distance away can differ on whether they appear.
+
+        **`job` is a description, not a category.** The customer is never asked to pick
+        a trade — they say what is wrong, in their words, and the server reads the trade
+        out of it. A description that names one trade narrows the results to it. One
+        that names several narrows to all of them and says so in `matchedTrades`, which
+        is what lets a client ask "did you mean plumbing or carpentry?" rather than
+        guessing on the customer's behalf. One that names none does not narrow at all.
+
+        **`name` is the other half of the same box.** A customer who already knows the
+        business types its name; one who does not describes the problem. The two narrow
+        independently and may be combined, and neither is required — a postal code on its
+        own returns everyone who travels there.
+
+        **Only published profiles, and only ones with a point.** A draft is nobody's to
+        find, and a profile whose postal code never resolved has no service area — the
+        same profile `ADDRESS_GEOCODED` refuses to publish, absent here for the same
+        reason by way of the storage rather than a second rule.
+
+        Results are ordered by distance. That is deliberately not a ranking: nothing
+        here weighs a better trade match, a fuller profile or a review score, because
+        the marketplace has no usage data to justify one yet.
+
+        **One page at a time, and only so many pages.** See `page` below. The order is
+        distance and then slug, and the second half is what makes paging trustworthy:
+        most points are ZIP centroids, so businesses at the same address are common, and
+        without a tiebreak one of them would appear on two pages and another on none.
+
+        **Two things answer `400`, and a client has to tell them apart.** A postal code the
+        Census does not list carries `type: urn:tradeties:problem:invalid-selection`; on this
+        operation the only selection is the ZIP, so a client may name it. A parameter outside
+        the bounds declared below is untyped and is the client's own bug. Telling somebody
+        their postal code is unknown because their description ran long would send them to
+        correct an address that was right — the same wrong lesson an empty result teaches.
+      parameters:
+        - name: zip
+          in: query
+          required: true
+          description: |
+            Where the customer is standing. Five digits or ZIP+4; only the five are
+            read. A code the Census does not list answers `400` rather than an empty
+            result — a typo and "nobody serves you" are different news, and a search
+            box that confidently returns nothing for `80292` teaches the wrong lesson.
+          schema:
+            type: string
+            pattern: '^\d{5}(-\d{4})?$'
+            maxLength: 10
+            examples: ["80202"]
+        - name: job
+          in: query
+          required: false
+          description: The problem in the customer's own words. Blank is the same as absent.
+          schema:
+            type: string
+            maxLength: 300
+        - name: name
+          in: query
+          required: false
+          description: |
+            Part of a business name, for the customer who already knows who they want.
+            Blank is the same as absent.
+
+            **Compared by letter groups, not by words.** `job` is read as language and
+            stemmed; this is matched on trigrams, so `Joes Plumbin` still finds
+            `Joe's Plumbing` and a name nobody can spell is still findable. It is the
+            question `job` cannot answer, which is why the two are separate parameters
+            rather than one box that guesses which was meant.
+
+            Matched against any run of the name rather than the whole of it, so `Okonkwo`
+            finds `Okonkwo Heating & Air` without the customer typing the rest.
+
+            **Narrows, it does not reorder.** Results stay in distance order, and a closer
+            business whose name matches less well is still listed first. Ranking by how
+            well a name matched would be a second sort competing with the first for no
+            reason the data supports.
+
+            Combined with `job` this is an AND: both must hold. The radius always holds —
+            this operation answers "who would come to this postal code", and a business
+            that does not travel to the customer is not made relevant by being named
+            correctly.
+          schema:
+            type: string
+            maxLength: 200
+        - name: page
+          in: query
+          required: false
+          description: |
+            Which page of results to return, counting from 1.
+
+            **Paging and a cap, not one instead of the other.** Paging makes the list
+            reachable; the cap keeps it finite. At most 240 results can be reached — ten
+            pages of 24 — and a search that finds more says so through `totalCapped`
+            rather than offering an eleventh page. Nobody picks a tradesperson from
+            position 300, and narrowing the description is the better answer than
+            another page.
+
+            A page past the end is not a refusal. It answers `200` with an empty
+            `results` and the same `total`, because "you have run off the end of a list
+            that exists" is not the client's bug that a `400` would call it.
+
+            `maximum` below is the cap divided by the page size. Both of those live in
+            `tradeties.search.*` on the server and this number does not follow them on
+            its own — change one, change the other, and the server refuses an offset
+            past the cap regardless.
+          schema:
+            type: integer
+            format: int32
+            minimum: 1
+            maximum: 10
+            default: 1
+      responses:
+        "200":
+          description: |
+            What matched, and what the description was read as. An empty `results` with
+            a filled `matchedTrades` is a real answer — the trade was understood and
+            nobody offering it reaches this postal code.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BusinessSearchResults"
+        "400":
+          $ref: "#/components/responses/BadRequest"
 
   /api/v1/me/business:
     get:
@@ -1103,6 +1244,187 @@ components:
         - BUSINESS_OWNER
         - BUSINESS_MEMBER
         - PLATFORM_ADMIN
+
+    BusinessSearchResults:
+      type: object
+      description: |
+        What a search found, and what it understood the description to mean. The second
+        is not diagnostics — it is what a client needs to offer "did you mean plumbing
+        or carpentry?" instead of quietly picking one.
+      required: [matchedTrades, results, page, pageSize, total, totalCapped]
+      properties:
+        matchedTrades:
+          type: array
+          description: |
+            The trades the description was read as, best first, at most three. Empty when
+            the description named none — including when there was no description — and the
+            results are then everyone who reaches this postal code.
+
+            More than one entry means the description did not separate them. A client that
+            renders these as choices turns a guess into a question; one that ignores them
+            still shows a correct, wider result set.
+          items:
+            $ref: "#/components/schemas/TradeMatch"
+        results:
+          type: array
+          description: |
+            One page of them, `pageSize` long at most and ordered by distance. Empty on
+            page 1 means nobody matched; empty on a later page means that page is past
+            the end.
+          items:
+            $ref: "#/components/schemas/BusinessSearchResult"
+        page:
+          type: integer
+          format: int32
+          description: Which page this is, counting from 1. Echoed so a client need not track it.
+        pageSize:
+          type: integer
+          format: int32
+          description: |
+            The most results a page carries. Server-side and not a parameter: it is a
+            layout decision, and a client that could ask for a page of 100000 would be
+            the cap by another route.
+        total:
+          type: integer
+          format: int32
+          description: |
+            How many results the search found — **counted no further than the cap.** When
+            `totalCapped` is true this is the cap itself and more exist, so render it as
+            "240+" rather than as a figure. Counting past the cap would mean counting
+            every match to print a number that changes no decision.
+        totalCapped:
+          type: boolean
+          description: |
+            True when more results exist than the cap can reach. The pager stops at
+            `maximum` pages either way; this is what lets the count say so honestly.
+
+    TradeMatch:
+      type: object
+      description: A trade the description might mean, and how well it fit.
+      required: [id, code, displayName, score]
+      properties:
+        id:
+          type: string
+          format: uuid
+        code:
+          type: string
+          maxLength: 64
+          examples: ["PLUMBER"]
+        displayName:
+          type: string
+          maxLength: 120
+        score:
+          type: number
+          format: double
+          description: |
+            Comparable only against the other entries of the same response. A relevance
+            rank, not a probability: two scores close together mean the description did
+            not tell them apart, which is the case worth asking the customer about.
+
+    BusinessSearchResult:
+      type: object
+      description: |
+        One tradesperson who would come, and enough to choose between them: who they are,
+        how far away, what they charge by the hour, whether a licence is on file and when
+        they are next free. The profile is still where the individual services, the
+        minimums, the call-out fees and the licence numbers themselves are.
+
+        **Nothing here identifies a person.** A business name, a town, a distance, a rate,
+        two flags and a handful of start times. That is the property this whole operation
+        is anonymous on the strength of, and it is the thing to re-read before adding a
+        field.
+
+        **What is absent is absent for a reason.** There is no rating, no completed-job
+        count and no photograph, because this marketplace has none of those — not because
+        they were left out of the response.
+      required: [slug, displayName, city, state, distanceMiles, timeZone, licensed, licenseVerified, nextSlots]
+      properties:
+        slug:
+          $ref: "#/components/schemas/Slug"
+        displayName:
+          type: string
+          maxLength: 200
+        city:
+          type: string
+          maxLength: 100
+        state:
+          type: string
+          minLength: 2
+          maxLength: 2
+          examples: ["CO"]
+        primaryTrade:
+          type: string
+          description: |
+            What this business leads with. Absent only for a profile published before the
+            checklist required one, which is nothing the customer needs explaining.
+          maxLength: 120
+        distanceMiles:
+          type: number
+          format: double
+          description: |
+            From the centre of the searched postal code to the business, straight line.
+            Not a drive time, and accurate to about the size of a ZIP area on each end —
+            it orders the list honestly and should not be printed to a decimal place.
+        hourlyRate:
+          description: |
+            What this business charges by the hour, or absent for one that has not filled
+            its pricing in. Absent is common and is not a signal — it means the question
+            has not been answered, not that the work is free or that the business is
+            hiding something.
+
+            A starting point and not a quote. The minimum billable time, the call-out fee
+            and whatever a specific service costs all live on the profile, and a customer
+            who multiplies this by an hour has not been told the price.
+          oneOf:
+            - $ref: "#/components/schemas/MoneyAmount"
+            - type: "null"
+        licensed:
+          type: boolean
+          description: |
+            Whether a licence that has not expired is on file for this business.
+
+            False is not an accusation. Plenty of trades need no licence in plenty of
+            states, and a profile completed before the licence step reads the same way.
+            Worth showing as a badge when true and worth saying nothing at all when
+            false — an explicit "not licensed" would be a claim this data cannot support.
+        licenseVerified:
+          type: boolean
+          description: |
+            Whether one of those licences has been checked against the issuing state
+            rather than merely typed in. Always false while `licensed` is false.
+
+            Deliberately not called "verified": what was checked is the licence, and a
+            badge that says anything broader is claiming an identity check nobody has
+            performed.
+        timeZone:
+          type: string
+          description: |
+            The IANA zone the business keeps its hours in, and the one `nextSlots` means
+            something in. Sent because a time without a zone is not a time: a slot rendered
+            in the reader's own zone is the wrong hour for anybody who is not standing where
+            they usually stand, and it is the tradesperson's working day being described.
+          maxLength: 64
+          examples: ["America/Denver"]
+        nextSlots:
+          type: array
+          description: |
+            The soonest start times this business is free, earliest first, at most three.
+
+            Computed from the working week, the booking rules and any declared absence —
+            never stored, so it cannot go stale. An empty list is an ordinary answer: a
+            business closed all week, one that has not set its calendar up, or one whose
+            next opening is past its own booking horizon.
+
+            **Not a hold.** Nothing is reserved by appearing here, and the list is a
+            moment old by the time it is drawn.
+
+            Sent as instants, to be read against `timeZone` rather than against the
+            reader's own. Nine in the morning is nine where the tradesperson works, and
+            that is the number both sides of a booking have to agree on.
+          maxItems: 3
+          items:
+            type: string
+            format: date-time
 
     Trade:
       type: object
@@ -2235,9 +2557,14 @@ components:
         RFC 9457 problem detail, as produced by Spring's ProblemDetail.
 
         `type` is `about:blank` unless a problem is one a client has to tell apart from the
-        others sharing its status code. Every one that is today is a `409`, because that is
-        the status this API answers with for more than one reason:
+        others sharing its status code. One is a `400` and the rest are `409`s — the two
+        statuses this API answers with for more than one reason:
 
+        - `urn:tradeties:problem:invalid-selection` — a `400`. The request is well formed, but
+          a value it names is not in a catalogue the server keeps: a state, a trade, a time
+          zone, a postal code. Name a different one. The other `400` — a request outside the
+          bounds the contract itself declares — carries no type, because nobody chose it and
+          the person in front of the client cannot fix it.
         - `urn:tradeties:problem:unconfirmed-time-zone-change` — answer with a dialogue and
           send the same body again with `timeZoneChangeConfirmed`.
         - `urn:tradeties:problem:slug-locked` — the profile was published, so `slug` is no
