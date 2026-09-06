@@ -4,10 +4,21 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 
 import type { User } from "@workos-inc/node";
-import { Building2, ChevronsUpDown, LayoutDashboard, LogOut } from "lucide-react";
+import {
+  Building2,
+  CalendarDays,
+  ChevronsUpDown,
+  Inbox,
+  LayoutDashboard,
+  LineChart,
+  LogOut,
+  Receipt,
+  Settings,
+} from "lucide-react";
 
 import { signOutFromPortal } from "@/app/(pro)/dashboard/actions";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { Logo } from "@/components/logo";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -25,11 +36,25 @@ import {
   SidebarMenuItem,
   SidebarMenuButton,
 } from "@/components/ui/sidebar";
-import { DASHBOARD_PATH, MARKETPLACE_PATH, PROFILE_PATH } from "@/lib/routes";
+import {
+  CALENDAR_PATH,
+  DASHBOARD_PATH,
+  INBOX_PATH,
+  INSIGHTS_PATH,
+  INVOICES_PATH,
+  MARKETPLACE_PATH,
+  PROFILE_PATH,
+  SETTINGS_PATH,
+} from "@/lib/routes";
 
 const NAV = [
   { label: "Dashboard", href: DASHBOARD_PATH, icon: LayoutDashboard },
+  { label: "Inbox", href: INBOX_PATH, icon: Inbox },
+  { label: "Calendar", href: CALENDAR_PATH, icon: CalendarDays },
+  { label: "Insights", href: INSIGHTS_PATH, icon: LineChart },
+  { label: "Invoices", href: INVOICES_PATH, icon: Receipt },
   { label: "Business profile", href: PROFILE_PATH, icon: Building2 },
+  { label: "Settings", href: SETTINGS_PATH, icon: Settings },
 ];
 
 export function AppSidebar({ user }: { user: User }) {
@@ -38,11 +63,11 @@ export function AppSidebar({ user }: { user: User }) {
   return (
     <Sidebar collapsible="icon">
       <SidebarHeader className="h-(--portal-header) justify-center overflow-hidden border-b border-sidebar-border px-4">
-        <Link
-          href={MARKETPLACE_PATH}
-          className="truncate text-lg font-semibold tracking-tight transition-opacity duration-200 ease-linear group-data-[collapsible=icon]:opacity-0"
-        >
-          TradeTies
+        <Link href={MARKETPLACE_PATH}>
+          <Logo
+            className="text-lg"
+            wordmarkClassName="transition-opacity duration-200 ease-linear group-data-[collapsible=icon]:opacity-0"
+          />
         </Link>
       </SidebarHeader>
 

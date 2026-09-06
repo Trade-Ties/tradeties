@@ -5,6 +5,7 @@ import { useState } from "react";
 import { Menu, X } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import { Logo } from "@/components/logo";
 
 export function SiteHeader() {
   const [mobileOpen, setMobileOpen] = useState(false);
@@ -12,16 +13,8 @@ export function SiteHeader() {
   return (
     <header className="sticky top-0 z-50 border-b border-line bg-white/85 backdrop-blur-md backdrop-saturate-150">
       <div className="mx-auto flex h-[68px] max-w-[1180px] items-center justify-between gap-5 px-6">
-        <Link
-          href="/"
-          className="flex items-center gap-2.5 text-[20px] font-extrabold tracking-[-0.025em] text-brand no-underline"
-        >
-          <span className="grid size-[26px] shrink-0 place-items-center rounded-lg bg-brand">
-            <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
-              <path d="M2 7.5 L5.5 11 L12 3.5" stroke="#fff" strokeWidth="2.1" strokeLinecap="round" strokeLinejoin="round" />
-            </svg>
-          </span>
-          TradeTies
+        <Link href="/" className="no-underline">
+          <Logo />
         </Link>
 
         <nav className="flex items-center gap-0.5">
