@@ -1,0 +1,12 @@
+# Keeps the build context small — backend/Dockerfile only ever COPYs api/ and
+# backend/, but Docker still has to send everything below to the daemon first
+# unless it's excluded here.
+.git/
+node_modules/
+frontend/
+infra/
+.github/
+.vscode/
+.claude/
+*.md
+backend/target/

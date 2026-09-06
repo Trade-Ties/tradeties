@@ -19,6 +19,16 @@ export const DASHBOARD_PATH = "/dashboard";
 
 export const PROFILE_PATH = "/dashboard/profile";
 
+export const CALENDAR_PATH = "/dashboard/calendar";
+
+export const INBOX_PATH = "/dashboard/inbox";
+
+export const INSIGHTS_PATH = "/dashboard/insights";
+
+export const INVOICES_PATH = "/dashboard/invoices";
+
+export const SETTINGS_PATH = "/dashboard/settings";
+
 /** Opens the wizard over the overview. Presence is the signal; the value is never read. */
 export const WIZARD_PARAM = "edit";
 

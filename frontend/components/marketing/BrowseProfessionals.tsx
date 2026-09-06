@@ -76,7 +76,8 @@ export function BrowseProfessionals() {
   const [radius, setRadius] = useState(MAX_RADIUS);
   const [trades, setTrades] = useState<string[]>([]);
   const [tradeMenuOpen, setTradeMenuOpen] = useState(false);
-  const [service, setService] = useState("");
+  const [services, setServices] = useState<string[]>([]);
+  const [serviceMenuOpen, setServiceMenuOpen] = useState(false);
   const [verifiedOnly, setVerifiedOnly] = useState(false);
   const [minRating, setMinRating] = useState("0");
   const [priceRange, setPriceRange] = useState<number[]>([0, MAX_RATE]);
@@ -87,6 +88,10 @@ export function BrowseProfessionals() {
 
   const toggleTrade = (trade: string, checked: boolean) => {
     setTrades((prev) => (checked ? [...prev, trade] : prev.filter((t) => t !== trade)));
+    // Closes on every pick, not just the first — picking a second trade
+    // means reopening the dropdown, which is the tradeoff of closing it
+    // immediately rather than leaving it open for a multi-pick session.
+    setTradeMenuOpen(false);
   };
 
   // Only meaningful once a trade is picked (the Service filter itself is
@@ -97,11 +102,15 @@ export function BrowseProfessionals() {
     return Array.from(set);
   }, [trades]);
 
-  // Derived, not synced via an effect: a trade change can make the picked
-  // service no longer offered under it, so treat it as unset for filtering
-  // and display until it's valid again — the raw selection stays in
-  // `service` and reapplies on its own if a matching trade comes back.
-  const effectiveService = availableServices.includes(service) ? service : "";
+  const toggleService = (svc: string, checked: boolean) => {
+    setServices((prev) => (checked ? [...prev, svc] : prev.filter((s) => s !== svc)));
+  };
+
+  // Derived, not synced via an effect: a trade change can make some picked
+  // services no longer offered under it, so drop those from filtering and
+  // display until they're valid again — the raw selection stays in
+  // `services` and reapplies on its own if a matching trade comes back.
+  const effectiveServices = services.filter((s) => availableServices.includes(s));
 
   const pickPresetAvailability = (option: Exclude<AvailabilityFilter, "any" | "date">) => {
     setAvailability((prev) => (prev === option ? "any" : option));
@@ -113,7 +122,7 @@ export function BrowseProfessionals() {
     setCompanySearch("");
     setRadius(MAX_RADIUS);
     setTrades([]);
-    setService("");
+    setServices([]);
     setVerifiedOnly(false);
     setMinRating("0");
     setPriceRange([0, MAX_RATE]);
@@ -126,7 +135,7 @@ export function BrowseProfessionals() {
     companySearch.trim() !== "" ||
     radius < MAX_RADIUS ||
     trades.length > 0 ||
-    effectiveService !== "" ||
+    effectiveServices.length > 0 ||
     verifiedOnly ||
     minRating !== "0" ||
     priceRange[0] > 0 ||
@@ -140,7 +149,7 @@ export function BrowseProfessionals() {
       if (query && !p.business.toLowerCase().includes(query)) return false;
       if (p.miles > radius) return false;
       if (trades.length > 0 && !trades.includes(p.trade)) return false;
-      if (effectiveService && !p.services.includes(effectiveService)) return false;
+      if (effectiveServices.length > 0 && !effectiveServices.some((s) => p.services.includes(s))) return false;
       if (verifiedOnly && !p.verified) return false;
       if (p.rating < min) return false;
       if (p.rateFrom < priceRange[0] || p.rateFrom > priceRange[1]) return false;
@@ -166,7 +175,7 @@ export function BrowseProfessionals() {
         break;
     }
     return sorted;
-  }, [companySearch, radius, trades, effectiveService, verifiedOnly, minRating, priceRange, availability, customDate, sort]);
+  }, [companySearch, radius, trades, effectiveServices, verifiedOnly, minRating, priceRange, availability, customDate, sort]);
 
   return (
     <section className="pb-20 pt-10">
@@ -312,23 +321,44 @@ export function BrowseProfessionals() {
                 </Popover>
               </div>
 
-              {/* Service — only makes sense once a trade narrows what's on offer */}
+              {/* Service — only makes sense once a trade narrows what's on offer.
+                  Multi-select like Trade, but doesn't auto-close on pick: you're
+                  usually after more than one specific service at a time. */}
               {trades.length > 0 && (
                 <div className="mb-6">
                   <FilterLabel icon={ListChecks}>Service</FilterLabel>
-                  <Select value={effectiveService || "All services"} onValueChange={(v) => setService(v === "All services" ? "" : v ?? "")}>
-                    <SelectTrigger className="w-full">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="All services">All services</SelectItem>
-                      {availableServices.map((s) => (
-                        <SelectItem key={s} value={s}>
-                          {s}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  <Popover open={serviceMenuOpen} onOpenChange={setServiceMenuOpen}>
+                    <PopoverTrigger
+                      render={
+                        <Button
+                          variant="outline"
+                          className="w-full justify-between border-line px-2.5 text-[14px] font-medium text-brand"
+                        />
+                      }
+                    >
+                      <span>{effectiveServices.length === 0 ? "All services" : `${effectiveServices.length} selected`}</span>
+                      <ChevronDown className="size-4 text-muted-ink" />
+                    </PopoverTrigger>
+                    <PopoverContent
+                      align="start"
+                      className="w-[240px] rounded-2xl border border-line bg-white p-2 shadow-lift ring-0"
+                    >
+                      <div className="flex flex-col gap-0.5">
+                        {availableServices.map((s) => (
+                          <label
+                            key={s}
+                            className="flex cursor-pointer items-center gap-2.5 rounded-lg px-2 py-2 text-[13.5px] font-medium text-brand hover:bg-brand-50"
+                          >
+                            <Checkbox
+                              checked={services.includes(s)}
+                              onCheckedChange={(checked) => toggleService(s, checked === true)}
+                            />
+                            {s}
+                          </label>
+                        ))}
+                      </div>
+                    </PopoverContent>
+                  </Popover>
                 </div>
               )}
 

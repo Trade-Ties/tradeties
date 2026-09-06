@@ -1,19 +1,12 @@
 import Link from "next/link";
+import { Building2 } from "lucide-react";
 
 import ProfileWizard from "@/components/profile/ProfileWizard";
 import { restore } from "@/components/profile/fromWire";
 import { PROFILE_URL_PREFIX } from "@/components/profile/slug";
 import { STEPS, resumeStepIndex } from "@/components/profile/wizardSteps";
-import { Badge } from "@/components/ui/badge";
 import { buttonVariants } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardFooter,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { fetchMyBusiness, type BusinessProfile } from "@/lib/api/business";
 import { loadOnboarding } from "@/lib/api/onboarding";
 import type { ApiResult } from "@/lib/api/problem";
@@ -36,9 +29,10 @@ async function Overview() {
 
   return (
     <div className="mx-auto w-full max-w-5xl px-8 py-10">
-      <h1 className="text-3xl font-semibold tracking-tight">Business profile</h1>
+      <h1 className="mb-1 text-3xl font-bold tracking-[-0.02em] text-brand">Business profile</h1>
+      <p className="mb-8 text-muted-ink">What customers see when they find you.</p>
 
-      <div className="mt-10 flex flex-col gap-6">
+      <div className="flex flex-col gap-4">
         <StatusCard business={business} />
         {business.ok && business.data !== null && <Details profile={business.data} />}
       </div>
@@ -78,20 +72,20 @@ async function WizardScreen() {
 function ProfileUnavailable() {
   return (
     <div className="w-full max-w-5xl px-8 py-10">
-      <h1 className="text-3xl font-semibold tracking-tight">Your profile could not be loaded</h1>
+      <h1 className="text-3xl font-bold tracking-[-0.02em] text-brand">Your profile could not be loaded</h1>
 
-      <p className="mt-4 max-w-prose text-muted-foreground">
+      <p className="mt-4 max-w-prose text-muted-ink">
         Nothing has been changed. Try again in a moment — if it keeps happening, your saved
         profile is still safe and we will pick it up where you left off.
       </p>
 
       <div className="mt-8 flex gap-3">
-        <a href={WIZARD_PATH} className={buttonVariants({ variant: "default", size: "lg" })}>
+        <a href={WIZARD_PATH} className={buttonVariants({ variant: "default", size: "lg" }) + " rounded-full"}>
           Try again
         </a>
         <Link
           href={DASHBOARD_PATH}
-          className={buttonVariants({ variant: "outline", size: "lg" })}
+          className={buttonVariants({ variant: "outline", size: "lg" }) + " rounded-full border-line"}
         >
           Back to dashboard
         </Link>
@@ -158,7 +152,7 @@ function copyFor(business: ApiResult<BusinessProfile | null>): CardCopy {
       title: "Your profile is offline",
       description: `It is not visible to customers just now. Publishing it again puts it back at ${publicUrl}, the address it already had.`,
       action: "Edit profile",
-      emphasis: "outline",
+      emphasis: "default",
     };
   }
 
@@ -174,42 +168,47 @@ function copyFor(business: ApiResult<BusinessProfile | null>): CardCopy {
 
 function StatusCard({ business }: { business: ApiResult<BusinessProfile | null> }) {
   const { title, description, action, emphasis } = copyFor(business);
+  // Mirrors the amber "needs setup" language on the dashboard overview — same underlying
+  // condition, so it should look the same wherever it shows up.
+  const needsAttention = emphasis === "default";
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>{title}</CardTitle>
-        <CardDescription>{description}</CardDescription>
-      </CardHeader>
-      <CardFooter>
-        <Link href={WIZARD_PATH} className={buttonVariants({ variant: emphasis, size: "lg" })}>
+    <Card
+      className={
+        needsAttention
+          ? "gap-0 rounded-3xl border border-amber-500/30 bg-amber-500/5 py-0 shadow-card"
+          : "gap-0 rounded-3xl border border-line bg-white py-0 shadow-card"
+      }
+    >
+      <CardContent className="flex flex-col items-start justify-between gap-4 px-6 py-6 sm:flex-row sm:items-center">
+        <div>
+          <p className={needsAttention ? "text-xl font-bold text-amber-900" : "text-xl font-bold text-brand"}>
+            {title}
+          </p>
+          <p className={needsAttention ? "mt-1 max-w-md text-sm text-amber-800" : "mt-1 max-w-md text-sm text-muted-ink"}>
+            {description}
+          </p>
+        </div>
+        <Link
+          href={WIZARD_PATH}
+          className={
+            buttonVariants({ variant: emphasis, size: "lg" }) +
+            (emphasis === "default" ? " shrink-0 rounded-full" : " shrink-0 rounded-full border-line")
+          }
+        >
           {action}
         </Link>
-      </CardFooter>
+      </CardContent>
     </Card>
   );
 }
 
-type BadgeLook = {
-  label: string;
-  variant: "default" | "outline" | "destructive";
-  className?: string;
-};
+type BadgeLook = { label: string; className: string };
 
 const STATUS_BADGE: Record<BusinessProfile["status"], BadgeLook> = {
-  PUBLISHED: {
-    label: "Published",
-    variant: "default",
-    className:
-      "bg-emerald-600/10 text-emerald-700 dark:bg-emerald-400/15 dark:text-emerald-300",
-  },
-  DRAFT: {
-    label: "Draft",
-    variant: "outline",
-    className:
-      "border-amber-500/40 bg-amber-500/10 text-amber-700 dark:border-amber-400/40 dark:bg-amber-400/15 dark:text-amber-300",
-  },
-  SUSPENDED: { label: "Suspended", variant: "destructive" },
+  PUBLISHED: { label: "Published", className: "bg-go-bg text-[#07734F]" },
+  DRAFT: { label: "Draft", className: "bg-amber-500/15 text-amber-700" },
+  SUSPENDED: { label: "Suspended", className: "bg-destructive/10 text-destructive" },
 };
 
 function Details({ profile }: { profile: BusinessProfile }) {
@@ -217,18 +216,21 @@ function Details({ profile }: { profile: BusinessProfile }) {
   const { address } = profile;
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Business details</CardTitle>
-        <CardDescription>What customers see on your public page.</CardDescription>
+    <Card className="gap-4 rounded-3xl border border-line bg-white py-0 shadow-card">
+      <CardHeader className="px-5 pt-5">
+        <CardTitle className="flex items-center gap-2 text-base font-semibold">
+          <Building2 className="size-4 text-brand-500" />
+          Business details
+        </CardTitle>
+        <CardDescription className="text-muted-ink">What customers see on your public page.</CardDescription>
       </CardHeader>
 
-      <CardContent>
+      <CardContent className="px-5 pb-5">
         <dl className="grid gap-x-8 gap-y-4 sm:grid-cols-[12rem_1fr]">
           <Row label="Status">
-            <Badge variant={status.variant} className={status.className}>
+            <span className={`inline-flex rounded-full px-2.5 py-1 text-[11px] font-semibold ${status.className}`}>
               {status.label}
-            </Badge>
+            </span>
           </Row>
           <Row label="Public address">
             {profile.slugLocked || profile.status === "PUBLISHED"
@@ -259,10 +261,8 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
 
   return (
     <>
-      <dt className="text-sm text-muted-foreground">{label}</dt>
-      <dd className={empty ? "text-sm text-muted-foreground/60" : "text-sm"}>
-        {empty ? "Not given" : children}
-      </dd>
+      <dt className="text-sm text-muted-ink">{label}</dt>
+      <dd className={empty ? "text-sm text-faint" : "text-sm font-medium"}>{empty ? "Not given" : children}</dd>
     </>
   );
 }
