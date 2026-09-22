@@ -341,6 +341,9 @@ class BusinessController implements BusinessApi {
 		return new com.tradeties.generated.model.ReadinessCheck()
 				.code(com.tradeties.generated.model.ReadinessCheckCode.valueOf(check.code().name()))
 				.passed(check.passed())
+				// Advice and condition on one list, told apart by this rather than by the client
+				// knowing which codes are which.
+				.blocking(check.blocking())
 				.detail(check.detail());
 	}
 

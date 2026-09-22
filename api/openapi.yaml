@@ -3078,6 +3078,9 @@ components:
         has not been looked up yet, which clears on its own, or it has been and could not be
         placed, which needs the postal code corrected. Show `detail` rather than a wording of
         your own — this is the condition where the difference matters most.
+        `ENOUGH_JOBS_TO_BE_FOUND` is the one that is advice rather than a condition, and
+        `blocking` on the check says so. It is last because it is about being found rather
+        than about being bookable, and a profile publishes with it failing.
       enum:
         - ADDRESS_GEOCODED
         - PRIMARY_TRADE
@@ -3085,15 +3088,29 @@ components:
         - HOURLY_SERVICES_HAVE_A_RATE
         - PRICING_SET
         - WORKING_HOURS_SET
+        - ENOUGH_JOBS_TO_BE_FOUND
 
     ReadinessCheck:
       type: object
-      required: [code, passed, detail]
+      required: [code, passed, blocking, detail]
       properties:
         code:
           $ref: "#/components/schemas/ReadinessCheckCode"
         passed:
           type: boolean
+        blocking:
+          type: boolean
+          description: |
+            Whether failing this stops the profile being published.
+
+            **Not everything on a checklist is a rule.** The six original checks are things a
+            booking cannot happen without — no address, no trade, no service, no hours, and
+            there is nothing to book. What was added after them is advice: listing more of
+            the jobs customers search by does not make a profile bookable, it makes it
+            findable, and a business that genuinely does two things is not wrong for saying so.
+
+            A client can render the two the same way and be correct about what to fix; one
+            that tells them apart can stop presenting advice as an obstacle.
         detail:
           type: string
           description: What to do about it, phrased for the tradesperson rather than for a log.
@@ -3108,7 +3125,9 @@ components:
       properties:
         ready:
           type: boolean
-          description: True only when every check passed.
+          description: |
+            True only when every **blocking** check passed. A failing piece of advice leaves
+            this true — it is a suggestion about being found, not a condition of being booked.
         checks:
           type: array
           items:

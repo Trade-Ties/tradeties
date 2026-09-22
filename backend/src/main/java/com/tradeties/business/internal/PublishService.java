@@ -33,6 +33,12 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 public class PublishService {
 
+	/**
+	 * How many catalogue jobs a profile should list before it is well findable. Provisional — see
+	 * {@link #enoughJobsToBeFound}, which is also why falling short of it blocks nothing.
+	 */
+	private static final int ENOUGH_JOBS_TO_BE_FOUND = 5;
+
 	private final BusinessProfileRepository businesses;
 	private final BusinessTradeRepository trades;
 	private final ServiceOfferingRepository services;
@@ -227,6 +233,7 @@ public class PublishService {
 		checks.add(hourlyServicesHaveARate(activeServices, pricingTerms));
 		checks.add(pricingSet(pricingTerms));
 		checks.add(workingHoursSet(businessId));
+		checks.add(enoughJobsToBeFound(activeServices));
 
 		return new ProfileReadiness(checks);
 	}
@@ -311,6 +318,37 @@ public class PublishService {
 				: ReadinessCheck.failed(ReadinessCheckCode.PRICING_SET,
 						"Set your rates and terms. A request records your cancellation fee when it is sent, "
 								+ "so it cannot be sent without one.");
+	}
+
+	/**
+	 * Advice, and the only entry on this checklist that is.
+	 *
+	 * <p><strong>Counted by catalogue link, not by service.</strong> A customer who picks a job
+	 * from the search box is answered with the businesses that list <em>that job</em>, so ten
+	 * services typed by hand make a profile no more findable than none. It is the link the search
+	 * follows, which makes it the only thing worth counting.
+	 *
+	 * <p><strong>Five is provisional and knowingly so.</strong> The development seed averages 3.1
+	 * services per business, for businesses that do thirty kinds of work, and five is a modest
+	 * step above that which the picker reaches in seconds. What it is not is measured — nobody has
+	 * watched how many jobs a profile needs before customers start finding it, and
+	 * {@code service_catalog_suggestion} is where the evidence for a better number will come from.
+	 * A figure that cannot yet be justified had better not be a rule, which is the other half of
+	 * why this does not block.
+	 */
+	private ReadinessCheck enoughJobsToBeFound(List<ServiceOffering> activeServices) {
+		long listed = activeServices.stream()
+				.filter(service -> service.toDetails().catalogId() != null)
+				.count();
+
+		if (listed >= ENOUGH_JOBS_TO_BE_FOUND) {
+			return ReadinessCheck.advice(ReadinessCheckCode.ENOUGH_JOBS_TO_BE_FOUND, true,
+					"Customers can find you for " + listed + " of the jobs they search by.");
+		}
+
+		return ReadinessCheck.advice(ReadinessCheckCode.ENOUGH_JOBS_TO_BE_FOUND, false,
+				"Customers can find you for " + listed + " of the jobs they search by. Pick a few more "
+						+ "in Services — it takes seconds, and each one is a search you turn up in.");
 	}
 
 	private ReadinessCheck workingHoursSet(UUID businessId) {

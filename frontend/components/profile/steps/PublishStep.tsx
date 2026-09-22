@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Check, CircleAlert, Pencil } from "lucide-react";
+import { Check, CircleAlert, Lightbulb, Pencil } from "lucide-react";
 import type { ProfileReadiness } from "@/lib/api/wire";
 import { CollapsibleRow } from "../CollapsibleRow";
 import { missingIn } from "../review";
@@ -37,20 +37,33 @@ function ReadinessChecklist({ readiness }: { readiness: ProfileReadiness }) {
       </h3>
 
       <ul className="space-y-2">
-        {readiness.checks.map((check) => (
-          <li key={check.code} className="flex items-start gap-2 text-sm">
-            {check.passed ? (
-              <Check aria-hidden="true" className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
-            ) : (
-              <CircleAlert aria-hidden="true" className="mt-0.5 size-4 shrink-0 text-destructive" />
-            )}
-            {/* The icon is the only thing that says which of the two a line is. */}
-            <span className="sr-only">{check.passed ? "Done:" : "Still open:"}</span>
-            <span className={check.passed ? "text-muted-foreground" : undefined}>
-              {check.detail}
-            </span>
-          </li>
-        ))}
+        {readiness.checks.map((check) => {
+          /*
+            Three states, not two. A failing condition holds the profile off the market; a
+            failing piece of advice does not, and drawing it in the same alarmed red would tell
+            somebody they are blocked by something that blocks nothing — on the screen where
+            they are trying to go live.
+          */
+          const open = !check.passed && check.blocking;
+          const suggested = !check.passed && !check.blocking;
+
+          return (
+            <li key={check.code} className="flex items-start gap-2 text-sm">
+              {open ? (
+                <CircleAlert aria-hidden="true" className="mt-0.5 size-4 shrink-0 text-destructive" />
+              ) : suggested ? (
+                <Lightbulb aria-hidden="true" className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
+              ) : (
+                <Check aria-hidden="true" className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
+              )}
+              {/* The icon is the only thing that says which of the three a line is. */}
+              <span className="sr-only">
+                {open ? "Still open:" : suggested ? "Suggestion:" : "Done:"}
+              </span>
+              <span className={open ? undefined : "text-muted-foreground"}>{check.detail}</span>
+            </li>
+          );
+        })}
       </ul>
     </div>
   );
