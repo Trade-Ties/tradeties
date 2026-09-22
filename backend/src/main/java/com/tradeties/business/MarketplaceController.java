@@ -74,9 +74,9 @@ class MarketplaceController implements MarketplaceApi {
 	 */
 	@Override
 	public ResponseEntity<com.tradeties.generated.model.BusinessSearchResults> searchBusinesses(
-			String zip, String job, String name, Integer page) {
+			String zip, String job, String service, String name, Integer page) {
 
-		return ResponseEntity.ok(toWire(search.search(zip, job, name, page)));
+		return ResponseEntity.ok(toWire(search.search(zip, job, service, name, page)));
 	}
 
 	/**
@@ -243,6 +243,12 @@ class MarketplaceController implements MarketplaceApi {
 
 	private static com.tradeties.generated.model.BusinessSearchResults toWire(BusinessSearchResults found) {
 		return new com.tradeties.generated.model.BusinessSearchResults()
+				.matchedService(found.matchedService() == null ? null
+						: new com.tradeties.generated.model.ServiceJob()
+								.id(found.matchedService().id())
+								.code(found.matchedService().code())
+								.label(found.matchedService().label())
+								.tradeId(found.matchedService().tradeId()))
 				.matchedTrades(found.matchedTrades().stream().map(MarketplaceController::toWire).toList())
 				.results(found.results().stream().map(MarketplaceController::toWire).toList())
 				.page(found.page())
@@ -283,6 +289,9 @@ class MarketplaceController implements MarketplaceApi {
 				.distanceMiles(result.distanceMiles())
 				.timeZone(result.timeZone())
 				.hourlyRate(toWire(result.hourlyRate()))
+				// Passed through including its absence: null means no job was picked, and turning
+				// that into false would answer a question nobody asked.
+				.offersThisJob(result.offersThisJob())
 				.licensed(result.licensed())
 				.licenseVerified(result.licenseVerified())
 				.nextSlots(result.nextSlots().stream().map(slot -> slot.atOffset(ZoneOffset.UTC)).toList());

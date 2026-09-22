@@ -297,6 +297,39 @@ paths:
           schema:
             type: string
             maxLength: 300
+        - name: service
+          in: query
+          required: false
+          description: |
+            A job the customer picked out of the catalogue, by its `code`. What
+            `GET /api/v1/service-catalog` suggested while they typed, sent back when they
+            chose one.
+
+            **This is the difference between asking and guessing.** `job` is prose the server
+            reads a trade out of, and it is wrong often enough to matter — "Toilet is leaking"
+            used to reach roofers, because roofing carries the word `leak`. A code was chosen
+            from a list, so there is nothing to read: the trade is the job's own, and the
+            guessing stops.
+
+            **It ranks rather than filters, and that is a decision worth knowing about.**
+            Businesses that offer exactly this job come first, marked by `offersThisJob`;
+            the rest of the trade follows. Filtering to the first group would be the tidier
+            list and, today, the emptier one — service lists average three entries per
+            business, so a plumber who never wrote "toilet" down is a plumber who can fix
+            it and is not on the list. Sorting says what is certain without hiding what is
+            likely.
+
+            Takes precedence over `job` when both are sent, which is the normal case: the
+            box still holds the label of what was picked. `name` still narrows on top of
+            it — someone can want this job from that business.
+
+            A code the catalogue does not list answers `400`, the same way an unknown postal
+            code does and for the same reason: it can only come from a stale link or a
+            hand-edited URL, and an empty result would blame the wrong thing.
+          schema:
+            type: string
+            maxLength: 64
+            examples: ["PLUMBER_TOILET_REPLACE"]
         - name: name
           in: query
           required: false
@@ -1535,6 +1568,17 @@ components:
         or carpentry?" instead of quietly picking one.
       required: [matchedTrades, results, page, pageSize, total, totalCapped]
       properties:
+        matchedService:
+          description: |
+            The job the customer picked, echoed back. Absent when none was — the results
+            then rest on `matchedTrades`, which is a reading of prose rather than a choice.
+
+            Present, it is the better thing to show: "Replace a toilet" is what they asked
+            for, where "Plumber" is what was inferred from it. A client that renders this
+            as a removable chip gives them a way back to the wider list.
+          oneOf:
+            - $ref: "#/components/schemas/ServiceJob"
+            - type: "null"
         matchedTrades:
           type: array
           description: |
@@ -1704,6 +1748,21 @@ components:
           oneOf:
             - $ref: "#/components/schemas/MoneyAmount"
             - type: "null"
+        offersThisJob:
+          type: boolean
+          description: |
+            Whether this business lists the job sent as `service`. **Absent when none was
+            sent**, which is not the same as `false` — one means nobody asked, the other
+            means we looked and they do not list it.
+
+            **It says "listed", not "able".** Service lists average three entries per
+            business, for businesses that do thirty kinds of work, so `false` covers the
+            plumber who can fix a toilet and never wrote it down. That is why this sorts
+            the results rather than filtering them: true is a promise worth showing first,
+            false is not a verdict worth hiding somebody behind.
+
+            Results are ordered so that every `true` precedes every `false`, then by
+            distance as usual, so a client can draw one divider and needs no second request.
         licensed:
           type: boolean
           description: |

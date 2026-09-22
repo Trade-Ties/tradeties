@@ -130,6 +130,25 @@ interface ServiceCatalogRepository extends Repository<CatalogTrade, UUID> {
 	List<JobRow> findAllActive();
 
 	/**
+	 * One job by the code a customer's pick carried.
+	 *
+	 * <p>Empty for a code the catalogue does not list, and the caller answers that the way an
+	 * unknown postal code is answered: a refusal rather than an empty result. It can only come
+	 * from a stale link or a hand-edited URL, and "nobody near you does this" would blame the
+	 * wrong thing.
+	 *
+	 * <p>A retired job is absent too, and an active job under a retired trade with it — nothing
+	 * can be filed under that trade any more, so narrowing to it would answer nobody while
+	 * looking like it had answered.
+	 */
+	@Query(value = """
+			SELECT c.id AS id, c.code AS code, c.label AS label, c.trade_id AS tradeId
+			FROM service_catalog c
+			JOIN trade t ON t.id = c.trade_id
+			WHERE c.active AND t.active AND c.code = :code""", nativeQuery = true)
+	Optional<JobRow> findByCode(@Param("code") String code);
+
+	/**
 	 * The trade a catalogue job is filed under, for checking that a service claiming it agrees.
 	 *
 	 * <p>Empty for a job that does not exist or has been retired, and the caller treats both the

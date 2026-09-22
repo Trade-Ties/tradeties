@@ -56,12 +56,17 @@ export function suggestServices(
  *
  * @param job the problem in the customer's words. Blank is omitted rather than sent, so an empty
  *        search box narrows nothing instead of matching nothing
+ * @param service the `code` of a job the customer picked from the suggestions, or null. It takes
+ *        precedence over `job` at the backend — a pick is a choice, where prose is a reading —
+ *        and it ranks businesses that list the job above the rest of the trade rather than
+ *        hiding the rest
  * @param page which page to ask for, or null for the first. Omitted rather than sent as 1, so the
  *        default lives in one place — the contract — instead of being asserted from here too
  */
 export function searchBusinesses(
   zip: string,
   job: string | null,
+  service: string | null,
   page: number | null,
 ): Promise<ApiResult<BusinessSearchResults>> {
   return attempt("GET /api/v1/businesses", () =>
@@ -70,6 +75,7 @@ export function searchBusinesses(
         query: {
           zip,
           ...(job?.trim() ? { job: job.trim() } : {}),
+          ...(service ? { service } : {}),
           ...(page ? { page } : {}),
         },
       },
