@@ -130,6 +130,26 @@ interface ServiceCatalogRepository extends Repository<CatalogTrade, UUID> {
 	List<JobRow> findAllActive();
 
 	/**
+	 * Whether the catalogue can name what somebody typed at all.
+	 *
+	 * <p>The same test {@link #suggest} applies, without the ranking, the availability or the
+	 * limit — the question is not which job is best but whether any exists. False is the signal
+	 * worth keeping: a description the catalogue has no word for is a gap in the catalogue, and
+	 * the only place that becomes visible is here, because the search still answers by trade and
+	 * looks like it worked.
+	 */
+	@Query(value = """
+			SELECT EXISTS (
+			    SELECT 1 FROM service_catalog c
+			    JOIN trade t ON t.id = c.trade_id
+			    WHERE c.active
+			      AND t.active
+			      AND c.suggest_vector @@ any_prefix(:typed)
+			      AND prefixes_matched(c.suggest_vector, :typed)
+			          >= ceil(words_typed(:typed) * :minimumShare))""", nativeQuery = true)
+	boolean canName(@Param("typed") String typed, @Param("minimumShare") double minimumShare);
+
+	/**
 	 * One job by the code a customer's pick carried.
 	 *
 	 * <p>Empty for a code the catalogue does not list, and the caller answers that the way an

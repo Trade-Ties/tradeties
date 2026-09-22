@@ -65,6 +65,7 @@ public class BusinessSearchService {
 	private final ServiceCatalogRepository catalogue;
 	private final CatalogTradeRepository trades;
 	private final BusinessSearchRepository businesses;
+	private final CatalogGaps gaps;
 	private final NextAvailability availability;
 	private final int pageSize;
 	private final int maxResults;
@@ -81,6 +82,7 @@ public class BusinessSearchService {
 			ServiceCatalogRepository catalogue,
 			CatalogTradeRepository trades,
 			BusinessSearchRepository businesses,
+			CatalogGaps gaps,
 			NextAvailability availability,
 			@Value("${tradeties.search.page-size}") int pageSize,
 			@Value("${tradeties.search.max-results}") int maxResults) {
@@ -90,6 +92,7 @@ public class BusinessSearchService {
 		this.catalogue = catalogue;
 		this.trades = trades;
 		this.businesses = businesses;
+		this.gaps = gaps;
 		this.availability = availability;
 		this.pageSize = pageSize;
 		this.maxResults = maxResults;
@@ -124,6 +127,8 @@ public class BusinessSearchService {
 		// still holds the label of what was chosen, which the matcher would read as a trade all
 		// over again and occasionally as the wrong one.
 		List<TradeMatch> matched = picked == null ? matcher.match(jobDescription) : tradeOf(picked);
+
+		noteIfTheCatalogueHasNoWordForIt(picked, jobDescription);
 
 		boolean narrowByTrade = !matched.isEmpty();
 		List<UUID> tradeIds = matched.isEmpty()
@@ -166,6 +171,43 @@ public class BusinessSearchService {
 				.toList();
 
 		return new BusinessSearchResults(picked, matched, results, page, pageSize, total, totalCapped);
+	}
+
+	/**
+	 * A description the catalogue could not name, written down where somebody will see it.
+	 *
+	 * <p>This is the only place that gap is visible. The search still answers — it reads a trade
+	 * out of the words and returns plumbers — so nothing about the result says "we have no name
+	 * for what you asked for". Left unrecorded, the catalogue only ever grows by somebody
+	 * guessing, which is how it came to have no entry for a leaking toilet.
+	 *
+	 * <p>Only when nothing was picked: a customer who chose from the list was answered by the
+	 * catalogue, whatever they had typed on the way there.
+	 *
+	 * <p>Asked of the catalogue rather than of the trade matcher, and the two disagree on purpose.
+	 * The matcher answering PLUMBER means the words reached a trade's vocabulary; it says nothing
+	 * about whether the job has a name. "Toilet is leaking" does the first and not the second.
+	 *
+	 * <p><strong>What this cannot see.</strong> The bar is the one the suggestions use, so what is
+	 * recorded is "the customer was shown nothing" rather than "the customer was shown nothing
+	 * useful". "Squirrels in the loft" reaches half its words through {@code the} and {@code loft},
+	 * so the catalogue offered a loft conversion and this stays quiet — a real gap, unrecorded.
+	 *
+	 * <p>Sharpening the bar here would split the two questions and start recording descriptions
+	 * the customer was in fact offered something for. The other direction — recording every search
+	 * that ended without a pick — records nearly all of them, because most people never look at
+	 * the dropdown. Between a signal that misses some gaps and one that drowns them, this is the
+	 * one worth having first; what it collects is evidence either way, and the day somebody reads
+	 * the table they will know which kind it is.
+	 */
+	private void noteIfTheCatalogueHasNoWordForIt(ServiceJob picked, String jobDescription) {
+		if (picked != null || jobDescription == null || jobDescription.isBlank()) {
+			return;
+		}
+
+		if (!catalogue.canName(jobDescription, ServiceSuggestionService.WORTH_CALLING_A_MATCH)) {
+			gaps.note(CatalogGaps.Source.CUSTOMER, jobDescription);
+		}
 	}
 
 	/**
