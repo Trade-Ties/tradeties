@@ -1,10 +1,10 @@
 import Link from "next/link";
-import { ArrowLeft, BadgeCheck, Clock, Globe, MapPin } from "lucide-react";
+import { ArrowLeft, BadgeCheck, Globe, MapPin } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
-import { Card } from "@/components/ui/card";
+import { ServicePicker } from "@/components/marketing/ServicePicker";
 import { amount, colorOf, duration, initialsOf, money } from "@/components/marketing/business-format";
-import type { PublicBusinessProfile, PublicService } from "@/lib/api/marketplace";
+import type { PublicBusinessProfile } from "@/lib/api/marketplace";
 
 type Pricing = PublicBusinessProfile["pricing"];
 
@@ -16,11 +16,22 @@ type Pricing = PublicBusinessProfile["pricing"];
  * answered this page — which is also why the services are the first thing on it and not a list
  * under the rates.
  *
- * <p><strong>Nothing here is a booking, because nothing can accept one yet.</strong> The page
- * stops at what the business offers rather than offering a button that would fail, in the same
- * way the search result cards render their openings as times instead of as promises.
+ * <p>Stays a server component: only the two interactive parts ship JavaScript, and `calendar`
+ * arrives as a node so the page above decides what suspends while the diary is read.
  */
-export function BusinessProfile({ profile }: { profile: PublicBusinessProfile }) {
+export function BusinessProfile({
+  profile,
+  picked,
+  month,
+  calendar,
+}: {
+  profile: PublicBusinessProfile;
+  /** The service the URL names, already checked against `profile.services`, or null. */
+  picked: string | null;
+  /** The month the URL carries, or null when it carries none. */
+  month: string | null;
+  calendar: React.ReactNode;
+}) {
   const services = profile.services ?? [];
   const licenses = profile.licenses ?? [];
   const trades = profile.trades ?? [];
@@ -119,31 +130,17 @@ export function BusinessProfile({ profile }: { profile: PublicBusinessProfile })
           </p>
         )}
 
-        <Section title="What they do">
-          <div className="flex flex-col gap-2.5">
-            {services.map((service) => (
-              <Card
-                key={service.id}
-                className="flex flex-row flex-wrap items-start justify-between gap-4 rounded-2xl border border-line bg-white p-5 shadow-none ring-0"
-              >
-                <div className="min-w-[220px] flex-1">
-                  <p className="m-0 text-[15.5px] font-semibold tracking-[-0.01em]">{service.name}</p>
-                  {service.description && (
-                    <p className="m-0 mt-1 text-[14px] leading-relaxed text-muted-ink">{service.description}</p>
-                  )}
-                  <p className="m-0 mt-2 inline-flex items-center gap-1.5 text-[13px] text-faint">
-                    <Clock className="size-3.5" aria-hidden="true" />
-                    {duration(service.estimatedDurationMinutes)} in the calendar
-                  </p>
-                </div>
-
-                <p className="m-0 whitespace-nowrap text-[15px] font-bold text-brand">
-                  {priceOf(service, profile.pricing)}
-                </p>
-              </Card>
-            ))}
-          </div>
+        <Section title={picked ? "What they do" : "What they do — pick one to see their diary"}>
+          <ServicePicker
+            slug={profile.slug}
+            services={services}
+            pricing={profile.pricing}
+            picked={picked}
+            month={month}
+          />
         </Section>
+
+        {calendar && <Section title="When they are free">{calendar}</Section>}
 
         <Section title="What it costs">
           <dl className="grid grid-cols-1 gap-x-8 gap-y-3.5 sm:grid-cols-2">
@@ -193,28 +190,6 @@ function Section({ title, children }: { title: string; children: React.ReactNode
       {children}
     </div>
   );
-}
-
-/**
- * What one service costs, in its own mode.
- *
- * An hourly service may carry a rate of its own, and it overrides the general one — that is what
- * an emergency call-out at a higher tariff is. Absent on both is a question nobody has answered
- * rather than work given away, so it says so instead of printing a zero.
- */
-function priceOf(service: PublicService, pricing: Pricing): string {
-  switch (service.pricingMode) {
-    case "FLAT":
-      return service.price ? money(service.price) : "Price on request";
-    case "STARTING_AT":
-      return service.price ? `From ${money(service.price)}` : "Price on request";
-    case "HOURLY": {
-      const rate = service.price ?? pricing.hourlyRate;
-      return rate ? `${money(rate)}/hr` : "Hourly rate on request";
-    }
-    case "QUOTE_ONLY":
-      return "Quoted after a look";
-  }
 }
 
 /**
