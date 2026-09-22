@@ -2,13 +2,17 @@ package com.tradeties.business;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.time.LocalDate;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.UUID;
 
 import com.tradeties.business.internal.BusinessSearchService;
+import com.tradeties.business.internal.PublicAvailabilityService;
 import com.tradeties.business.internal.PublicProfileService;
 import com.tradeties.generated.api.MarketplaceApi;
+import com.tradeties.generated.model.BusinessAvailability;
 import com.tradeties.generated.model.PublicBusinessProfile;
 import com.tradeties.generated.model.PublicLicense;
 import com.tradeties.generated.model.PublicPricing;
@@ -39,10 +43,13 @@ class MarketplaceController implements MarketplaceApi {
 
 	private final BusinessSearchService search;
 	private final PublicProfileService profiles;
+	private final PublicAvailabilityService availability;
 
-	MarketplaceController(BusinessSearchService search, PublicProfileService profiles) {
+	MarketplaceController(BusinessSearchService search, PublicProfileService profiles,
+			PublicAvailabilityService availability) {
 		this.search = search;
 		this.profiles = profiles;
+		this.availability = availability;
 	}
 
 	/**
@@ -72,6 +79,33 @@ class MarketplaceController implements MarketplaceApi {
 	public ResponseEntity<PublicBusinessProfile> getBusinessBySlug(String slug) {
 
 		return ResponseEntity.ok(profiles.findBySlug(slug)
+				.map(MarketplaceController::toWire)
+				.orElseThrow(MarketplaceController::noSuchProfile));
+	}
+
+	/**
+	 * The one window refused rather than shortened, and it is refused here rather than in the
+	 * service because it is a statement about the request and not about the diary.
+	 *
+	 * <p>Every other way a window can be wrong has a nearest true answer — too far ahead is cut to
+	 * the horizon, too soon is moved past the notice, too wide is cut to a month, and each of
+	 * those comes back described in {@code from} and {@code to}. A window that ends before it
+	 * begins has no nearest answer to be cut to, and no customer typed it: it takes two dates from
+	 * a client that swapped them.
+	 *
+	 * <p>A missing profile still answers 404 and takes precedence over neither — the two are
+	 * checked in the order they can be, and the dates are the only one this method holds.
+	 */
+	@Override
+	public ResponseEntity<BusinessAvailability> getBusinessAvailability(
+			UUID serviceId, LocalDate from, LocalDate to, String slug) {
+
+		if (to.isBefore(from)) {
+			throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+					"The window ends before it begins: " + from + " to " + to);
+		}
+
+		return ResponseEntity.ok(availability.find(slug, serviceId, from, to)
 				.map(MarketplaceController::toWire)
 				.orElseThrow(MarketplaceController::noSuchProfile));
 	}
@@ -155,6 +189,23 @@ class MarketplaceController implements MarketplaceApi {
 				.issuedOn(details.issuedOn())
 				.expiresOn(details.expiresOn())
 				.verified(details.verifiedAt() != null);
+	}
+
+	/**
+	 * The starts go out as instants at UTC, like the ones on a search result and for the same
+	 * reason: {@code timeZone} beside them is what they are meant to be read in, and an offset
+	 * baked into each one would be a second answer to that question — one that goes wrong twice a
+	 * year, on the weekend a zone changes and the stored offset does not.
+	 */
+	private static BusinessAvailability toWire(ServiceAvailability availability) {
+		return new BusinessAvailability()
+				.serviceId(availability.serviceId())
+				.timeZone(availability.timeZone())
+				.appointmentMinutes(availability.appointmentMinutes())
+				.from(availability.from())
+				.to(availability.to())
+				.slots(availability.slots().stream().map(slot -> slot.atOffset(ZoneOffset.UTC)).toList())
+				.slotsCapped(availability.slotsCapped());
 	}
 
 	/** Percentages sit in {@code NUMERIC(5,2)}, so their canonical scale is two, not four. */

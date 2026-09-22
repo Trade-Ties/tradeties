@@ -378,6 +378,107 @@ paths:
         "404":
           $ref: "#/components/responses/NotFound"
 
+  /api/v1/businesses/{slug}/availability:
+    parameters:
+      - name: slug
+        in: path
+        required: true
+        description: |
+          The business whose diary is being read, by the address it was published
+          under.
+        schema:
+          $ref: "#/components/schemas/Slug"
+    get:
+      tags: [marketplace]
+      operationId: getBusinessAvailability
+      security: []
+      summary: When this business is free to do this job.
+      description: |
+        The calendar behind the profile, and the first operation that needs a service
+        rather than a business.
+
+        **A slot has no length until a service is chosen**, which is why `serviceId` is
+        required rather than a refinement. The business declares a grid — starts on the
+        hour, or on the half hour — and the service declares how long the work takes.
+        The grid says where an appointment may begin; the service says how much of the
+        day it then occupies. Ninety minutes on a half-hour grid, in a morning that ends
+        at noon, has six places to start and the last is 10:30. An operation that did
+        not know the service would answer eight, and two of them could not be worked.
+
+        **What is subtracted:** the working week, less declared time off, less the notice
+        the tradesperson requires, bounded by how far ahead they take bookings. Accepted
+        appointments join that list when there are any to subtract.
+
+        **The window is shortened, not refused.** Ask for more than the diary holds and
+        the answer covers what it does hold, with `from` and `to` reporting which days
+        were actually read. That is how a client learns this business books six weeks out
+        without a second operation to ask it.
+
+        **Nothing here is a reservation.** These are the starts that were free when the
+        question was asked. The tradesperson decides on a request, and until they do the
+        same slot stays on offer to everybody else — DECISIONS section 1 makes that a
+        rule rather than an accident, so two customers seeing one slot is correct
+        behaviour and not a race to paper over.
+
+        Anonymous, like the rest of the customer side. Nothing in the answer names a
+        person, and a closed week, a holiday and an unfilled diary are one empty list.
+      parameters:
+        - name: serviceId
+          in: query
+          required: true
+          description: |
+            Which of this business's services the appointment is for, by the `id` that
+            `GET /api/v1/businesses/{slug}` returned.
+
+            A service this business does not offer, or one it has since deactivated,
+            answers `400` rather than an empty list — the same reasoning an unknown
+            postal code gets on the search. It can only arrive from a stale page, and
+            "nobody is free" would send somebody off to try another week.
+          schema:
+            type: string
+            format: uuid
+        - name: from
+          in: query
+          required: true
+          description: |
+            The first day to read, as a calendar date in the business's own `timeZone`.
+
+            Moved later when it falls inside the notice the tradesperson requires. The
+            day it moves to comes back in `from` — though the notice may still have
+            removed the first hours of that day. `slots` is the exact answer; `from` and
+            `to` are the span it was read over.
+          schema:
+            type: string
+            format: date
+            examples: ["2026-10-05"]
+        - name: to
+          in: query
+          required: true
+          description: |
+            The last day to read, inclusive, in the same zone.
+
+            Shortened to the booking horizon, and to at most 31 days after `from`: a
+            month is what a calendar shows, and a year of quarter-hour starts is a
+            payload nobody reads. Both shortenings are reported in `to`.
+
+            Earlier than `from` is the one window refused rather than shortened. There is
+            nothing to shorten it to, and it can only be a client's own bug.
+          schema:
+            type: string
+            format: date
+            examples: ["2026-10-12"]
+      responses:
+        "200":
+          description: The openings, and the window they were read over.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BusinessAvailability"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
   /api/v1/me/business:
     get:
       tags: [business]
@@ -1722,6 +1823,75 @@ components:
         verified:
           type: boolean
           description: Whether TradeTies checked this licence against the issuing state.
+
+    BusinessAvailability:
+      type: object
+      description: |
+        Free start times for one service at one business, and the window they were read
+        over.
+
+        The window is answered as well as the slots because it may be shorter than the
+        one asked for — an empty list over six weeks and an empty list over the two days
+        the diary actually reaches are different news.
+      required: [serviceId, timeZone, appointmentMinutes, from, to, slots, slotsCapped]
+      properties:
+        serviceId:
+          type: string
+          format: uuid
+          description: |
+            Echoed back, so an answer that arrives after the customer has changed their
+            mind can be told from the one they are waiting for.
+        timeZone:
+          type: string
+          description: |
+            The zone every start below is read against — the business's own, never the
+            reader's. Nine in the morning is nine where the tradesperson works, and that
+            is the number both sides of an appointment have to agree on.
+          examples: ["America/Denver"]
+        appointmentMinutes:
+          type: integer
+          format: int32
+          description: |
+            How long each start occupies, which is the chosen service's duration. Sent
+            because it is what turns a start time into a span on a calendar — a client
+            reading it off the profile instead would be keeping a second copy of a
+            number this answer already depends on.
+          examples: [90]
+        from:
+          type: string
+          format: date
+          description: |
+            The first day read, after the notice the tradesperson requires was applied.
+            Later than the day asked for means that notice reached into the window.
+        to:
+          type: string
+          format: date
+          description: |
+            The last day read, after the booking horizon and the month-long cap were
+            applied.
+
+            Earlier than `from` means the window closed before it opened. That is not an
+            error: a business whose notice reaches past its own horizon has no bookable
+            day at all, and seeing it here is how anybody finds out.
+        slots:
+          type: array
+          description: |
+            Every start in the window that the whole appointment fits into, soonest
+            first. Instants, to be read against `timeZone`.
+
+            Empty says nothing about why. A closed week, a fortnight of time off and a
+            diary nobody has filled in are one answer, and none of them is the
+            customer's to fix.
+          items:
+            type: string
+            format: date-time
+        slotsCapped:
+          type: boolean
+          description: |
+            True when the walk stopped at the server's limit before it reached the end of
+            the window, so later days in it were never read and `to` is further away than
+            the last slot suggests. A client showing one month at a time will not meet
+            this; one asking for a wide window against a quarter-hour grid will.
 
     Trade:
       type: object

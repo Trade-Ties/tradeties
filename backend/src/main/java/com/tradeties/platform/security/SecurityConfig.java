@@ -62,14 +62,22 @@ class SecurityConfig {
 	 * had no room for — the services with the time each takes, the terms, the licences on file.
 	 * It answers for published profiles only, so a draft and a suspension read as missing.
 	 *
+	 * <p>One business's free slots are the fourth, and the first thing filed <em>under</em> a
+	 * profile to be opened — the decision the paragraph below was written to make somebody take.
+	 * It is taken the same way the rest were: the answer is start times and nothing else. No
+	 * appointment, no customer, no reason a slot is missing. A booked hour and an hour the
+	 * tradesperson never works are the same absence from the same list, which is what stops the
+	 * operation being a way to read somebody's diary by subtraction.
+	 *
 	 * <p>Listed one path at a time rather than as {@code /api/v1/reference/**} or a prefix, so
 	 * that opening the next one is a decision somebody has to write down here. The GET is part of
 	 * the rule: {@code /api/v1/businesses} is public to read and has no other method. So is the
 	 * single segment in {@code /api/v1/businesses/&#123;slug&#125;} — it matches one profile and
-	 * not anything filed under one, which is what keeps a later
-	 * {@code /api/v1/businesses/&#123;slug&#125;/...} a decision rather than an inheritance.
+	 * not anything filed under one, which is what kept
+	 * {@code /api/v1/businesses/&#123;slug&#125;/availability} a decision rather than an
+	 * inheritance, and keeps the next one under that prefix a decision too.
 	 *
-	 * <p>All five carry {@code security: []} in {@code api/openapi.yaml}. That declaration
+	 * <p>All six carry {@code security: []} in {@code api/openapi.yaml}. That declaration
 	 * documents the exception; this line is what actually makes it.
 	 */
 	@Bean
@@ -79,7 +87,8 @@ class SecurityConfig {
 				.authorizeHttpRequests(auth -> auth
 						.requestMatchers(HttpMethod.GET,
 								"/api/v1/trades", "/api/v1/us-states", "/api/v1/time-zones",
-								"/api/v1/businesses", "/api/v1/businesses/{slug}")
+								"/api/v1/businesses", "/api/v1/businesses/{slug}",
+								"/api/v1/businesses/{slug}/availability")
 						.permitAll()
 						.anyRequest().authenticated())
 				.oauth2ResourceServer(oauth2 -> oauth2.jwt(Customizer.withDefaults()))
