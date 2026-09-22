@@ -11,6 +11,7 @@ import java.util.UUID;
 import com.tradeties.business.internal.BusinessSearchService;
 import com.tradeties.business.internal.PublicAvailabilityService;
 import com.tradeties.business.internal.PublicProfileService;
+import com.tradeties.business.internal.ServiceSuggestionService;
 import com.tradeties.generated.api.MarketplaceApi;
 import com.tradeties.generated.model.BusinessAvailability;
 import com.tradeties.generated.model.PublicBusinessProfile;
@@ -37,6 +38,13 @@ import org.springframework.web.server.ResponseStatusException;
  * The list has grown again and the property has not, which is the only thing about it worth
  * checking when it grows next. What has never been on it is the part that matters — no street,
  * no coordinates, no legal name, no phone and no email.
+ *
+ * <p>The catalogue suggestions are the newest entry and the one that reads least like the
+ * others, so they are worth the re-check they ask for. Almost all of it is editorial content —
+ * the jobs TradeTies has written names for, which are about nobody. The exception is
+ * {@code offeredNearby}, and it is a yes or a no about a postal code rather than about a
+ * business: it names none, counts none, and asking it repeatedly cannot narrow to one, because
+ * the answer stops moving the moment a single tradesperson qualifies.
  */
 @RestController
 class MarketplaceController implements MarketplaceApi {
@@ -44,12 +52,14 @@ class MarketplaceController implements MarketplaceApi {
 	private final BusinessSearchService search;
 	private final PublicProfileService profiles;
 	private final PublicAvailabilityService availability;
+	private final ServiceSuggestionService suggestions;
 
 	MarketplaceController(BusinessSearchService search, PublicProfileService profiles,
-			PublicAvailabilityService availability) {
+			PublicAvailabilityService availability, ServiceSuggestionService suggestions) {
 		this.search = search;
 		this.profiles = profiles;
 		this.availability = availability;
+		this.suggestions = suggestions;
 	}
 
 	/**
@@ -67,6 +77,24 @@ class MarketplaceController implements MarketplaceApi {
 			String zip, String job, String name, Integer page) {
 
 		return ResponseEntity.ok(toWire(search.search(zip, job, name, page)));
+	}
+
+	/**
+	 * The other way into the same marketplace, and the one that does not guess.
+	 *
+	 * <p>{@code q} is never refused for being unfinished — a lone space or a comma answers 200
+	 * with an empty list, because somebody mid-word has not made a mistake. The postal code still
+	 * is refused when the Census does not list it, through the same
+	 * {@code InvalidSelectionException} the search uses: the ZIP field is the only place on this
+	 * operation where a customer can be wrong in a way worth telling them about.
+	 */
+	@Override
+	public ResponseEntity<List<com.tradeties.generated.model.ServiceSuggestion>> suggestServices(
+			String q, String zip) {
+
+		return ResponseEntity.ok(suggestions.suggest(q, zip).stream()
+				.map(MarketplaceController::toWire)
+				.toList());
 	}
 
 	/**
@@ -221,6 +249,20 @@ class MarketplaceController implements MarketplaceApi {
 				.pageSize(found.pageSize())
 				.total(found.total())
 				.totalCapped(found.totalCapped());
+	}
+
+	/**
+	 * {@code offeredNearby} is passed through including its absence. Null here means no postal
+	 * code was given, the contract leaves the property off the object for exactly that case, and
+	 * turning it into {@code false} on the way out would answer a question nobody asked.
+	 */
+	private static com.tradeties.generated.model.ServiceSuggestion toWire(ServiceSuggestion suggestion) {
+		return new com.tradeties.generated.model.ServiceSuggestion()
+				.code(suggestion.code())
+				.label(suggestion.label())
+				.tradeCode(suggestion.tradeCode())
+				.tradeDisplayName(suggestion.tradeDisplayName())
+				.offeredNearby(suggestion.offeredNearby());
 	}
 
 	private static com.tradeties.generated.model.TradeMatch toWire(TradeMatch match) {

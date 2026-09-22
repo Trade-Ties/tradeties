@@ -514,6 +514,99 @@ paths:
         "404":
           $ref: "#/components/responses/NotFound"
 
+  /api/v1/service-catalog:
+    get:
+      tags: [marketplace]
+      operationId: suggestServices
+      security: []
+      summary: Jobs that begin like what the customer is typing.
+      description: |
+        The search box, one keystroke at a time. Where `job` on the search hands the
+        server a finished sentence to interpret, this hands it an unfinished word and
+        gets back jobs the marketplace already has a name for — so the customer picks
+        a known job instead of the server guessing at prose.
+
+        **Matched by letters, not by meaning,** which is the opposite of `job` and the
+        reason they are different operations. `job` is stemmed and read as language;
+        this treats every word typed as the beginning of a word, so four characters of
+        "thermostat" already narrow the list and the fifth narrows it further. Stemming
+        would break exactly that: it stores "washing" as "wash", and "washi" is a prefix
+        of neither.
+
+        **Synonyms are searched, the label is what ranks.** Every entry carries the words
+        a customer types and the words a tradesperson types, so `rooter` reaches
+        "Clear a blocked main sewer line" although that word is nowhere in its name. When
+        a word appears in both, the entry whose name contains it ranks first.
+
+        **Nothing is hidden for want of a supplier.** A job nobody nearby offers is still
+        suggested, marked by `offeredNearby`. Filtering it out would be the tidier list
+        and the worse product: the customer would be unable to say what they need, and
+        TradeTies would never learn that the demand existed. That is the one thing an
+        empty answer cannot tell anybody.
+
+        **Ordered by how well it matched, not by whether it is available.** Availability
+        is a badge, not a sort key — a weak match promoted over a strong one because
+        somebody nearby happens to offer it reads as a broken search box.
+
+        At most eight are returned. This is a dropdown under a text field; a ninth row
+        is one nobody scrolls to, and the number is the server's to choose rather than
+        the client's to ask for.
+
+        Anonymous, like the rest of the customer side. No token is taken and none is
+        needed.
+      parameters:
+        - name: q
+          in: query
+          required: true
+          description: |
+            What the customer has typed so far. Partial words are the normal case, not
+            the exception.
+
+            Text that carries no searchable word — a space, punctuation on its own —
+            answers `200` with an empty list rather than `400`. Somebody halfway through
+            typing has not made a mistake.
+
+            Safe to pass through raw. The server reduces this to words before it becomes
+            a query, so `AT&T` is two words rather than a syntax error.
+          schema:
+            type: string
+            maxLength: 100
+            examples: ["no hot wat"]
+        - name: zip
+          in: query
+          required: false
+          description: |
+            Where the customer is, if they have said yet. Five digits or ZIP+4; only the
+            five are read.
+
+            Optional because the two fields are filled in whatever order suits the
+            customer, and a suggestion list that stays empty until an unrelated field is
+            complete is a dead search box. Without it every suggestion comes back with
+            `offeredNearby` absent — not `false`, which would be a claim nobody made.
+
+            A code the Census does not list answers `400` here for the same reason it
+            does on the search: a typo and "nobody near you does this" are different
+            news.
+          schema:
+            type: string
+            pattern: '^\d{5}(-\d{4})?$'
+            maxLength: 10
+            examples: ["80202"]
+      responses:
+        "200":
+          description: |
+            Matching jobs, best first, at most eight. An empty list means the letters
+            matched no job — not that nobody is available, which is what `offeredNearby`
+            on a filled list says instead.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ServiceSuggestion"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+
   /api/v1/me/business:
     get:
       tags: [business]
@@ -1509,6 +1602,50 @@ components:
             Comparable only against the other entries of the same response. A relevance
             rank, not a probability: two scores close together mean the description did
             not tell them apart, which is the case worth asking the customer about.
+
+    ServiceSuggestion:
+      type: object
+      description: |
+        One job out of the catalogue, as a customer would name it.
+
+        The trade rides along because the client shows it — "Plumber" beside "Unclog a
+        sink drain" is what tells somebody the list understood them — and not because
+        picking this suggestion narrows by trade. It narrows by the job itself, which is
+        the more precise thing and the reason this catalogue exists.
+      required: [code, label, tradeCode, tradeDisplayName]
+      properties:
+        code:
+          type: string
+          maxLength: 64
+          description: |
+            Stable identity of the job, and what a client sends back rather than the
+            label. Labels are editorial and get rewritten; this does not.
+          examples: ["PLUMBER_DRAIN_UNCLOG"]
+        label:
+          type: string
+          maxLength: 120
+          examples: ["Unclog a sink, tub or shower drain"]
+        tradeCode:
+          type: string
+          maxLength: 64
+          examples: ["PLUMBER"]
+        tradeDisplayName:
+          type: string
+          maxLength: 120
+          examples: ["Plumber"]
+        offeredNearby:
+          type: boolean
+          description: |
+            Whether at least one published tradesperson whose service area reaches the
+            given postal code offers this job today.
+
+            **Absent when no `zip` was given**, which is not the same as `false`. False
+            is a measured answer — we looked and nobody near you does this. Absent means
+            nobody asked, and a client that renders the two the same way will tell
+            somebody they cannot be helped before they have said where they are.
+
+            Advisory rather than a promise: it says somebody offers the job, not that
+            they are free this week. The search is what answers that.
 
     BusinessSearchResult:
       type: object

@@ -9,6 +9,37 @@ export type BusinessSearchResult = components["schemas"]["BusinessSearchResult"]
 export type TradeMatch = components["schemas"]["TradeMatch"];
 export type PublicBusinessProfile = components["schemas"]["PublicBusinessProfile"];
 export type PublicService = components["schemas"]["PublicService"];
+export type ServiceSuggestion = components["schemas"]["ServiceSuggestion"];
+
+/**
+ * Jobs from the catalogue that begin like what the customer has typed.
+ *
+ * Anonymous like the search, and called on every few keystrokes rather than on submit — which is
+ * why it goes through a route handler rather than being read in a server component. The browser
+ * cannot reach `API_BASE_URL`; that address is the backend as seen from the Next server.
+ *
+ * `zip` is optional here as it is in the contract, and passing an empty one is not the same as
+ * passing none: without it every suggestion comes back with `offeredNearby` absent, and the
+ * client must not draw that as "nobody nearby does this".
+ *
+ * @param typed what is in the box right now, partial words and all
+ * @param zip the customer's postal code once they have typed five digits, or null
+ */
+export function suggestServices(
+  typed: string,
+  zip: string | null,
+): Promise<ApiResult<ServiceSuggestion[]>> {
+  return attempt("GET /api/v1/service-catalog", () =>
+    publicApiClient().GET("/api/v1/service-catalog", {
+      params: {
+        query: {
+          q: typed,
+          ...(zip ? { zip } : {}),
+        },
+      },
+    }),
+  );
+}
 
 /**
  * Tradespeople whose own service area reaches this postal code.
