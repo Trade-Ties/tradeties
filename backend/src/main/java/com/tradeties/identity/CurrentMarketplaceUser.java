@@ -51,6 +51,30 @@ public class CurrentMarketplaceUser {
 		return user;
 	}
 
+	/**
+	 * TradeTies' own staff, for the operations that are about the marketplace rather than about
+	 * one participant in it.
+	 *
+	 * <p>The same shape as {@link #requireTradesperson}, and the same reason: a token says
+	 * somebody signed in, never what they may do. This role is granted out of band — no public
+	 * endpoint hands it out — so the check here is the whole of the gate.
+	 *
+	 * @throws ResponseStatusException 403 if they never registered, or registered without it
+	 */
+	public MarketplaceUser requirePlatformAdmin() {
+		MarketplaceUser user = resolve().orElseThrow(CurrentMarketplaceUser::notStaff);
+
+		if (!user.roles().contains(Role.PLATFORM_ADMIN)) {
+			throw notStaff();
+		}
+
+		return user;
+	}
+
+	private static ResponseStatusException notStaff() {
+		return new ResponseStatusException(HttpStatus.FORBIDDEN, "This account is not TradeTies staff");
+	}
+
 	private static ResponseStatusException notATradesperson() {
 		return new ResponseStatusException(HttpStatus.FORBIDDEN, "This account is not registered as a tradesperson");
 	}

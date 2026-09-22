@@ -5,6 +5,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.Repository;
 import org.springframework.data.repository.query.Param;
@@ -17,11 +18,17 @@ import org.springframework.data.repository.query.Param;
  * needs is a handful of named statements, not the twenty methods a {@code JpaRepository} would
  * inherit onto it.
  *
+ * <p><strong>Java writes this table now, which it did not when V18 was written.</strong> One
+ * statement, {@link #add}, and it exists because the catalogue has to be able to grow without a
+ * deployment — a suggestion promoted by staff is a row here, written while the application runs.
+ * The seed in {@code R__trade_service_catalog.sql} plants what is missing and never overwrites,
+ * precisely so the two cannot fight.
+ *
  * <p><strong>{@link CatalogTrade} in the type parameter is a formality, and the mismatch is
  * deliberate.</strong> Spring Data wants a domain type; {@code service_catalog} has no entity
  * because nothing in Java loads a row of it whole — the queries here are native and answer
- * projections, and {@code suggest_vector} is a generated column no entity maps. Adding an entity to satisfy the signature would be adding a mapping for a table
- * only Flyway writes, which is the same reason V17's generated column has none.
+ * projections. Adding an entity to satisfy the signature would be adding a mapping for a table
+ * with a generated column no Java code may write, which is the same reason V17's has none.
  */
 interface ServiceCatalogRepository extends Repository<CatalogTrade, UUID> {
 
@@ -128,6 +135,59 @@ interface ServiceCatalogRepository extends Repository<CatalogTrade, UUID> {
 			WHERE c.active AND t.active
 			ORDER BY t.sort_order ASC, c.sort_order ASC""", nativeQuery = true)
 	List<JobRow> findAllActive();
+
+	/**
+	 * A new job, promoted from a phrase somebody collected.
+	 *
+	 * <p>Appended: the position is the end of the catalogue rather than the end of its trade, so
+	 * a promoted job sorts last until somebody moves it. Ordering inside a trade is editorial and
+	 * nobody has asked to do it from here.
+	 *
+	 * <p>The generated column V19 added fills itself, so nothing here mentions the suggestion
+	 * vector — which is the reason this is an INSERT and not an entity: there is a column no Java
+	 * code may write.
+	 *
+	 * <p>The id is chosen by the caller rather than by the database, as every seeded row's is.
+	 * It is what lets the promotion write the catalogue entry and the decision that points at it
+	 * in one transaction without reading anything back in between.
+	 *
+	 * <p>Every parameter is cast. PostgreSQL infers a parameter's type from where it sits, and in
+	 * a SELECT list there is nothing to infer from — an uncast one fails with "could not determine
+	 * data type", at runtime, on the first promotion anybody tries.
+	 */
+	@Modifying
+	@Query(value = """
+			INSERT INTO service_catalog (id, code, trade_id, label, synonyms, sort_order, active)
+			SELECT CAST(:id AS uuid), CAST(:code AS varchar), CAST(:tradeId AS uuid),
+			       CAST(:label AS varchar), CAST(:synonyms AS text),
+			       coalesce(max(sort_order), 0) + 10, TRUE
+			FROM service_catalog""", nativeQuery = true)
+	int add(@Param("id") UUID id,
+			@Param("code") String code,
+			@Param("tradeId") UUID tradeId,
+			@Param("label") String label,
+			@Param("synonyms") String synonyms);
+
+	/** Whether a code is taken, so a derived one can be refused before it collides. */
+	@Query(value = "SELECT EXISTS (SELECT 1 FROM service_catalog WHERE code = :code)", nativeQuery = true)
+	boolean hasCode(@Param("code") String code);
+
+	/**
+	 * Whether a job already goes by this name.
+	 *
+	 * <p>Checked as well as the code, and it is the one that matters. V18's rule is one entry per
+	 * customer job, and two entries reading the same in a dropdown is the failure that table
+	 * exists to prevent — while the codes behind them can differ by a word order nobody sees:
+	 * "Replace a toilet" is already {@code PLUMBER_TOILET_REPLACE}, and promoting the same label
+	 * would derive {@code PLUMBER_REPLACE_A_TOILET}, which collides with nothing and duplicates
+	 * everything.
+	 *
+	 * <p>Case-insensitive, matching the index that enforces it.
+	 */
+	@Query(value = "SELECT EXISTS (SELECT 1 FROM service_catalog WHERE lower(label) = lower(:label))",
+			nativeQuery = true)
+	boolean hasLabel(@Param("label") String label);
+
 
 	/**
 	 * Whether the catalogue can name what somebody typed at all.
