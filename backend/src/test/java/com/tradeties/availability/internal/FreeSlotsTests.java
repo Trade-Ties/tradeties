@@ -96,8 +96,13 @@ class FreeSlotsTests {
 	}
 
 	/**
-	 * Half an hour that does not fit is not offered: 09:30 would end at 10:00, past a block that
-	 * ends at 09:45.
+	 * A block too short to hold a second grid start holds the first one anyway: twenty minutes
+	 * from nine offers 09:00, and 09:30 is past the end of it.
+	 *
+	 * <p>This is the surviving half of the old fitting rule. A block ending at 09:45 now offers
+	 * 09:30 as well, although nothing can be finished in the fifteen minutes left — see
+	 * {@link #offersEveryGridStartInsideTheBlock}. What still bounds the walk is the start itself
+	 * having to fall inside the block.
 	 *
 	 * <p>Asserted as "the next one is next Monday" rather than as a list of one. Asking for a
 	 * single slot would pass against an implementation that offered 09:30 too and merely stopped
@@ -109,8 +114,8 @@ class FreeSlotsTests {
 	 * length it is named after.
 	 */
 	@Test
-	void offersOnlySlotsThatFitWholeInsideABlock() {
-		List<Instant> slots = upcoming(week(DayOfWeek.MONDAY, block(9, 0, 9, 45)), IMMEDIATE, List.of(),
+	void offersTheOpeningStartOfABlockShorterThanTheGrid() {
+		List<Instant> slots = upcoming(week(DayOfWeek.MONDAY, block(9, 0, 9, 20)), IMMEDIATE, List.of(),
 				denver(2026, 3, 2, 0, 0), 2);
 
 		assertEquals(List.of(LocalTime.of(9, 0), LocalTime.of(9, 0)), localTimes(slots));
@@ -144,25 +149,42 @@ class FreeSlotsTests {
 	}
 
 	/**
-	 * Two facts in one list, and they are the two the grid used to answer alone.
-	 *
-	 * <p>The starts are half an hour apart, because that is the grid — not ninety minutes apart,
-	 * which is what an implementation stepping by the length would answer. And the last of them is
-	 * 10:30 rather than 11:30, because 10:30 is the last ninety minutes that end by noon.
+	 * Two facts in one list. The starts are half an hour apart, because that is the grid — not
+	 * ninety minutes apart, which is what an implementation stepping by the length would answer.
+	 * And the last of them is 11:30, although ninety minutes from 11:30 runs to 13:00: the end of
+	 * the block bounds where work may begin, not where it may finish.
 	 */
 	@Test
-	void offersEveryGridStartAWholeAppointmentFitsInto() {
+	void offersEveryGridStartInsideTheBlock() {
 		List<Instant> slots = within(week(DayOfWeek.MONDAY, block(8, 0, 12, 0)), IMMEDIATE, List.of(),
 				denver(2026, 3, 2, 0, 0), thatMonday(90, 20));
 
 		assertEquals(List.of(LocalTime.of(8, 0), LocalTime.of(8, 30), LocalTime.of(9, 0),
-				LocalTime.of(9, 30), LocalTime.of(10, 0), LocalTime.of(10, 30)), localTimes(slots));
+				LocalTime.of(9, 30), LocalTime.of(10, 0), LocalTime.of(10, 30),
+				LocalTime.of(11, 0), LocalTime.of(11, 30)), localTimes(slots));
+	}
+
+	/**
+	 * The same block, the same grid, two very different jobs, one list. This is the statement the
+	 * change of 2026-09-22 makes: how long the work takes no longer decides where it may start.
+	 */
+	@Test
+	void offersTheSameStartsWhateverTheWorkTakes() {
+		var monday = week(DayOfWeek.MONDAY, block(8, 0, 12, 0));
+		Instant midnight = denver(2026, 3, 2, 0, 0);
+
+		assertEquals(localTimes(within(monday, IMMEDIATE, List.of(), midnight, thatMonday(30, 20))),
+				localTimes(within(monday, IMMEDIATE, List.of(), midnight, thatMonday(240, 20))));
 	}
 
 	/**
 	 * An hour away from nine costs four starts, not one, and 08:00 is the one worth naming: half an
 	 * hour from eight clears the absence and ninety minutes from eight runs into it. Measured
 	 * against the grid rather than against the appointment, this answers with a slot that collides.
+	 *
+	 * <p>The far end of the list is the other half of the rule: 11:30 survives although the work
+	 * runs to 13:00, because a block ending is the shape of a day and an absence is the
+	 * tradesperson not being there. The two lengths are not measured the same way on purpose.
 	 */
 	@Test
 	void countsTheWholeAppointmentAgainstAnAbsence() {
@@ -172,7 +194,8 @@ class FreeSlotsTests {
 		List<Instant> slots = within(week(DayOfWeek.MONDAY, block(8, 0, 12, 0)), IMMEDIATE, away,
 				denver(2026, 3, 2, 0, 0), thatMonday(90, 20));
 
-		assertEquals(List.of(LocalTime.of(10, 0), LocalTime.of(10, 30)), localTimes(slots));
+		assertEquals(List.of(LocalTime.of(10, 0), LocalTime.of(10, 30),
+				LocalTime.of(11, 0), LocalTime.of(11, 30)), localTimes(slots));
 	}
 
 	/**

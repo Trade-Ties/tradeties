@@ -23,8 +23,9 @@ import org.springframework.transaction.annotation.Transactional;
  * here and the diary from {@code availability}, through {@link OpenSlots}.
  *
  * <p><strong>The service is resolved before the calendar is walked</strong>, and not only to fail
- * fast. Its duration is what the walk cuts by, so a calendar drawn without it would be a calendar
- * of the wrong appointment — which is exactly the mistake the grid used to stand in for.
+ * fast. Its duration is what the answer reports as {@code appointmentMinutes}, which is what turns
+ * a start time into a span on the reader's calendar, and it is what declared time off is measured
+ * against. The starts themselves come off the business's grid — see {@code FreeSlots}.
  */
 @Service
 public class PublicAvailabilityService {

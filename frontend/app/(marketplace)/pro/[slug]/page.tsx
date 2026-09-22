@@ -1,3 +1,4 @@
+import { Suspense } from "react";
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import Link from "next/link";
@@ -5,7 +6,13 @@ import Link from "next/link";
 import { SiteHeader } from "@/components/marketing/SiteHeader";
 import { SiteFooter } from "@/components/marketing/SiteFooter";
 import { BusinessProfile } from "@/components/marketing/BusinessProfile";
-import { getBusiness } from "@/lib/api/marketplace";
+import { ServiceCalendar } from "@/components/marketing/ServiceCalendar";
+import { isMonth, monthIn, monthWindow } from "@/components/marketing/availability";
+import { getAvailability, getBusiness, type PublicService } from "@/lib/api/marketplace";
+
+function firstValue(value: string | string[] | undefined): string {
+  return (Array.isArray(value) ? value[0] : value) ?? "";
+}
 
 /**
  * A business's public page, at the address the contract freezes at the first publish:
@@ -14,9 +21,20 @@ import { getBusiness } from "@/lib/api/marketplace";
  * <p>Read on the server and without a token, like the search. Nothing on it depends on who is
  * looking, which is the property that lets it stay cacheable and the reason a signed-in
  * tradesperson sees exactly what a stranger sees.
+ *
+ * <p>Which service and which month the calendar shows are read out of the query, not out of a
+ * client that fetched them: a request is for exactly one service, so the whole question fits in
+ * an address that can be shared and reloaded.
  */
-export default async function ProfilePage({ params }: { params: Promise<{ slug: string }> }) {
+export default async function ProfilePage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ slug: string }>;
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
   const { slug } = await params;
+  const query = await searchParams;
   const result = await getBusiness(slug);
 
   if (!result.ok) {
@@ -36,12 +54,89 @@ export default async function ProfilePage({ params }: { params: Promise<{ slug: 
     notFound();
   }
 
+  const profile = result.data;
+
+  // Checked against the profile rather than sent on: a service this business does not offer is
+  // a 400 at the backend, and it can only arrive from a stale link — which deserves the page
+  // without a calendar, not a round trip spent on being refused.
+  const asked = firstValue(query.service);
+  const service = profile.services.find((offered) => offered.id === asked) ?? null;
+
+  const wanted = firstValue(query.month);
+  const month = isMonth(wanted) ? wanted : null;
+
+  // Today where the tradesperson works, never where the reader is. Read once here and handed
+  // down as a prop, so there is no second clock in the browser to disagree with this one.
+  const showing = month ?? monthIn(profile.timeZone, new Date());
+
   return (
     <>
       <SiteHeader />
-      <BusinessProfile profile={result.data} />
+      <BusinessProfile
+        profile={profile}
+        picked={service?.id ?? null}
+        month={month}
+        calendar={
+          service && (
+            // Keyed so a different service or month is a fresh calendar: the chosen time lives in
+            // that subtree, and carrying it across would leave an hour selected that belongs to a
+            // month nobody is looking at any more.
+            <Suspense key={`${service.id}-${showing}`} fallback={<Reading />}>
+              <Diary slug={slug} service={service} month={showing} />
+            </Suspense>
+          )
+        }
+      />
       <SiteFooter />
     </>
+  );
+}
+
+/**
+ * The diary itself, read on the server.
+ *
+ * Its own component so that only this part suspends: the profile is on screen while the openings
+ * are still being counted, rather than the whole page waiting on them.
+ */
+async function Diary({
+  slug,
+  service,
+  month,
+}: {
+  slug: string;
+  service: PublicService;
+  month: string;
+}) {
+  const { from, to } = monthWindow(month);
+  const result = await getAvailability(slug, service.id, from, to);
+
+  // A 404 here is the profile going down between the two reads. Both that and a backend that
+  // refused say the same thing to the reader: there is no diary to show, and it is not their
+  // doing. The profile above them is still worth reading.
+  if (!result.ok || result.data === null) {
+    return (
+      <p className="rounded-3xl border border-dashed border-line bg-canvas px-6 py-12 text-center text-[14.5px] text-muted-ink">
+        We could not read their calendar just now. That is on us — reloading usually works.
+      </p>
+    );
+  }
+
+  return (
+    <ServiceCalendar
+      slug={slug}
+      serviceId={service.id}
+      serviceName={service.name}
+      month={month}
+      availability={result.data}
+    />
+  );
+}
+
+function Reading() {
+  return (
+    <p className="rounded-3xl border border-line bg-white px-6 py-12 text-center text-[14.5px] text-muted-ink">
+      Reading their calendar…
+    </p>
   );
 }
 

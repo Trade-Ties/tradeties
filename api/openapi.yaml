@@ -470,13 +470,23 @@ paths:
         The calendar behind the profile, and the first operation that needs a service
         rather than a business.
 
-        **A slot has no length until a service is chosen**, which is why `serviceId` is
-        required rather than a refinement. The business declares a grid — starts on the
-        hour, or on the half hour — and the service declares how long the work takes.
-        The grid says where an appointment may begin; the service says how much of the
-        day it then occupies. Ninety minutes on a half-hour grid, in a morning that ends
-        at noon, has six places to start and the last is 10:30. An operation that did
-        not know the service would answer eight, and two of them could not be worked.
+        **The grid decides the starts; the service decides how long each one runs.**
+        The business declares a grid — starts on the hour, or on the half hour — and
+        every start on it that falls inside a working block is offered. A morning that
+        ends at noon therefore has eight starts on a half-hour grid, the last at 11:30,
+        and it has eight of them whether the job takes half an hour or takes three.
+
+        **A start is not a promise that the work ends inside the block.** Ninety minutes
+        from 11:30 runs to 13:00, past the end of that morning, and this operation says
+        so rather than withholding the start: the tradesperson decides on the request,
+        and whether their day stretches is theirs to answer. A client must therefore
+        draw the span from `appointmentMinutes` — a start time alone no longer tells a
+        customer when they get their afternoon back.
+
+        `serviceId` is still required, and for two reasons that outlive the change: it
+        is what `appointmentMinutes` is read from, and it is what declared time off is
+        measured against, so a job long enough to run into a holiday is not offered a
+        start before it.
 
         **What is subtracted:** the working week, less declared time off, less the notice
         the tradesperson requires, bounded by how far ahead they take bookings. Accepted
@@ -2237,6 +2247,11 @@ components:
             because it is what turns a start time into a span on a calendar — a client
             reading it off the profile instead would be keeping a second copy of a
             number this answer already depends on.
+
+            **Reading it is not optional.** Starts are not cut back to those ending
+            inside the working block, so this is the only thing that tells a customer
+            when the work finishes. A client drawing the starts alone is showing half
+            the appointment.
           examples: [90]
         from:
           type: string
@@ -2257,8 +2272,12 @@ components:
         slots:
           type: array
           description: |
-            Every start in the window that the whole appointment fits into, soonest
-            first. Instants, to be read against `timeZone`.
+            Every start in the window that the business's grid offers, soonest first.
+            Instants, to be read against `timeZone`.
+
+            Not filtered by whether the appointment ends before the working block does —
+            see the operation. The one length that still removes a start is declared
+            time off, which the whole appointment has to clear.
 
             Empty says nothing about why. A closed week, a fortnight of time off and a
             diary nobody has filled in are one answer, and none of them is the

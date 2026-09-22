@@ -9,6 +9,7 @@ export type BusinessSearchResult = components["schemas"]["BusinessSearchResult"]
 export type TradeMatch = components["schemas"]["TradeMatch"];
 export type PublicBusinessProfile = components["schemas"]["PublicBusinessProfile"];
 export type PublicService = components["schemas"]["PublicService"];
+export type BusinessAvailability = components["schemas"]["BusinessAvailability"];
 export type ServiceSuggestion = components["schemas"]["ServiceSuggestion"];
 
 /**
@@ -116,4 +117,53 @@ export async function getBusiness(slug: string): Promise<ApiResult<PublicBusines
   }
 
   return { ok: true, data: answered.data as PublicBusinessProfile };
+}
+
+/**
+ * When this business is free to do one of its services, over one window of days.
+ *
+ * `from` and `to` are calendar days in the business's own zone, as plain `YYYY-MM-DD` — never a
+ * `Date`, which would carry the renderer's zone into a question that is asked in the
+ * tradesperson's.
+ *
+ * **The window comes back too, and it is often shorter than the one asked for.** The notice the
+ * tradesperson requires moves `from` later, the booking horizon and a month-long cap move `to`
+ * earlier, and `to` before `from` means there is no bookable day at all. That is how far the
+ * caller may let somebody page; asking a wider window to find out would be a second call for an
+ * answer this one already gave.
+ *
+ * A 404 comes back as `null` for the reason `getBusiness` gives it one, with a narrower cause:
+ * the caller already holds a profile, so the slug was good a moment ago and this is the profile
+ * being taken down between the two reads. There is no calendar to draw and nothing to report.
+ *
+ * A service this business does not offer answers 400, not an empty list. Callers holding a
+ * profile should check the id against `services` rather than spend the round trip.
+ */
+export async function getAvailability(
+  slug: string,
+  serviceId: string,
+  from: string,
+  to: string,
+): Promise<ApiResult<BusinessAvailability | null>> {
+  const endpoint = "GET /api/v1/businesses/{slug}/availability";
+
+  const answered = await answer(endpoint, () =>
+    publicApiClient().GET("/api/v1/businesses/{slug}/availability", {
+      params: { path: { slug }, query: { serviceId, from, to } },
+    }),
+  );
+
+  if (!answered.reached) {
+    return { ok: false, failure: answered.failure };
+  }
+
+  if (answered.response.status === 404) {
+    return { ok: true, data: null };
+  }
+
+  if (!answered.response.ok) {
+    return { ok: false, failure: failureOf(endpoint, answered.response, answered.error) };
+  }
+
+  return { ok: true, data: answered.data as BusinessAvailability };
 }
