@@ -27,10 +27,10 @@ import org.springframework.test.web.servlet.request.RequestPostProcessor;
 /**
  * One business's free slots, read without a token and with a service in hand.
  *
- * <p>{@link #everyStartLeavesRoomForTheWholeAppointment} is the test to keep. The rest wire the
- * operation up; that one is the reason it could not simply reuse what the search already had —
- * two hours and half an hour are different questions about the same Monday, and a calendar that
- * answered them alike would offer appointments that cannot be worked.
+ * <p>{@link #offersTheSameStartsWhateverTheWorkTakes} is the test to keep. The rest wire the
+ * operation up; that one pins the rule the list is built on — the grid says where work may begin,
+ * the service says how long it then runs, and a start is offered even when the work outlasts the
+ * working block. The tradesperson answers that on the request.
  *
  * <p>Every date here is worked out from today rather than written down, because the fixture's
  * working week is a weekday and a fixed date would pass until it fell on a Sunday. A Monday at
@@ -82,16 +82,16 @@ class BusinessAvailabilityTests {
 	}
 
 	/**
-	 * The fixture opens 09:00–17:00 on a half-hour grid. Two hours fit thirteen times and the last
-	 * one starts at 15:00; half an hour fits sixteen times and the last starts at 16:30.
+	 * The fixture opens 09:00–17:00 on a half-hour grid, which is sixteen starts, the last at
+	 * 16:30. Two hours from 16:30 runs to 18:30 and the start is offered anyway.
 	 *
-	 * <p>Both counts in one test, because either alone is a number somebody can make pass. The
-	 * pair is the statement: the same block answers differently for different work, which is what
-	 * it means for the grid and the appointment to have stopped being one number.
+	 * <p>Both lengths in one test, because either alone is a number somebody can make pass. The
+	 * pair is the statement: the same block answers the same for different work, and what the
+	 * length changes is the span the client draws from `appointmentMinutes`, not the list.
 	 */
 	@Test
-	void everyStartLeavesRoomForTheWholeAppointment() throws Exception {
-		assertStartsOnAMonday("user_av_long", "av-long", 120, 13);
+	void offersTheSameStartsWhateverTheWorkTakes() throws Exception {
+		assertStartsOnAMonday("user_av_long", "av-long", 120, 16);
 		assertStartsOnAMonday("user_av_short", "av-short", 30, 16);
 	}
 

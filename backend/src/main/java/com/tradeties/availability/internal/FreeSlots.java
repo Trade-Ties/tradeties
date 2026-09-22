@@ -20,13 +20,19 @@ import com.tradeties.availability.HoursBlock;
  * <p>Pure and static, and given its own {@code now}, so a daylight saving switch and a holiday
  * that swallows a Tuesday can be tested without a database and without waiting for either.
  *
- * <p><strong>The grid and the length of an appointment are two different numbers.</strong> The
- * grid says where a slot may start — on the half hour, say — and the length says how much of the
- * day it then occupies. They were one number until a service could be chosen, and that is the
- * mistake this class exists not to make again: at thirty minutes apiece a block ending at noon
- * offers a last start at 11:30, while a ninety-minute job in the same block has to be turned away
- * after 10:30. The same number also decided how much of an absence a slot had to clear, so a job
- * long enough to run into a holiday was offered a start before it.
+ * <p><strong>The grid says where an appointment may start; its length does not say whether it
+ * may.</strong> Every grid start inside a block is offered, so a block ending at noon offers eight
+ * of them on a half-hour grid and the last is 11:30 — for a ninety-minute job as much as for a
+ * half-hour one. The work then runs past the end of the block, and whether that suits is the
+ * tradesperson's answer to a request rather than this walk's assumption. It was the other way
+ * round until 2026-09-22, when the last start for a long job was the last one ending inside the
+ * block.
+ *
+ * <p><strong>Declared time off still cuts by the whole length</strong>, and the asymmetry is
+ * deliberate rather than an oversight to tidy up: the end of a block is the shape of a working
+ * day, which a tradesperson can stretch, while an absence is them not being there to stretch it.
+ * A job long enough to run into a holiday is therefore not offered a start before it, though one
+ * long enough to run past five o'clock is.
  *
  * <p><strong>Accepted appointments are not subtracted, because none can exist.</strong> This
  * schema has no appointment table; the module that books one arrives with {@code job}. When it
@@ -59,7 +65,8 @@ final class FreeSlots {
 	 *        reaches. Shortened to that horizon either way, so asking for more than the diary
 	 *        holds cannot reach past the end of it
 	 * @param lengthMinutes how long the appointment runs, which is the chosen service's duration.
-	 *        {@link #upcoming} passes the grid instead, and says there why
+	 *        Measured against declared time off and never against the end of a working block —
+	 *        see the class note. {@link #upcoming} passes the grid instead, and says there why
 	 * @param limit how many starts are worth walking for. A month of a quarter-hour grid is some
 	 *        two thousand of them, and no caller has a use for the tail
 	 */
@@ -76,7 +83,7 @@ final class FreeSlots {
 	}
 
 	/**
-	 * Every start in the asked window that a whole appointment fits into.
+	 * Every start in the asked window that the business's own grid offers.
 	 *
 	 * @param week the business's own hours, blocks within a day in start order
 	 * @param zone what the stored wall clock is read against. "Mondays from 8" is 8 in the
@@ -104,10 +111,12 @@ final class FreeSlots {
 		for (LocalDate day = LocalDate.ofInstant(earliest, zone); !day.isAfter(lastDay); day = day.plusDays(1)) {
 			for (HoursBlock block : week.getOrDefault(day.getDayOfWeek(), List.of())) {
 
-				// The step is the grid and the bound is the length: a block of 08:00-12:00 on a
-				// half-hour grid offers a ninety-minute job six starts, the last at 10:30.
+				// Every grid start that begins inside the block, whatever the work is: 08:00-12:00
+				// on a half-hour grid offers eight, and the last is 11:30 even for a job that then
+				// runs past noon. Bounding this by `length` is the rule this replaced — read the
+				// class note before restoring it.
 				for (int minute = onGrid(block.startsAtMinutes(), step);
-						minute + length <= block.endsAtMinutes();
+						minute < block.endsAtMinutes();
 						minute += step) {
 
 					// Wall clock first, instant second. Adding minutes to a zoned time adds real
@@ -147,8 +156,9 @@ final class FreeSlots {
 	 * <p><strong>The grid stands in for the length, and that is the honest reading of an
 	 * unanswered question</strong> rather than a shortcut. Nothing here knows what the job is, so
 	 * there is no duration to cut by, and the grid is the only length the business has declared.
-	 * It is also why these times are shown as openings and never as an offer: a start that
-	 * survives at thirty minutes may not survive the service the reader goes on to pick.
+	 * Since the block bound no longer reads the length, these starts part company with a chosen
+	 * service's only where declared time off is long enough to tell them apart — still reason
+	 * enough to show them as openings rather than as an offer.
 	 *
 	 * @return start times, soonest first, at most {@code wanted} of them
 	 */

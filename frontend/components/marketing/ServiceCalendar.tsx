@@ -18,6 +18,7 @@ import {
   timeLabel,
   weekdayOf,
 } from "@/components/marketing/availability";
+import { duration } from "@/components/marketing/business-format";
 import { proPath } from "@/lib/routes";
 import type { BusinessAvailability } from "@/lib/api/marketplace";
 
@@ -161,8 +162,17 @@ export function ServiceCalendar({
             </p>
           ) : (
             <div className="mt-6 border-t border-line pt-5">
-              <p className="m-0 mb-3 text-[14.5px] font-semibold text-brand">
+              <p className="m-0 text-[14.5px] font-semibold text-brand">
                 {pickedDay ? dayLabel(pickedDay) : "Pick a day"}
+              </p>
+
+              {/*
+                The length is stated before a time is picked, not only after. Starts are no longer
+                cut back to those ending inside the working day, so the list alone does not hint at
+                how long the work is — 11:30 looks exactly as free as 08:00.
+              */}
+              <p className="m-0 mb-3 mt-0.5 text-[13px] text-muted-ink">
+                This job runs {duration(appointmentMinutes)} from whichever time you pick.
               </p>
 
               <div className="flex flex-wrap gap-2">
