@@ -36,6 +36,11 @@ tags:
       The customer's half: finding a tradesperson. Public, unauthenticated, and
       deliberately anonymous — nothing here takes a token and nothing it returns
       names a person.
+  - name: admin
+    description: |
+      TradeTies' own staff, and the only tag whose operations are about the marketplace
+      rather than about one participant in it. Everything here requires `PLATFORM_ADMIN`,
+      a role that is never granted through a public endpoint.
   - name: business
     description: |
       The tradesperson's own business. Every operation here resolves the business
@@ -1449,6 +1454,151 @@ paths:
         "409":
           $ref: "#/components/responses/Conflict"
 
+  /api/v1/admin/service-catalog-suggestions:
+    get:
+      tags: [admin]
+      operationId: listCatalogSuggestions
+      summary: Phrases the catalogue has no name for, most asked first.
+      description: |
+        What customers described and tradespeople typed that no catalogue entry answers.
+        Both are collected without anybody deciding to, and this is where the deciding
+        happens.
+
+        **The count is the whole point.** A single typo sits at one and stays at the bottom;
+        the same missing job asked eighteen times rises to the top and answers "what are we
+        missing" without anybody guessing. `firstSeenAt` is the other half of that: eighteen
+        times since Tuesday and eighteen times since March are different news.
+
+        Ordered by `seenCount`, highest first, then by phrase so that a page is stable
+        between two identical calls.
+      parameters:
+        - name: status
+          in: query
+          required: false
+          description: |
+            Which decisions to show. `NEW` is the queue and the default; the other two are
+            the record of what was already decided, kept rather than deleted so the same
+            judgement is not made twice.
+
+            A dismissed phrase goes on being counted. Nothing moves it back to `NEW` on its
+            own — a decision is not undone by traffic — but one that has quietly climbed to
+            four hundred is worth a second look, and this is how it is found.
+          schema:
+            allOf:
+              - $ref: "#/components/schemas/SuggestionStatus"
+            default: NEW
+        - name: limit
+          in: query
+          required: false
+          description: How many to return. The tail of this list is noise by construction.
+          schema:
+            type: integer
+            format: int32
+            minimum: 1
+            maximum: 200
+            default: 50
+      responses:
+        "200":
+          description: The phrases, most asked first.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/CatalogSuggestion"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /api/v1/admin/service-catalog-suggestions/{suggestionId}/promotion:
+    parameters:
+      - name: suggestionId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    put:
+      tags: [admin]
+      operationId: promoteCatalogSuggestion
+      summary: Turn a collected phrase into a job the marketplace offers.
+      description: |
+        Writes a new catalogue entry and marks the phrase as its source. From that moment,
+        with no deployment: customers are offered the job while they type, tradespeople can
+        tick it in their own list, and the search can narrow to whoever offers it.
+
+        **The phrase is evidence, not the entry.** What is written is the label sent here —
+        "my chimney flue is cracked" is how somebody described a problem, and "Repair a
+        cracked chimney flue" is what the marketplace should call the job. That translation
+        is the work, and it is why this is a person's decision rather than a rule: the
+        development seed is full of "Main line rooter service" and "Repipe assessment",
+        which is how tradespeople write and not how customers search.
+
+        **The code is derived, not supplied.** A stable identity assembled from the trade
+        and the label, so nobody has to invent one and nobody can typo one. A label whose
+        code already exists is refused with `409` naming the clash — which is the answer,
+        because it means the job already has an entry and the phrase should point at that
+        one instead.
+
+        Replayable: promoting a phrase that was already promoted answers `409` rather than
+        writing a second entry.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SuggestionPromotion"
+      responses:
+        "201":
+          description: The catalogue entry that now exists.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ServiceJob"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+
+  /api/v1/admin/service-catalog-suggestions/{suggestionId}/dismissal:
+    parameters:
+      - name: suggestionId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    put:
+      tags: [admin]
+      operationId: dismissCatalogSuggestion
+      summary: Decide a phrase is not a job worth naming.
+      description: |
+        A typo, a duplicate of something already catalogued, or a sentence that describes no
+        job at all. Marked rather than deleted, so the same judgement is not made twice — and
+        so that a dismissed phrase which goes on being asked can still be found later.
+
+        Replayable. Dismissing what is already dismissed changes nothing and answers `204`;
+        dismissing what was promoted is refused, because that decision has a catalogue entry
+        behind it and undoing it is not this operation's business.
+      responses:
+        "204":
+          description: Marked as decided.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+
 components:
   securitySchemes:
     workosAuthKit:
@@ -2732,6 +2882,94 @@ components:
           type: integer
           format: int64
           readOnly: true
+
+    SuggestionSource:
+      type: string
+      description: |
+        Which side said it. Counted apart because they are different evidence about the same
+        word: a tradesperson naming work they do, and a customer naming work they want.
+      enum:
+        - PRO
+        - CUSTOMER
+
+    SuggestionStatus:
+      type: string
+      description: |
+        What was decided. `NEW` is undecided and is the queue; the other two are kept rather
+        than deleted, so the same judgement is not made twice.
+      enum:
+        - NEW
+        - PROMOTED
+        - DISMISSED
+
+    CatalogSuggestion:
+      type: object
+      description: One phrase the catalogue could not name, and how often it has come up.
+      required: [id, source, phrase, seenCount, firstSeenAt, lastSeenAt, status]
+      properties:
+        id:
+          type: string
+          format: uuid
+        source:
+          $ref: "#/components/schemas/SuggestionSource"
+        phrase:
+          type: string
+          maxLength: 300
+          description: |
+            As typed, with whitespace tidied and nothing else changed. How people write is
+            what somebody reading this is trying to learn, so it is not lowercased or
+            otherwise cleaned up.
+          examples: ["my chimney flue is cracked"]
+        seenCount:
+          type: integer
+          format: int32
+          description: |
+            How often this has been said, counted without regard to capitalisation. The
+            figure that decides whether a phrase is a missing job or somebody's typo.
+        firstSeenAt:
+          type: string
+          format: date-time
+          description: |
+            Never updated. The other half of the count — eighteen times since Tuesday and
+            eighteen times since March say different things about the same number.
+        lastSeenAt:
+          type: string
+          format: date-time
+        status:
+          $ref: "#/components/schemas/SuggestionStatus"
+        promotedTo:
+          type: [string, "null"]
+          format: uuid
+          description: The catalogue entry this became. Present only when `status` is `PROMOTED`.
+
+    SuggestionPromotion:
+      type: object
+      required: [label, tradeId]
+      properties:
+        label:
+          type: string
+          minLength: 1
+          maxLength: 120
+          description: |
+            What the marketplace will call the job, in the customer's words — not the phrase
+            that was collected. "my chimney flue is cracked" is how somebody described a
+            problem; "Repair a cracked chimney flue" is the job. Making that translation is
+            the whole reason a person does this.
+          examples: ["Repair a cracked chimney flue"]
+        tradeId:
+          type: string
+          format: uuid
+          description: |
+            The trade the job is filed under. It decides who can offer it: a business can
+            only link a job under a trade it holds.
+        synonyms:
+          type: [string, "null"]
+          maxLength: 2000
+          description: |
+            The other words people use for it, comma-separated, and worth more than the label
+            for being found. Both vocabularies belong here — what a customer types ("flue
+            cracked", "smoke coming into the room") and what a tradesperson types ("liner",
+            "stack repair") — because the same field answers both.
 
     ServiceJob:
       type: object

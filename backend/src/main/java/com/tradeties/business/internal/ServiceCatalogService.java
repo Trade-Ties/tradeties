@@ -51,13 +51,15 @@ public class ServiceCatalogService {
 	private final ServiceRemoval removal;
 	private final PublishService publishing;
 	private final ServiceCatalogRepository catalogue;
+	private final CatalogGaps gaps;
 
 	ServiceCatalogService(BusinessProfileRepository businesses,
 			ServiceOfferingRepository services,
 			BusinessTradeRepository trades,
 			ServiceRemoval removal,
 			PublishService publishing,
-			ServiceCatalogRepository catalogue) {
+			ServiceCatalogRepository catalogue,
+			CatalogGaps gaps) {
 
 		this.businesses = businesses;
 		this.services = services;
@@ -65,6 +67,7 @@ public class ServiceCatalogService {
 		this.removal = removal;
 		this.publishing = publishing;
 		this.catalogue = catalogue;
+		this.gaps = gaps;
 	}
 
 	@Transactional(readOnly = true)
@@ -97,6 +100,13 @@ public class ServiceCatalogService {
 
 		ServiceDetails created = save(new ServiceOffering(business, definition, position), definition);
 		recordStepReached(business);
+
+		// Named by hand and fitting no catalogue entry. Not an error and not worth interrupting
+		// anybody over — but it is a tradesperson telling us a job we have no word for, which is
+		// the only reason we would ever learn it.
+		if (definition.catalogId() == null) {
+			gaps.note(CatalogGaps.Source.PRO, definition.name());
+		}
 
 		return Optional.of(created);
 	}
