@@ -58,11 +58,18 @@ class SecurityConfig {
 	 * business names, towns, distances, hourly rates, two licence flags and the start times each
 	 * business is next free; nothing in it names a person.
 	 *
+	 * <p>One profile by its slug is the third, and the same operation continued: what the search
+	 * had no room for — the services with the time each takes, the terms, the licences on file.
+	 * It answers for published profiles only, so a draft and a suspension read as missing.
+	 *
 	 * <p>Listed one path at a time rather than as {@code /api/v1/reference/**} or a prefix, so
 	 * that opening the next one is a decision somebody has to write down here. The GET is part of
-	 * the rule: {@code /api/v1/businesses} is public to read and has no other method.
+	 * the rule: {@code /api/v1/businesses} is public to read and has no other method. So is the
+	 * single segment in {@code /api/v1/businesses/&#123;slug&#125;} — it matches one profile and
+	 * not anything filed under one, which is what keeps a later
+	 * {@code /api/v1/businesses/&#123;slug&#125;/...} a decision rather than an inheritance.
 	 *
-	 * <p>All four carry {@code security: []} in {@code api/openapi.yaml}. That declaration
+	 * <p>All five carry {@code security: []} in {@code api/openapi.yaml}. That declaration
 	 * documents the exception; this line is what actually makes it.
 	 */
 	@Bean
@@ -72,7 +79,7 @@ class SecurityConfig {
 				.authorizeHttpRequests(auth -> auth
 						.requestMatchers(HttpMethod.GET,
 								"/api/v1/trades", "/api/v1/us-states", "/api/v1/time-zones",
-								"/api/v1/businesses")
+								"/api/v1/businesses", "/api/v1/businesses/{slug}")
 						.permitAll()
 						.anyRequest().authenticated())
 				.oauth2ResourceServer(oauth2 -> oauth2.jwt(Customizer.withDefaults()))

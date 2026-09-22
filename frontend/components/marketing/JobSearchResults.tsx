@@ -14,12 +14,14 @@ import { Label } from "@/components/ui/label";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { FilterPill } from "@/components/marketing/FilterPill";
 import { ProCard, type ProCardSlot, type ProCardView } from "@/components/marketing/ProCard";
+import { amount, colorOf, initialsOf } from "@/components/marketing/business-format";
 import {
   availabilityLabel,
   parseWhenParam,
   today,
   type AvailabilityFilter,
 } from "@/components/marketing/when-filter";
+import { proPath } from "@/lib/routes";
 import type { components } from "@/lib/api/schema";
 
 type SearchResults = components["schemas"]["BusinessSearchResults"];
@@ -414,11 +416,12 @@ function viewOf(result: SearchResult): ProCardView {
     subtitle: `${result.city}, ${result.state}`,
     trade: result.primaryTrade ?? undefined,
     distance: miles(result.distanceMiles),
-    rateFrom: result.hourlyRate ? rate(result.hourlyRate) : undefined,
+    rateFrom: result.hourlyRate ? amount(result.hourlyRate) : undefined,
     badges,
     slots: (result.nextSlots ?? []).map((slot) => opening(slot, result.timeZone)),
     // Nothing can accept a booking yet, so the times are shown as what they are.
     bookable: false,
+    href: proPath(result.slug),
   };
 }
 
@@ -454,29 +457,4 @@ function opening(instant: string, timeZone: string): ProCardSlot {
  */
 function miles(distance: number): string {
   return distance < 1 ? "under a mile" : `${Math.round(distance)} mi`;
-}
-
-/** The wire carries four decimal places because money is stored that way; nobody reads $85.0000. */
-function rate(amount: string): string {
-  const value = Number(amount);
-  return Number.isInteger(value) ? String(value) : value.toFixed(2);
-}
-
-function initialsOf(displayName: string): string {
-  const words = displayName.split(/\s+/).filter(Boolean);
-  return words.slice(0, 2).map((word) => word[0]!.toUpperCase()).join("");
-}
-
-/**
- * A colour per business, derived from the slug rather than stored.
- *
- * Deterministic on purpose: the same business is the same colour on every render and on both
- * sides of hydration, and a marketplace that has never asked anybody for a brand colour has none
- * to show.
- */
-const AVATAR_COLORS = ["#1E4E82", "#0E9F6E", "#B4530A", "#0A2F5C", "#6D3FA8", "#B91C1C", "#CA8A04", "#C2410C"];
-
-function colorOf(slug: string): string {
-  const sum = [...slug].reduce((total, character) => total + character.charCodeAt(0), 0);
-  return AVATAR_COLORS[sum % AVATAR_COLORS.length]!;
 }

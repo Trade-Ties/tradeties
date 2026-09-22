@@ -1,12 +1,14 @@
 import "server-only";
 
 import { publicApiClient } from "./client";
-import { attempt, type ApiResult } from "./problem";
+import { answer, attempt, failureOf, type ApiResult } from "./problem";
 import type { components } from "./schema";
 
 export type BusinessSearchResults = components["schemas"]["BusinessSearchResults"];
 export type BusinessSearchResult = components["schemas"]["BusinessSearchResult"];
 export type TradeMatch = components["schemas"]["TradeMatch"];
+export type PublicBusinessProfile = components["schemas"]["PublicBusinessProfile"];
+export type PublicService = components["schemas"]["PublicService"];
 
 /**
  * Tradespeople whose own service area reaches this postal code.
@@ -42,4 +44,39 @@ export function searchBusinesses(
       },
     }),
   );
+}
+
+/**
+ * One business by the address it was published under.
+ *
+ * Anonymous like the search, and the same reasoning: no token is sent, and sending one would put
+ * a signed-in tradesperson's identity on an answer that must not depend on it.
+ *
+ * **A 404 comes back as `null` rather than as a failure, and is not logged as one.** It is an
+ * ordinary outcome — a mistyped address, a link to a profile since taken back to draft, or one
+ * the marketplace has suspended, which are deliberately the same answer. Treating it as an error
+ * would fill the log with other people's typing and leave nothing to notice a real one by.
+ * Everything else is still a failure: a page that does not exist and a backend that could not be
+ * reached are different news for the reader.
+ */
+export async function getBusiness(slug: string): Promise<ApiResult<PublicBusinessProfile | null>> {
+  const endpoint = "GET /api/v1/businesses/{slug}";
+
+  const answered = await answer(endpoint, () =>
+    publicApiClient().GET("/api/v1/businesses/{slug}", { params: { path: { slug } } }),
+  );
+
+  if (!answered.reached) {
+    return { ok: false, failure: answered.failure };
+  }
+
+  if (answered.response.status === 404) {
+    return { ok: true, data: null };
+  }
+
+  if (!answered.response.ok) {
+    return { ok: false, failure: failureOf(endpoint, answered.response, answered.error) };
+  }
+
+  return { ok: true, data: answered.data as PublicBusinessProfile };
 }
