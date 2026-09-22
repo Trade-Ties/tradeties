@@ -13,6 +13,9 @@ import java.util.List;
  * that page readable as part of a whole. Without them a short list is ambiguous in the worst way:
  * "that is everyone" and "that is the first two dozen" look identical.
  *
+ * @param matchedService the job the customer picked out of the catalogue, or null when they
+ *                       picked none. Present, it is the better thing to show: "Replace a toilet"
+ *                       is what they asked for, where "Plumber" is only what was inferred from it
  * @param matchedTrades best first, at most three, and empty when the description named no trade
  *                      at all — including when there was no description. The results are then
  *                      everyone who reaches the postal code
@@ -24,6 +27,7 @@ import java.util.List;
  * @param totalCapped true when more exist than the cap counts, which is what turns {@code total}
  *                    from a figure into a floor — "240+" rather than "240"
  */
-public record BusinessSearchResults(List<TradeMatch> matchedTrades, List<BusinessSearchResult> results,
+public record BusinessSearchResults(ServiceJob matchedService, List<TradeMatch> matchedTrades,
+		List<BusinessSearchResult> results,
 		int page, int pageSize, int total, boolean totalCapped) {
 }

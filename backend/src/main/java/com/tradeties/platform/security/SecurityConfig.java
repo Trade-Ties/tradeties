@@ -63,7 +63,14 @@ class SecurityConfig {
 	 * had no room for — the services with the time each takes, the terms, the licences on file.
 	 * It answers for published profiles only, so a draft and a suspension read as missing.
 	 *
-	 * <p>One business's free slots are the fourth, and the first thing filed <em>under</em> a
+	 * <p>The service catalogue is the fourth, and the one that runs while somebody types. It
+	 * answers with editorial content — the jobs the marketplace has a name for — plus one flag per
+	 * job saying whether anybody published reaches a postal code. That flag is the only part
+	 * derived from real businesses, and it is a yes or a no about a whole area rather than about
+	 * anybody: it names nobody, counts nobody, and cannot be narrowed to one profile by asking it
+	 * repeatedly.
+	 *
+	 * <p>One business's free slots are the fifth, and the first thing filed <em>under</em> a
 	 * profile to be opened — the decision the paragraph below was written to make somebody take.
 	 * It is taken the same way the rest were: the answer is start times and nothing else. No
 	 * appointment, no customer, no reason a slot is missing. A booked hour and an hour the
@@ -78,7 +85,7 @@ class SecurityConfig {
 	 * {@code /api/v1/businesses/&#123;slug&#125;/availability} a decision rather than an
 	 * inheritance, and keeps the next one under that prefix a decision too.
 	 *
-	 * <p>All seven carry {@code security: []} in {@code api/openapi.yaml}. That declaration
+	 * <p>All eight carry {@code security: []} in {@code api/openapi.yaml}. That declaration
 	 * documents the exception; this line is what actually makes it.
 	 */
 	@Bean
@@ -89,7 +96,8 @@ class SecurityConfig {
 						.requestMatchers(HttpMethod.GET,
 								"/api/v1/trades", "/api/v1/us-states", "/api/v1/time-zones", "/api/v1/service-jobs",
 								"/api/v1/businesses", "/api/v1/businesses/{slug}",
-								"/api/v1/businesses/{slug}/availability")
+								"/api/v1/businesses/{slug}/availability",
+								"/api/v1/service-catalog")
 						.permitAll()
 						.anyRequest().authenticated())
 				.oauth2ResourceServer(oauth2 -> oauth2.jwt(Customizer.withDefaults()))

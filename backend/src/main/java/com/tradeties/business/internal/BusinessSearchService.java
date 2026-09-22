@@ -12,6 +12,7 @@ import com.tradeties.business.BusinessSearchResults;
 import com.tradeties.business.GeoPoint;
 import com.tradeties.business.InvalidSelectionException;
 import com.tradeties.business.NextAvailability;
+import com.tradeties.business.ServiceJob;
 import com.tradeties.business.TradeMatch;
 
 import org.springframework.beans.factory.annotation.Value;
@@ -56,8 +57,13 @@ public class BusinessSearchService {
 	 */
 	private static final int SLOTS_PER_RESULT = 3;
 
+	/** Stands in for the picked job when none was. Never read — the flag beside it is false. */
+	private static final UUID NOTHING_PICKED = new UUID(0, 0);
+
 	private final CatalogZipRepository zips;
 	private final JobDescriptionMatcher matcher;
+	private final ServiceCatalogRepository catalogue;
+	private final CatalogTradeRepository trades;
 	private final BusinessSearchRepository businesses;
 	private final NextAvailability availability;
 	private final int pageSize;
@@ -72,6 +78,8 @@ public class BusinessSearchService {
 	 */
 	BusinessSearchService(CatalogZipRepository zips,
 			JobDescriptionMatcher matcher,
+			ServiceCatalogRepository catalogue,
+			CatalogTradeRepository trades,
 			BusinessSearchRepository businesses,
 			NextAvailability availability,
 			@Value("${tradeties.search.page-size}") int pageSize,
@@ -79,6 +87,8 @@ public class BusinessSearchService {
 
 		this.zips = zips;
 		this.matcher = matcher;
+		this.catalogue = catalogue;
+		this.trades = trades;
 		this.businesses = businesses;
 		this.availability = availability;
 		this.pageSize = pageSize;
@@ -100,13 +110,20 @@ public class BusinessSearchService {
 	 *         exist, for the same reason
 	 */
 	@Transactional(readOnly = true)
-	public BusinessSearchResults search(String postalCode, String jobDescription, String name, int page) {
+	public BusinessSearchResults search(String postalCode, String jobDescription, String serviceCode,
+			String name, int page) {
+
 		GeoPoint origin = Geocoder.fiveDigitZip(postalCode)
 				.flatMap(zips::findById)
 				.map(CatalogZip::toPoint)
 				.orElseThrow(() -> new InvalidSelectionException("No such ZIP code: " + postalCode));
 
-		List<TradeMatch> matched = matcher.match(jobDescription);
+		ServiceJob picked = pickedJob(serviceCode);
+
+		// A picked job is not a guess, so nothing is read out of the prose beside it. The box
+		// still holds the label of what was chosen, which the matcher would read as a trade all
+		// over again and occasionally as the wrong one.
+		List<TradeMatch> matched = picked == null ? matcher.match(jobDescription) : tradeOf(picked);
 
 		boolean narrowByTrade = !matched.isEmpty();
 		List<UUID> tradeIds = matched.isEmpty()
@@ -126,12 +143,14 @@ public class BusinessSearchService {
 		int wanted = Math.min(pageSize, maxResults - offset);
 
 		if (wanted <= 0 || offset >= total) {
-			return new BusinessSearchResults(matched, List.of(), page, pageSize, total, totalCapped);
+			return new BusinessSearchResults(picked, matched, List.of(), page, pageSize, total, totalCapped);
 		}
 
 		List<BusinessSearchRepository.SearchRow> rows = businesses
 				.findServing(origin.latitude(), origin.longitude(),
-						narrowByTrade, tradeIds, narrowByName, wanted, offset);
+						narrowByTrade, tradeIds, narrowByName,
+						picked != null, picked == null ? NOTHING_PICKED : picked.id(),
+						wanted, offset);
 
 		Map<UUID, List<Instant>> slots = availability.nextSlots(
 				rows.stream().collect(Collectors.toMap(
@@ -142,10 +161,45 @@ public class BusinessSearchService {
 		List<BusinessSearchResult> results = rows.stream()
 				.map(row -> new BusinessSearchResult(row.getSlug(), row.getDisplayName(), row.getCity(),
 						row.getState(), row.getPrimaryTrade(), row.getDistanceMiles(), row.getTimeZone(),
-						row.getHourlyRate(), row.getLicensed(), row.getLicenseVerified(),
-						slots.getOrDefault(row.getId(), List.of())))
+						row.getHourlyRate(), row.getOffersThisJob(), row.getLicensed(),
+						row.getLicenseVerified(), slots.getOrDefault(row.getId(), List.of())))
 				.toList();
 
-		return new BusinessSearchResults(matched, results, page, pageSize, total, totalCapped);
+		return new BusinessSearchResults(picked, matched, results, page, pageSize, total, totalCapped);
+	}
+
+	/**
+	 * Null for "they picked nothing", an exception for "that is not a job".
+	 *
+	 * <p>The same answer an unknown postal code gets, for the same reason: a code can only reach
+	 * here from a stale link or a hand-edited URL, and answering "nobody near you does this" would
+	 * send somebody to widen a search that was never narrow.
+	 */
+	private ServiceJob pickedJob(String serviceCode) {
+		if (serviceCode == null || serviceCode.isBlank()) {
+			return null;
+		}
+
+		return catalogue.findByCode(serviceCode.trim())
+				.map(row -> new ServiceJob(row.getId(), row.getCode(), row.getLabel(), row.getTradeId()))
+				.orElseThrow(() -> new InvalidSelectionException("No such service: " + serviceCode));
+	}
+
+	/**
+	 * The picked job's trade, in the shape a read of prose would have answered in.
+	 *
+	 * <p>Filled rather than left empty so that a client reading only {@code matchedTrades} still
+	 * sees what the results were narrowed to. The score is 1 because nothing was ranked — the
+	 * customer chose, and {@code matchedService} beside it is the honest account of that.
+	 *
+	 * <p>Empty if the trade has been retired since the job was picked, which narrows by nothing
+	 * rather than by a trade nobody can hold. The job itself is already gone from the catalogue in
+	 * that case, so this is the second of two guards and not the first.
+	 */
+	private List<TradeMatch> tradeOf(ServiceJob picked) {
+		return trades.findById(picked.tradeId())
+				.map(CatalogTrade::toOption)
+				.map(option -> List.of(new TradeMatch(option.id(), option.code(), option.displayName(), 1.0)))
+				.orElse(List.of());
 	}
 }

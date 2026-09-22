@@ -60,6 +60,16 @@ export function JobSearchResults({
 
   const results = found.results ?? [];
   const trades = found.matchedTrades ?? [];
+  const picked = found.matchedService ?? null;
+
+  /**
+   * The backend orders every business that lists the picked job ahead of every one that does not,
+   * so one split is enough and no second request is needed. Absent `offersThisJob` means no job
+   * was picked — then there is nothing to divide and everything stays in one grid.
+   */
+  const listing = results.filter((r) => r.offersThisJob === true);
+  const rest = results.filter((r) => r.offersThisJob === false);
+  const divided = picked !== null && listing.length > 0 && rest.length > 0;
 
   // Drafts only. What is displayed is what the URL says, so there is no second copy of the search
   // to fall out of step with it — cancelling is dropping the draft, not restoring a snapshot.
@@ -140,7 +150,11 @@ export function JobSearchResults({
             </Badge>
           </div>
 
-          {job && <Understood job={job} trades={trades} />}
+          {picked ? (
+            <Picked label={picked.label} zip={zip} when={when} />
+          ) : (
+            job && <Understood job={job} trades={trades} />
+          )}
         </div>
 
         <div className="grid grid-cols-1 gap-8 min-[960px]:grid-cols-[280px_1fr]">
@@ -342,6 +356,33 @@ export function JobSearchResults({
                   </>
                 )}
               </p>
+            ) : divided ? (
+              /*
+                Two groups, not two lists. The first offers exactly what was asked for; the second
+                does the trade and has not written this job down — which is not the same as being
+                unable to do it, since a service list averages three entries for a business that
+                does thirty kinds of work. Hiding the second group would be the tidier page and
+                the emptier one.
+              */
+              <div className="space-y-8">
+                <div className="grid grid-cols-[repeat(auto-fill,260px)] items-start gap-5">
+                  {listing.map((result) => (
+                    <ProCard key={result.slug} view={viewOf(result)} />
+                  ))}
+                </div>
+
+                <div>
+                  <p className="mb-4 text-[13.5px] text-muted-ink">
+                    <span className="font-medium text-brand">Also nearby</span> — these do the trade
+                    but have not listed this job. Worth asking.
+                  </p>
+                  <div className="grid grid-cols-[repeat(auto-fill,260px)] items-start gap-5">
+                    {rest.map((result) => (
+                      <ProCard key={result.slug} view={viewOf(result)} />
+                    ))}
+                  </div>
+                </div>
+              </div>
             ) : (
               <div className="grid grid-cols-[repeat(auto-fill,260px)] items-start gap-5">
                 {results.map((result) => (
@@ -353,6 +394,28 @@ export function JobSearchResults({
         </div>
       </div>
     </section>
+  );
+}
+
+/**
+ * The job the customer chose, and a way out of it.
+ *
+ * Clickable where `Understood` is not, and the difference is real rather than cosmetic: that one
+ * reports a reading nobody can undo without rewording their sentence, while this one reports a
+ * choice — so dropping it is a link back to the same search without the job.
+ */
+function Picked({ label, zip, when }: { label: string; zip: string; when: string }) {
+  const wider = new URLSearchParams({ zip });
+  if (when) wider.set("when", when);
+
+  return (
+    <p className="mt-2 text-[14.5px] text-muted-ink">
+      Showing tradespeople for{" "}
+      <span className="font-medium text-brand">“{label}”</span>{" "}
+      <Link href={`/browse?${wider}`} className="font-semibold text-brand-500 hover:underline">
+        show everyone nearby
+      </Link>
+    </p>
   );
 }
 

@@ -53,16 +53,37 @@ class JobDescriptionMatcherTests {
 	}
 
 	/**
-	 * The ambiguity that made this return a list. A cabinet belongs to carpentry and to painting,
-	 * and a leak under it belongs to plumbing; the description does not separate them, so neither
-	 * does this. Resolving it is the customer's to do, and they can only do it if they are shown
-	 * that there was a choice.
+	 * The ambiguity that made this return a list. A hole in a bathtub is a plumber's job or a
+	 * refinisher's, and Painter carries the second; the sentence does not separate them, so
+	 * neither does this. Resolving it is the customer's to do, and they can only do it if they
+	 * are shown that there was a choice.
+	 *
+	 * <p>This asked "kitchen cabinet is damaged" until V20, and that example was wrong. Carpenter
+	 * accounted for two of its words and Painter for one — it only looked ambiguous because the
+	 * scoring of the day could not see the difference. A real tie is a tie in word count, and
+	 * this one is: both trades reach exactly one word of it.
 	 */
 	@Test
 	void anAmbiguousDescriptionOffersMoreThanOne() {
-		List<TradeMatch> matches = matcher.match("kitchen cabinet is damaged");
+		List<TradeMatch> matches = matcher.match("there is a hole in the bathtub");
 
 		assertTrue(matches.size() > 1, "one answer would hide the question, found: " + codes(matches));
+	}
+
+	/**
+	 * The rule V20 replaced a score threshold with, and the report that prompted it: a customer
+	 * typing "Toilet is leaking" was offered a roofer.
+	 *
+	 * <p>Roofer is not a wrong entry in the vocabulary — "roof leak" and "gutters leaking" both
+	 * belong there — it simply accounts for one word of this sentence where Plumber accounts for
+	 * both. Every trade returned widens the businesses the customer sees, so a trade that explains
+	 * less of what they wrote is not an answer to keep.
+	 */
+	@Test
+	void aTradeThatExplainsLessOfTheSentenceIsNotOffered() {
+		assertEquals(List.of("PLUMBER"), codes(matcher.match("Toilet is leaking")));
+		assertEquals(List.of("PLUMBER"), codes(matcher.match("my kitchen faucet has been leaking")));
+		assertEquals(List.of("LANDSCAPER"), codes(matcher.match("the hedges need trimming")));
 	}
 
 	/** Never more than a customer can be asked about, however many trades share a word. */
@@ -86,9 +107,9 @@ class JobDescriptionMatcherTests {
 	/** Ordered by fit, and stably: two calls must not disagree about a tie. */
 	@Test
 	void tiesComeBackInTheSameOrderEveryTime() {
-		List<String> once = codes(matcher.match("kitchen cabinet is damaged"));
+		List<String> once = codes(matcher.match("there is a hole in the bathtub"));
 
-		assertEquals(once, codes(matcher.match("kitchen cabinet is damaged")));
+		assertEquals(once, codes(matcher.match("there is a hole in the bathtub")));
 		assertFalse(once.isEmpty(), "precondition");
 	}
 
