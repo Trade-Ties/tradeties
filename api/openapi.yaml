@@ -141,6 +141,41 @@ paths:
                 items:
                   $ref: "#/components/schemas/Trade"
 
+  /api/v1/service-jobs:
+    get:
+      tags: [reference]
+      operationId: listServiceJobs
+      security: []
+      summary: Every job the marketplace has a name for.
+      description: |
+        The catalogue as a flat list, in trade order and then catalogue order. Reference data
+        like the trades beside it: the same for every caller, so it is read once and handed to
+        whatever needs it.
+
+        **This is what step 4's picker is built on.** Adding a service by hand means naming,
+        timing and pricing it, so tradespeople add three and stop — the seeded marketplace
+        averages 3.1 each, for businesses that do thirty kinds of work. A list that thin cannot
+        be searched on: a plumber who never wrote "toilet" down is one the customer with a
+        leaking toilet never sees. Ticking has to be the cheap path, or the data the search
+        needs never arrives.
+
+        **Unfiltered on purpose.** A caller that wants only the jobs one business could offer
+        narrows by `tradeId` itself, against the trades that business holds. Filtering here
+        instead would answer for the trades it held when the page loaded — and step 3, where
+        they are chosen, is the screen before the one that asks.
+
+        Inactive jobs are never returned, and inactive trades take their jobs with them: a job
+        nobody can be filed under is not a choice.
+      responses:
+        "200":
+          description: Active jobs, in presentation order.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ServiceJob"
+
   /api/v1/us-states:
     get:
       tags: [reference]
@@ -2476,6 +2511,19 @@ components:
           oneOf:
             - $ref: "#/components/schemas/MoneyAmount"
             - type: "null"
+        catalogId:
+          type: [string, "null"]
+          format: uuid
+          description: |
+            The marketplace job this service answers, when it came from the catalogue or was
+            later matched to it. Null for one typed by hand that fits no entry — which is a
+            normal state, not an incomplete one: the catalogue does not know every job yet,
+            and what it does not know is how it learns.
+
+            **What it costs to be null** is worth saying plainly, because it is invisible from
+            here: a customer who picks a job from the search box is answered with the
+            businesses linked to it, and a service with no link is not among them. It is still
+            found through the trade.
         active:
           type: boolean
           description: A deactivated service keeps its history but is no longer offered.
@@ -2489,6 +2537,38 @@ components:
           format: int64
           readOnly: true
 
+    ServiceJob:
+      type: object
+      description: One job out of the marketplace catalogue.
+      required: [id, code, label, tradeId]
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: |
+            What a service sends back as `catalogId` when it is created from this job. The id
+            rather than the code, because that is what the service carries and what the search
+            joins on.
+        code:
+          type: string
+          maxLength: 64
+          description: |
+            The job's stable human identity, for logs and for talking about it. Labels get
+            rewritten and ids are opaque; this is neither.
+          examples: ["PLUMBER_TOILET_REPLACE"]
+        label:
+          type: string
+          maxLength: 120
+          description: |
+            The job in the customer's words, and the name the created service takes. It is
+            deliberately not the trade's own wording — "Unclog a sink, tub or shower drain"
+            rather than "Main line rooter service" — because it is the same text a customer
+            searches against.
+          examples: ["Replace a toilet"]
+        tradeId:
+          type: string
+          format: uuid
+
     ServiceInput:
       type: object
       required: [tradeId, name, estimatedDurationMinutes, pricingMode]
@@ -2496,6 +2576,22 @@ components:
         tradeId:
           type: string
           format: uuid
+        catalogId:
+          type: [string, "null"]
+          format: uuid
+          description: |
+            The marketplace job this service answers, when it was picked from the catalogue.
+            Null for one typed by hand, which is an ordinary state — the catalogue does not
+            know every job, and what it does not know is how it learns.
+
+            **It has to sit under the same trade as `tradeId`,** or the request is refused. The
+            two are one statement about one service, and a link pointing at plumbing on a
+            service filed under roofing would be invisible everywhere except in results nobody
+            can explain.
+
+            Only settable when the service is created. `PUT` leaves it alone rather than
+            replacing it, so correcting a price cannot silently unlink a job — see
+            `Service.catalogId` for what unlinking costs.
         name:
           type: string
           minLength: 1

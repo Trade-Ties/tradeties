@@ -34,23 +34,37 @@ public class ServiceCatalogService {
 	 */
 	private static final int ORDER_SPACING = 10;
 
+	/**
+	 * What a ticked job reserves in the calendar until somebody says otherwise.
+	 *
+	 * <p>One number for every job rather than a per-entry default, which the catalogue could
+	 * carry and deliberately does not yet: it would be 72 more editorial values to write and to
+	 * keep, in exchange for a figure the holder sees on the very next screen and corrects in a
+	 * click. An hour is wrong for replacing a roof — visibly so, which is the point. A default
+	 * nobody notices is worse than one nobody believes.
+	 */
+	private static final int UNTIL_SOMEBODY_SAYS_OTHERWISE = 60;
+
 	private final BusinessProfileRepository businesses;
 	private final ServiceOfferingRepository services;
 	private final BusinessTradeRepository trades;
 	private final ServiceRemoval removal;
 	private final PublishService publishing;
+	private final ServiceCatalogRepository catalogue;
 
 	ServiceCatalogService(BusinessProfileRepository businesses,
 			ServiceOfferingRepository services,
 			BusinessTradeRepository trades,
 			ServiceRemoval removal,
-			PublishService publishing) {
+			PublishService publishing,
+			ServiceCatalogRepository catalogue) {
 
 		this.businesses = businesses;
 		this.services = services;
 		this.trades = trades;
 		this.removal = removal;
 		this.publishing = publishing;
+		this.catalogue = catalogue;
 	}
 
 	@Transactional(readOnly = true)
@@ -72,6 +86,7 @@ public class ServiceCatalogService {
 		requireValidPricing(definition);
 		Amounts.requirePlausible(definition);
 		requireHeldTrade(business, definition.tradeId());
+		requireCatalogueJobUnderTheSameTrade(definition);
 		if (services.existsByBusinessIdAndNameIgnoreCase(business, definition.name())) {
 			throw new ServiceNameTakenException(definition.name());
 		}
@@ -110,6 +125,7 @@ public class ServiceCatalogService {
 		requireValidPricing(definition);
 		Amounts.requirePlausible(definition);
 		requireHeldTrade(business, definition.tradeId());
+		requireCatalogueJobUnderTheSameTrade(definition);
 		if (services.existsByBusinessIdAndNameIgnoreCaseAndIdNot(business, definition.name(), serviceId)) {
 			throw new ServiceNameTakenException(definition.name());
 		}
@@ -254,6 +270,33 @@ public class ServiceCatalogService {
 	 * tradesperson is standing on that form either way, and the marker records where they are,
 	 * not what they decided while they were there.
 	 */
+	/**
+	 * A catalogue link and a trade are one statement about one service, so they have to agree.
+	 *
+	 * <p>Checked here rather than left to the database, which cannot see it: {@code catalog_id} is
+	 * a plain foreign key onto the catalogue and knows nothing about the trade the service is
+	 * filed under. A link pointing at plumbing on a service filed under roofing would save
+	 * cleanly and then be invisible — the profile would look right, and the business would appear
+	 * in results nobody could explain.
+	 *
+	 * <p>Null passes, and that is the ordinary case: a service typed by hand answers no catalogue
+	 * job until somebody links it.
+	 */
+	private void requireCatalogueJobUnderTheSameTrade(ServiceDefinition definition) {
+		if (definition.catalogId() == null) {
+			return;
+		}
+
+		boolean agrees = catalogue.findTradeOf(definition.catalogId())
+				.map(tradeId -> tradeId.equals(definition.tradeId()))
+				.orElse(false);
+
+		if (!agrees) {
+			throw new InvalidSelectionException(
+					"No such catalogue job under this trade: " + definition.catalogId());
+		}
+	}
+
 	private void recordStepReached(UUID businessId) {
 		businesses.advanceOnboardingStep(businessId, OnboardingStep.SERVICES.number());
 	}

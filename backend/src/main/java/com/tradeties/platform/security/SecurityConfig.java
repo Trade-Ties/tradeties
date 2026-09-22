@@ -52,7 +52,8 @@ class SecurityConfig {
 	 * Denying by default means a new endpoint is never accidentally public.
 	 *
 	 * <p>The reference catalogues are the first deliberate exception: lists of trades, of US
-	 * states and of time zones, which the customer-side search reads without a token. The search
+	 * states, of time zones and of the jobs the marketplace has a name for, which the
+	 * customer-side search reads without a token. The search
 	 * itself is the second — {@code GET /api/v1/businesses} is the demand side of the marketplace,
 	 * and DECISIONS section 1 has it working for somebody who has never signed in. It answers with
 	 * business names, towns, distances, hourly rates, two licence flags and the start times each
@@ -77,7 +78,7 @@ class SecurityConfig {
 	 * {@code /api/v1/businesses/&#123;slug&#125;/availability} a decision rather than an
 	 * inheritance, and keeps the next one under that prefix a decision too.
 	 *
-	 * <p>All six carry {@code security: []} in {@code api/openapi.yaml}. That declaration
+	 * <p>All seven carry {@code security: []} in {@code api/openapi.yaml}. That declaration
 	 * documents the exception; this line is what actually makes it.
 	 */
 	@Bean
@@ -86,7 +87,7 @@ class SecurityConfig {
 		return http
 				.authorizeHttpRequests(auth -> auth
 						.requestMatchers(HttpMethod.GET,
-								"/api/v1/trades", "/api/v1/us-states", "/api/v1/time-zones",
+								"/api/v1/trades", "/api/v1/us-states", "/api/v1/time-zones", "/api/v1/service-jobs",
 								"/api/v1/businesses", "/api/v1/businesses/{slug}",
 								"/api/v1/businesses/{slug}/availability")
 						.permitAll()
