@@ -1,8 +1,15 @@
-// Not used by the customer-facing search bar — the "Trade" field was removed so
-// customers only ever describe the problem, and TradeTies resolves the trade
-// internally. Kept here, keyed by the exact strings in TRADE_CATEGORIES
-// (components/profile/constants.ts), as seed phrasing for that internal
-// job-description → trade matching once it exists.
+// THE JOB THIS FILE WAS KEPT FOR IS DONE, and only the placeholders below are
+// still read. It was written as seed phrasing for the internal job-description →
+// trade matching that did not exist yet; that matching exists now, and this copy
+// went into R__trade_search_terms.sql on its way there. The service catalogue
+// has since taken over the part a customer actually sees — JobSuggestBox asks
+// the server what matches instead of shipping a list to the browser.
+//
+// So JOB_SUGGESTIONS below has no reader left. It stays because it is the only
+// written record of how these phrasings were grouped by trade, and deleting it
+// while the catalogue is still growing would throw that away for the sake of a
+// tidy file. DEFAULT_JOB_SUGGESTIONS is a different matter and is live: the
+// hero's placeholder and its example chips come from it.
 export const JOB_SUGGESTIONS: Record<string, { placeholder: string; jobs: string[] }> = {
   Electrician: {
     placeholder: "Outlet in the kitchen stopped working",
