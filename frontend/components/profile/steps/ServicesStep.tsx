@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { IconButton } from "@/components/ui/icon-button";
-import { Copy, GripVertical, Plus, Trash2 } from "lucide-react";
+import { ChevronDown, Copy, GripVertical, Plus, Trash2 } from "lucide-react";
 import {
   AutocompleteField,
   Field,
@@ -13,12 +13,14 @@ import {
 import { cn } from "@/lib/utils";
 import type { ReferenceData } from "@/lib/api/reference";
 import { CollapsibleRow, EmptyList } from "../CollapsibleRow";
-import { makeEmptyService } from "../defaults";
+import { JobPicker } from "../JobPicker";
+import { makeCatalogueService, makeEmptyService } from "../defaults";
 import { FIELD_MAX } from "../limits";
 import { DURATION_OPTIONS, PRICING_MODES } from "../options";
 import { MoneyField } from "../AmountField";
 import { tradeName } from "../reference";
 import { useRowList } from "../rowList";
+import type { ServiceJob } from "@/lib/api/reference";
 import type { ServiceForm } from "../types";
 import { statesAnAmount } from "../toWire";
 import {
@@ -66,7 +68,19 @@ export function ServicesStep({
   selectedTradeIds,
 }: ServicesStepProps) {
   const [dragIndex, setDragIndex] = useState<number | null>(null);
+  const [pickerOpen, setPickerOpen] = useState(false);
   const rows = useRowList(data, update);
+
+  /**
+   * Which catalogue jobs are already on the list — from the form, not from the server, because a
+   * job ticked a second ago is on the list and has not been saved yet.
+   */
+  const offered = useMemo(
+    () => new Set(data.map((service) => service.catalogId).filter((id): id is string => !!id)),
+    [data]
+  );
+
+  const addFromCatalogue = (job: ServiceJob) => rows.add((key) => makeCatalogueService(key, job));
 
   const duplicateService = (service: ServiceForm, idx: number) =>
     // A copy is a new row, so it keeps neither the server id nor the version — otherwise the
@@ -302,13 +316,43 @@ export function ServicesStep({
           );
         })}
 
+        {/*
+          The picker first and the blank form second, deliberately. Ticking is how a list gets
+          long enough for a customer searching by job to find this business at all; typing one out
+          is the exception for work the catalogue has no name for yet, not the normal path.
+        */}
+        <div className="overflow-hidden rounded-2xl border border-line">
+          <button
+            type="button"
+            onClick={() => setPickerOpen((open) => !open)}
+            className="flex w-full items-center gap-2 px-3 py-2.5 text-left text-[14px] font-medium text-brand hover:bg-brand-50"
+          >
+            <Plus className="size-4 shrink-0" />
+            <span className="min-w-0">Pick from what people search for</span>
+            <ChevronDown
+              className={cn("ml-auto size-4 shrink-0 transition-transform", pickerOpen && "rotate-180")}
+            />
+          </button>
+
+          {pickerOpen && (
+            <div className="border-t border-line">
+              <JobPicker
+                reference={reference}
+                selectedTradeIds={selectedTradeIds}
+                offered={offered}
+                onPick={addFromCatalogue}
+              />
+            </div>
+          )}
+        </div>
+
         <Button
           variant="outline"
           onClick={() => rows.add((key) => makeEmptyService(key, defaultTradeId))}
           className="w-full"
         >
           <Plus className="mr-2 size-4" />
-          Add service
+          Add something else
         </Button>
       </div>
     </Field>

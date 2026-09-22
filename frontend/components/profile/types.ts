@@ -103,6 +103,13 @@ export interface ServiceForm extends ServerRow {
    * the step badges and the save holds back rather than a state the resource has.
    */
   tradeId: string;
+  /**
+   * The marketplace job this service answers, set when the row came from the picker and absent
+   * for one typed by hand. Sent once, on create: the API leaves it alone on a replacement, so
+   * correcting a price cannot silently unlink the job and drop the business out of every search
+   * for it.
+   */
+  catalogId?: string;
   name: string;
   description: string;
   estimatedDurationMinutes: number;

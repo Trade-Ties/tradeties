@@ -51,6 +51,11 @@ class PublishTests {
 	 *
 	 * <p>Asserting them explicitly is the point: a checklist that failed conditions nobody has run
 	 * into would be noise, and it is easy to write it the wrong way round.
+	 *
+	 * <p>The seventh entry is advice rather than a condition, and the pair of assertions on it is
+	 * what keeps that true: it fails on a fresh draft like most of the others, and {@code ready}
+	 * is false here for reasons that have nothing to do with it. {@code FindabilityAdviceTests}
+	 * is where the not-blocking half is proved.
 	 */
 	@Test
 	void aFreshDraftFailsEveryCheckThatCanFail() throws Exception {
@@ -59,13 +64,15 @@ class PublishTests {
 		mockMvc.perform(get("/api/v1/me/business/readiness").with(token))
 				.andExpect(status().isOk())
 				.andExpect(jsonPath("$.ready").value(false))
-				.andExpect(jsonPath("$.checks.length()").value(6))
+				.andExpect(jsonPath("$.checks.length()").value(7))
 				.andExpect(check(0, "ADDRESS_GEOCODED", true))
 				.andExpect(check(1, "PRIMARY_TRADE", false))
 				.andExpect(check(2, "AT_LEAST_ONE_SERVICE", false))
 				.andExpect(check(3, "HOURLY_SERVICES_HAVE_A_RATE", true))
 				.andExpect(check(4, "PRICING_SET", false))
-				.andExpect(check(5, "WORKING_HOURS_SET", false));
+				.andExpect(check(5, "WORKING_HOURS_SET", false))
+				.andExpect(check(6, "ENOUGH_JOBS_TO_BE_FOUND", false))
+				.andExpect(jsonPath("$.checks[6].blocking").value(false));
 	}
 
 	/**

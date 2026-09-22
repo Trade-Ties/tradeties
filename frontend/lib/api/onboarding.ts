@@ -10,6 +10,7 @@ import {
   fetchMyTrades,
   fetchMyWorkingHours,
   fetchTimeZones,
+  fetchServiceJobs,
   fetchTrades,
   fetchUsStates,
   type BookingPolicy,
@@ -64,9 +65,10 @@ export type OnboardingLoad =
  * stored, because every write in this API is a replacement rather than a merge.
  */
 export async function loadOnboarding(accessToken: string): Promise<OnboardingLoad> {
-  const [profile, trades, states, timeZones] = await Promise.all([
+  const [profile, trades, serviceJobs, states, timeZones] = await Promise.all([
     fetchMyBusiness(accessToken),
     fetchTrades(accessToken),
+    fetchServiceJobs(accessToken),
     fetchUsStates(accessToken),
     fetchTimeZones(accessToken),
   ]);
@@ -76,11 +78,13 @@ export async function loadOnboarding(accessToken: string): Promise<OnboardingLoa
   // compile rather than going out half-answered.
   if (!profile.ok) return { state: "unavailable", failure: profile.failure };
   if (!trades.ok) return { state: "unavailable", failure: trades.failure };
+  if (!serviceJobs.ok) return { state: "unavailable", failure: serviceJobs.failure };
   if (!states.ok) return { state: "unavailable", failure: states.failure };
   if (!timeZones.ok) return { state: "unavailable", failure: timeZones.failure };
 
   const reference: ReferenceData = {
     trades: trades.data,
+    serviceJobs: serviceJobs.data,
     states: states.data,
     timeZones: timeZones.data,
   };

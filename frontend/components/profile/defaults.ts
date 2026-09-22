@@ -1,3 +1,4 @@
+import type { ServiceJob } from "@/lib/api/reference";
 import { DAYS_OF_WEEK, WEEKEND } from "./time";
 import type {
   LicenseForm,
@@ -27,6 +28,31 @@ export function makeEmptyLicense(key: number, defaultState = ""): LicenseForm {
  * answered. Such a row counts as incomplete: the step badges it and `serviceIsWritable` holds it
  * back rather than the save inventing a trade for it.
  */
+/**
+ * A row from a ticked catalogue job.
+ *
+ * What a tick is worth on arrival: the job's own name, an hour in the calendar, and "I'll quote
+ * it" — the one pricing mode that needs no number and the honest answer for most trades. All
+ * three are editable on the row itself, which is the point: ticking has to cost nothing, or the
+ * lists stay too thin for the search to narrow by job.
+ *
+ * The hour is deliberately one figure for every job rather than a per-job default. It is wrong
+ * for replacing a roof — visibly so, on the very next line, where it is one click to fix. A
+ * default nobody notices would be worse than one nobody believes.
+ */
+export function makeCatalogueService(key: number, job: ServiceJob): ServiceForm {
+  return {
+    key,
+    tradeId: job.tradeId,
+    catalogId: job.id,
+    name: job.label,
+    description: "",
+    estimatedDurationMinutes: 60,
+    pricingMode: "QUOTE_ONLY",
+    price: "",
+  };
+}
+
 export function makeEmptyService(key: number, primaryTradeId: string): ServiceForm {
   return {
     key,

@@ -94,7 +94,7 @@ class ViolationsTests {
 		UUID ownerUserId = givenAUser("user_violations_wide");
 		UUID businessId = profiles.saveAndFlush(new BusinessProfile(ownerUserId, input("violations-wide"), null)).id();
 
-		ServiceDefinition tooWide = new ServiceDefinition(null, "Huge", null, 60,
+		ServiceDefinition tooWide = new ServiceDefinition(null, null, "Huge", null, 60,
 				ServicePricingMode.FLAT, new BigDecimal("99999999999999999999"), true);
 
 		DataIntegrityViolationException refused = assertThrows(DataIntegrityViolationException.class,

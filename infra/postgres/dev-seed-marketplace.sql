@@ -165,6 +165,15 @@ BEGIN
     -- Services. trade_code is the trade the service is filed under, and the
     -- composite foreign key from V7 checks it against business_trade -- so every
     -- row here must name a trade its business actually holds, primary or not.
+    --
+    -- catalog_code is the customer-facing job the service answers, out of
+    -- R__trade_service_catalog.sql, and it does NOT have to agree with
+    -- trade_code. Two rows below show both ways that happens. 'Smart thermostat
+    -- setup' is filed under INSTALLATION_TECHNICIAN and points at a catalogue
+    -- entry sitting under HVAC -- the trades differ. 'Thermostat install' points
+    -- at that same entry from a third business, so one entry is reached from two
+    -- trades. V18 says why both are the point rather than a mistake: search
+    -- joins on the catalogue entry, never on the trade.
     CREATE TEMP TABLE seed_service (
         slug         TEXT,
         trade_code   TEXT,
@@ -172,102 +181,103 @@ BEGIN
         description  TEXT,
         minutes      INT,
         pricing_mode TEXT,
-        price        NUMERIC(19, 4)
+        price        NUMERIC(19, 4),
+        catalog_code TEXT
     ) ON COMMIT DROP;
 
     INSERT INTO seed_service VALUES
-        ('summit-drain-plumbing',      'PLUMBER',     'Drain cleaning',                'Kitchen, bathroom and main line.',                     60, 'STARTING_AT',  129.00),
-        ('summit-drain-plumbing',      'PLUMBER',     'Water heater replacement',      'Tank and tankless, permit included.',                 240, 'QUOTE_ONLY',   NULL),
-        ('summit-drain-plumbing',      'PLUMBER',     'Emergency leak repair',         'Same day, outside business hours.',                   120, 'HOURLY',       195.00),
-        ('mile-high-pipeworks',        'PLUMBER',     'Sewer camera inspection',       'Recorded, with a written report.',                     75, 'FLAT',         249.00),
-        ('mile-high-pipeworks',        'PLUMBER',     'Repipe assessment',             'Whole-house survey and a fixed quote.',                 90, 'FLAT',          99.00),
-        ('mile-high-pipeworks',        'PLUMBER',     'Burst pipe repair',             'Emergency response, billed by the hour.',              120, 'HOURLY',       175.00),
-        ('cherry-creek-plumbing',      'PLUMBER',     'Fixture installation',          'Faucets, sinks and shower valves.',                     90, 'FLAT',         189.00),
-        ('cherry-creek-plumbing',      'PLUMBER',     'Toilet replacement',            'Removal, install and haul-away.',                      120, 'STARTING_AT',  320.00),
-        ('cherry-creek-plumbing',      'PLUMBER',     'Bathroom remodel plumbing',     'Rough-in and finish for a full remodel.',              480, 'QUOTE_ONLY',   NULL),
-        ('wash-park-water-works',      'PLUMBER',     'Tankless heater service',       'Descale, flush and safety check.',                     120, 'FLAT',         210.00),
-        ('wash-park-water-works',      'PLUMBER',     'Sump pump installation',        'Pump, basin and discharge line.',                      180, 'STARTING_AT',  650.00),
-        ('wash-park-water-works',      'PLUMBER',     'Frozen pipe thaw',              'Winter call-out, billed by the hour.',                  90, 'HOURLY',       165.00),
-        ('montbello-plumbing-heating', 'PLUMBER',     'Main line rooter service',      'Cable and jet, with a camera follow-up.',               90, 'STARTING_AT',  145.00),
-        ('montbello-plumbing-heating', 'PLUMBER',     'Boiler tune-up',                'Annual service for hydronic systems.',                 120, 'FLAT',         179.00),
-        ('montbello-plumbing-heating', 'HVAC',        'Furnace inspection',            'Pre-season safety and efficiency check.',               60, 'FLAT',         119.00),
+        ('summit-drain-plumbing',      'PLUMBER',     'Drain cleaning',                'Kitchen, bathroom and main line.',                     60, 'STARTING_AT',  129.00,   'PLUMBER_DRAIN_UNCLOG'),
+        ('summit-drain-plumbing',      'PLUMBER',     'Water heater replacement',      'Tank and tankless, permit included.',                 240, 'QUOTE_ONLY',   NULL,     'PLUMBER_WATER_HEATER_REPLACE'),
+        ('summit-drain-plumbing',      'PLUMBER',     'Emergency leak repair',         'Same day, outside business hours.',                   120, 'HOURLY',       195.00,   'PLUMBER_LEAK_EMERGENCY'),
+        ('mile-high-pipeworks',        'PLUMBER',     'Sewer camera inspection',       'Recorded, with a written report.',                     75, 'FLAT',         249.00,   'PLUMBER_SEWER_CAMERA'),
+        ('mile-high-pipeworks',        'PLUMBER',     'Repipe assessment',             'Whole-house survey and a fixed quote.',                 90, 'FLAT',          99.00,  'PLUMBER_REPIPE_ASSESS'),
+        ('mile-high-pipeworks',        'PLUMBER',     'Burst pipe repair',             'Emergency response, billed by the hour.',              120, 'HOURLY',       175.00,  'PLUMBER_LEAK_EMERGENCY'),
+        ('cherry-creek-plumbing',      'PLUMBER',     'Fixture installation',          'Faucets, sinks and shower valves.',                     90, 'FLAT',         189.00,  'PLUMBER_FIXTURE_INSTALL'),
+        ('cherry-creek-plumbing',      'PLUMBER',     'Toilet replacement',            'Removal, install and haul-away.',                      120, 'STARTING_AT',  320.00,  'PLUMBER_TOILET_REPLACE'),
+        ('cherry-creek-plumbing',      'PLUMBER',     'Bathroom remodel plumbing',     'Rough-in and finish for a full remodel.',              480, 'QUOTE_ONLY',   NULL,    'PLUMBER_BATHROOM_ROUGH_IN'),
+        ('wash-park-water-works',      'PLUMBER',     'Tankless heater service',       'Descale, flush and safety check.',                     120, 'FLAT',         210.00,  'PLUMBER_WATER_HEATER_SERVICE'),
+        ('wash-park-water-works',      'PLUMBER',     'Sump pump installation',        'Pump, basin and discharge line.',                      180, 'STARTING_AT',  650.00,  'PLUMBER_SUMP_PUMP_INSTALL'),
+        ('wash-park-water-works',      'PLUMBER',     'Frozen pipe thaw',              'Winter call-out, billed by the hour.',                  90, 'HOURLY',       165.00,  'PLUMBER_PIPE_THAW'),
+        ('montbello-plumbing-heating', 'PLUMBER',     'Main line rooter service',      'Cable and jet, with a camera follow-up.',               90, 'STARTING_AT',  145.00,  'PLUMBER_SEWER_MAIN_CLEAR'),
+        ('montbello-plumbing-heating', 'PLUMBER',     'Boiler tune-up',                'Annual service for hydronic systems.',                 120, 'FLAT',         179.00,  'PLUMBER_BOILER_SERVICE'),
+        ('montbello-plumbing-heating', 'HVAC',        'Furnace inspection',            'Pre-season safety and efficiency check.',               60, 'FLAT',         119.00,  'HVAC_FURNACE_SERVICE'),
 
-        ('lodo-electric',              'ELECTRICIAN', 'Panel upgrade',                 '100A to 200A service, permit and inspection.',         480, 'QUOTE_ONLY',   NULL),
-        ('lodo-electric',              'ELECTRICIAN', 'Outlet and switch install',     'Per opening, existing circuit.',                        60, 'FLAT',         145.00),
-        ('lodo-electric',              'ELECTRICIAN', 'Fault troubleshooting',         'Dead circuits, tripping breakers, flickering lights.',   60, 'HOURLY',       155.00),
-        ('front-range-current',        'ELECTRICIAN', 'EV charger installation',       'Level 2, up to 40 feet of run.',                       240, 'STARTING_AT',  899.00),
-        ('front-range-current',        'ELECTRICIAN', 'Ceiling fan install',           'Replacement or new box.',                               90, 'FLAT',         189.00),
-        ('front-range-current',        'ELECTRICIAN', 'Recessed lighting',             'Layout, cans and dimmers.',                            300, 'QUOTE_ONLY',   NULL),
-        ('green-valley-electric',      'ELECTRICIAN', 'Breaker replacement',           'Single breaker, same panel.',                           60, 'FLAT',         175.00),
-        ('green-valley-electric',      'ELECTRICIAN', 'Whole-home surge protection',   'Panel-mounted device, installed.',                     120, 'FLAT',         425.00),
-        ('green-valley-electric',      'ELECTRICIAN', 'Electrical safety inspection',  'Room by room, with a written report.',                  90, 'STARTING_AT',  149.00),
+        ('lodo-electric',              'ELECTRICIAN', 'Panel upgrade',                 '100A to 200A service, permit and inspection.',         480, 'QUOTE_ONLY',   NULL,    'ELECTRICIAN_PANEL_UPGRADE'),
+        ('lodo-electric',              'ELECTRICIAN', 'Outlet and switch install',     'Per opening, existing circuit.',                        60, 'FLAT',         145.00,  'ELECTRICIAN_OUTLET_SWITCH'),
+        ('lodo-electric',              'ELECTRICIAN', 'Fault troubleshooting',         'Dead circuits, tripping breakers, flickering lights.',   60, 'HOURLY',       155.00, 'ELECTRICIAN_FAULT_DIAGNOSE'),
+        ('front-range-current',        'ELECTRICIAN', 'EV charger installation',       'Level 2, up to 40 feet of run.',                       240, 'STARTING_AT',  899.00,  'ELECTRICIAN_EV_CHARGER'),
+        ('front-range-current',        'ELECTRICIAN', 'Ceiling fan install',           'Replacement or new box.',                               90, 'FLAT',         189.00,  'ELECTRICIAN_CEILING_FAN'),
+        ('front-range-current',        'ELECTRICIAN', 'Recessed lighting',             'Layout, cans and dimmers.',                            300, 'QUOTE_ONLY',   NULL,    'ELECTRICIAN_LIGHTING_INSTALL'),
+        ('green-valley-electric',      'ELECTRICIAN', 'Breaker replacement',           'Single breaker, same panel.',                           60, 'FLAT',         175.00,  'ELECTRICIAN_BREAKER_REPLACE'),
+        ('green-valley-electric',      'ELECTRICIAN', 'Whole-home surge protection',   'Panel-mounted device, installed.',                     120, 'FLAT',         425.00,  'ELECTRICIAN_SURGE_PROTECTION'),
+        ('green-valley-electric',      'ELECTRICIAN', 'Electrical safety inspection',  'Room by room, with a written report.',                  90, 'STARTING_AT',  149.00,  'ELECTRICIAN_SAFETY_INSPECTION'),
 
-        ('platte-river-carpentry',     'CARPENTER',   'Custom shelving',               'Designed, built and finished on site.',                240, 'QUOTE_ONLY',   NULL),
-        ('platte-river-carpentry',     'CARPENTER',   'Door hanging',                  'Pre-hung or slab, per door.',                          120, 'FLAT',         245.00),
-        ('platte-river-carpentry',     'CARPENTER',   'Deck repair',                   'Boards, joists and railings.',                         300, 'HOURLY',        95.00),
-        ('congress-park-woodwork',     'CARPENTER',   'Cabinet refacing',              'Doors, drawer fronts and hardware.',                   480, 'QUOTE_ONLY',   NULL),
-        ('congress-park-woodwork',     'CARPENTER',   'Trim and baseboard install',    'Per room, material extra.',                            240, 'STARTING_AT',  380.00),
-        ('congress-park-woodwork',     'CARPENTER',   'Stair railing repair',          'Loose balusters, newels and handrails.',               180, 'FLAT',         420.00),
+        ('platte-river-carpentry',     'CARPENTER',   'Custom shelving',               'Designed, built and finished on site.',                240, 'QUOTE_ONLY',   NULL,    'CARPENTER_SHELVING_BUILD'),
+        ('platte-river-carpentry',     'CARPENTER',   'Door hanging',                  'Pre-hung or slab, per door.',                          120, 'FLAT',         245.00,  'CARPENTER_DOOR_HANG'),
+        ('platte-river-carpentry',     'CARPENTER',   'Deck repair',                   'Boards, joists and railings.',                         300, 'HOURLY',        95.00,  'CARPENTER_DECK_REPAIR'),
+        ('congress-park-woodwork',     'CARPENTER',   'Cabinet refacing',              'Doors, drawer fronts and hardware.',                   480, 'QUOTE_ONLY',   NULL,    'CARPENTER_CABINET_REPAIR'),
+        ('congress-park-woodwork',     'CARPENTER',   'Trim and baseboard install',    'Per room, material extra.',                            240, 'STARTING_AT',  380.00,  'CARPENTER_TRIM_INSTALL'),
+        ('congress-park-woodwork',     'CARPENTER',   'Stair railing repair',          'Loose balusters, newels and handrails.',               180, 'FLAT',         420.00,  'CARPENTER_STAIR_RAILING'),
 
         -- Free, and a real row rather than a missing one: FLAT with 0.00 is the
         -- only way to say "we do this and it costs nothing", and it is the case
         -- a price formatter gets wrong.
-        ('front-range-roofing',        'ROOFER',      'Roof inspection',               'Free, with photographs and a written summary.',         60, 'FLAT',           0.00),
-        ('front-range-roofing',        'ROOFER',      'Hail damage assessment',        'Insurance-ready documentation.',                        90, 'FLAT',         149.00),
-        ('front-range-roofing',        'ROOFER',      'Shingle replacement',           'Tear-off and full replacement.',                       480, 'QUOTE_ONLY',   NULL),
-        ('high-plains-roofworks',      'ROOFER',      'Flat roof repair',              'TPO and modified bitumen.',                            300, 'STARTING_AT',  750.00),
-        ('high-plains-roofworks',      'ROOFER',      'Gutter replacement',            'Seamless aluminium, per linear foot.',                 240, 'QUOTE_ONLY',   NULL),
-        ('high-plains-roofworks',      'GENERAL_CONTRACTOR', 'Storm damage rebuild',   'Roof, siding and interior, managed end to end.',       480, 'QUOTE_ONLY',   NULL),
+        ('front-range-roofing',        'ROOFER',      'Roof inspection',               'Free, with photographs and a written summary.',         60, 'FLAT',           0.00,  'ROOFER_INSPECTION'),
+        ('front-range-roofing',        'ROOFER',      'Hail damage assessment',        'Insurance-ready documentation.',                        90, 'FLAT',         149.00,  'ROOFER_STORM_ASSESS'),
+        ('front-range-roofing',        'ROOFER',      'Shingle replacement',           'Tear-off and full replacement.',                       480, 'QUOTE_ONLY',   NULL,    'ROOFER_ROOF_REPLACE'),
+        ('high-plains-roofworks',      'ROOFER',      'Flat roof repair',              'TPO and modified bitumen.',                            300, 'STARTING_AT',  750.00,  'ROOFER_FLAT_ROOF_REPAIR'),
+        ('high-plains-roofworks',      'ROOFER',      'Gutter replacement',            'Seamless aluminium, per linear foot.',                 240, 'QUOTE_ONLY',   NULL,    'ROOFER_GUTTER_WORK'),
+        ('high-plains-roofworks',      'GENERAL_CONTRACTOR', 'Storm damage rebuild',   'Roof, siding and interior, managed end to end.',       480, 'QUOTE_ONLY',   NULL,    'GENERAL_CONTRACTOR_STORM_REBUILD'),
 
-        ('five-points-auto',           'AUTO_MECHANIC', 'Oil and filter change',       'Synthetic, up to 6 quarts.',                            45, 'FLAT',          79.00),
-        ('five-points-auto',           'AUTO_MECHANIC', 'Brake service',               'Pads and rotors, per axle.',                           180, 'STARTING_AT',  320.00),
-        ('five-points-auto',           'AUTO_MECHANIC', 'Check engine diagnostics',    'Scan, test and a written finding.',                     60, 'FLAT',         129.00),
+        ('five-points-auto',           'AUTO_MECHANIC', 'Oil and filter change',       'Synthetic, up to 6 quarts.',                            45, 'FLAT',          79.00,  'AUTO_MECHANIC_OIL_CHANGE'),
+        ('five-points-auto',           'AUTO_MECHANIC', 'Brake service',               'Pads and rotors, per axle.',                           180, 'STARTING_AT',  320.00,  'AUTO_MECHANIC_BRAKE_SERVICE'),
+        ('five-points-auto',           'AUTO_MECHANIC', 'Check engine diagnostics',    'Scan, test and a written finding.',                     60, 'FLAT',         129.00,  'AUTO_MECHANIC_ENGINE_DIAGNOSE'),
 
-        ('denver-climate-control',     'HVAC',        'AC tune-up',                    'Coil clean, charge check, filter.',                     90, 'FLAT',         139.00),
-        ('denver-climate-control',     'HVAC',        'Furnace replacement',           'Removal, install and permit.',                         480, 'QUOTE_ONLY',   NULL),
-        ('denver-climate-control',     'HVAC',        'Thermostat install',            'Smart or conventional, wired.',                          60, 'FLAT',         165.00),
+        ('denver-climate-control',     'HVAC',        'AC tune-up',                    'Coil clean, charge check, filter.',                     90, 'FLAT',         139.00,  'HVAC_AC_SERVICE'),
+        ('denver-climate-control',     'HVAC',        'Furnace replacement',           'Removal, install and permit.',                         480, 'QUOTE_ONLY',   NULL,    'HVAC_FURNACE_REPLACE'),
+        ('denver-climate-control',     'HVAC',        'Thermostat install',            'Smart or conventional, wired.',                          60, 'FLAT',         165.00, 'HVAC_THERMOSTAT_INSTALL'),
 
-        ('capitol-hill-handyman',      'HANDYPERSON', 'Half-day of odd jobs',          'Your list, worked top to bottom.',                     240, 'HOURLY',        85.00),
-        ('capitol-hill-handyman',      'HANDYPERSON', 'TV mounting',                   'Bracket, level and cable tidy.',                        60, 'FLAT',         129.00),
-        ('capitol-hill-handyman',      'PAINTER',     'Interior touch-up painting',    'Patch, prime and match existing paint.',                180, 'STARTING_AT',  240.00),
-        ('capitol-hill-handyman',      'CARPENTER',   'Closet build-out',              'Shelving, rods and a painted finish.',                  240, 'QUOTE_ONLY',   NULL),
+        ('capitol-hill-handyman',      'HANDYPERSON', 'Half-day of odd jobs',          'Your list, worked top to bottom.',                     240, 'HOURLY',        85.00,  'HANDYPERSON_HALF_DAY'),
+        ('capitol-hill-handyman',      'HANDYPERSON', 'TV mounting',                   'Bracket, level and cable tidy.',                        60, 'FLAT',         129.00,  'HANDYPERSON_TV_MOUNT'),
+        ('capitol-hill-handyman',      'PAINTER',     'Interior touch-up painting',    'Patch, prime and match existing paint.',                180, 'STARTING_AT',  240.00, 'PAINTER_TOUCH_UP'),
+        ('capitol-hill-handyman',      'CARPENTER',   'Closet build-out',              'Shelving, rods and a painted finish.',                  240, 'QUOTE_ONLY',   NULL,   'CARPENTER_CLOSET_BUILD'),
 
-        ('wash-park-landscaping',      'LANDSCAPER',  'Spring clean-up',               'Cut back, rake, edge and haul away.',                   240, 'STARTING_AT',  275.00),
-        ('wash-park-landscaping',      'LANDSCAPER',  'Sprinkler blowout',             'Winterisation, up to six zones.',                        60, 'FLAT',          89.00),
-        ('wash-park-landscaping',      'LANDSCAPER',  'Xeriscape design',              'Plan and planting list for a water-wise yard.',         120, 'QUOTE_ONLY',   NULL),
+        ('wash-park-landscaping',      'LANDSCAPER',  'Spring clean-up',               'Cut back, rake, edge and haul away.',                   240, 'STARTING_AT',  275.00, 'LANDSCAPER_SEASONAL_CLEANUP'),
+        ('wash-park-landscaping',      'LANDSCAPER',  'Sprinkler blowout',             'Winterisation, up to six zones.',                        60, 'FLAT',          89.00, 'LANDSCAPER_SPRINKLER_SERVICE'),
+        ('wash-park-landscaping',      'LANDSCAPER',  'Xeriscape design',              'Plan and planting list for a water-wise yard.',         120, 'QUOTE_ONLY',   NULL,   'LANDSCAPER_XERISCAPE_DESIGN'),
 
-        ('baker-district-painting',    'PAINTER',     'Interior room repaint',         'Two coats, walls and ceiling.',                         480, 'STARTING_AT',  450.00),
-        ('baker-district-painting',    'PAINTER',     'Cabinet spraying',              'Sanded, sprayed and reassembled.',                      480, 'QUOTE_ONLY',   NULL),
-        ('baker-district-painting',    'PAINTER',     'Deck staining',                 'Clean, sand and two coats of stain.',                   300, 'HOURLY',        75.00),
+        ('baker-district-painting',    'PAINTER',     'Interior room repaint',         'Two coats, walls and ceiling.',                         480, 'STARTING_AT',  450.00, 'PAINTER_ROOM_REPAINT'),
+        ('baker-district-painting',    'PAINTER',     'Cabinet spraying',              'Sanded, sprayed and reassembled.',                      480, 'QUOTE_ONLY',   NULL,   'PAINTER_CABINET_SPRAY'),
+        ('baker-district-painting',    'PAINTER',     'Deck staining',                 'Clean, sand and two coats of stain.',                   300, 'HOURLY',        75.00, 'PAINTER_DECK_STAIN'),
 
-        ('mile-high-flooring',         'FLOORING_INSTALLER', 'LVP installation',       'Underlay, planks and trim, per room.',                  480, 'STARTING_AT', 1200.00),
-        ('mile-high-flooring',         'FLOORING_INSTALLER', 'Hardwood refinishing',   'Sand, stain and three coats.',                          480, 'QUOTE_ONLY',   NULL),
-        ('mile-high-flooring',         'FLOORING_INSTALLER', 'Tile repair',            'Cracked tiles, grout and thresholds.',                  120, 'FLAT',         275.00),
+        ('mile-high-flooring',         'FLOORING_INSTALLER', 'LVP installation',       'Underlay, planks and trim, per room.',                  480, 'STARTING_AT', 1200.00, 'FLOORING_VINYL_PLANK'),
+        ('mile-high-flooring',         'FLOORING_INSTALLER', 'Hardwood refinishing',   'Sand, stain and three coats.',                          480, 'QUOTE_ONLY',   NULL,   'FLOORING_HARDWOOD_REFINISH'),
+        ('mile-high-flooring',         'FLOORING_INSTALLER', 'Tile repair',            'Cracked tiles, grout and thresholds.',                  120, 'FLAT',         275.00, 'FLOORING_TILE_REPAIR'),
 
-        ('cornerstone-builders',       'GENERAL_CONTRACTOR', 'Project consultation',   'Scope, budget and a build sequence.',                    90, 'FLAT',         150.00),
-        ('cornerstone-builders',       'GENERAL_CONTRACTOR', 'Basement finishing',     'Framing to final inspection.',                          480, 'QUOTE_ONLY',   NULL),
-        ('cornerstone-builders',       'CARPENTER',   'Framing crew',                  'Day rate, two-person crew.',                            480, 'HOURLY',       110.00),
-        ('cornerstone-builders',       'MASON',       'Foundation crack repair',       'Epoxy injection or structural repair.',                 240, 'QUOTE_ONLY',   NULL),
+        ('cornerstone-builders',       'GENERAL_CONTRACTOR', 'Project consultation',   'Scope, budget and a build sequence.',                    90, 'FLAT',         150.00, 'GENERAL_CONTRACTOR_CONSULT'),
+        ('cornerstone-builders',       'GENERAL_CONTRACTOR', 'Basement finishing',     'Framing to final inspection.',                          480, 'QUOTE_ONLY',   NULL,   'GENERAL_CONTRACTOR_BASEMENT'),
+        ('cornerstone-builders',       'CARPENTER',   'Framing crew',                  'Day rate, two-person crew.',                            480, 'HOURLY',       110.00, 'CARPENTER_FRAMING_CREW'),
+        ('cornerstone-builders',       'MASON',       'Foundation crack repair',       'Epoxy injection or structural repair.',                 240, 'QUOTE_ONLY',   NULL,   'MASON_FOUNDATION_CRACK'),
 
-        ('rocky-mountain-masonry',     'MASON',       'Brick repointing',              'Grind out and repoint, per section.',                   300, 'STARTING_AT',  680.00),
-        ('rocky-mountain-masonry',     'MASON',       'Chimney rebuild',               'Above the roofline, flashing included.',                480, 'QUOTE_ONLY',   NULL),
-        ('rocky-mountain-masonry',     'MASON',       'Retaining wall repair',         'Re-set, re-grade and drainage.',                        360, 'HOURLY',        95.00),
+        ('rocky-mountain-masonry',     'MASON',       'Brick repointing',              'Grind out and repoint, per section.',                   300, 'STARTING_AT',  680.00, 'MASON_REPOINT'),
+        ('rocky-mountain-masonry',     'MASON',       'Chimney rebuild',               'Above the roofline, flashing included.',                480, 'QUOTE_ONLY',   NULL,   'MASON_CHIMNEY_REBUILD'),
+        ('rocky-mountain-masonry',     'MASON',       'Retaining wall repair',         'Re-set, re-grade and drainage.',                        360, 'HOURLY',        95.00, 'MASON_RETAINING_WALL'),
 
-        ('smart-home-installs',        'INSTALLATION_TECHNICIAN', 'Smart thermostat setup',  'Mounted, wired and connected.',                    60, 'FLAT',         149.00),
-        ('smart-home-installs',        'INSTALLATION_TECHNICIAN', 'Doorbell camera install', 'Transformer check included.',                      90, 'FLAT',         189.00),
-        ('smart-home-installs',        'ELECTRICIAN', 'Low-voltage wiring',            'Data, speaker and camera runs.',                        180, 'HOURLY',       125.00),
+        ('smart-home-installs',        'INSTALLATION_TECHNICIAN', 'Smart thermostat setup',  'Mounted, wired and connected.',                    60, 'FLAT',         149.00, 'HVAC_THERMOSTAT_INSTALL'),
+        ('smart-home-installs',        'INSTALLATION_TECHNICIAN', 'Doorbell camera install', 'Transformer check included.',                      90, 'FLAT',         189.00, 'INSTALLATION_TECHNICIAN_DOORBELL'),
+        ('smart-home-installs',        'ELECTRICIAN', 'Low-voltage wiring',            'Data, speaker and camera runs.',                        180, 'HOURLY',       125.00, 'ELECTRICIAN_LOW_VOLTAGE_CABLE'),
 
-        ('ironline-fabrication',       'WELDER_FABRICATOR', 'Mobile welding call-out', 'On-site repair, MIG and stick.',                        120, 'HOURLY',       145.00),
-        ('ironline-fabrication',       'WELDER_FABRICATOR', 'Handrail fabrication',    'Measured, built and installed.',                        480, 'QUOTE_ONLY',   NULL),
-        ('ironline-fabrication',       'WELDER_FABRICATOR', 'Trailer hitch repair',    'Receiver, mounts and safety chains.',                    90, 'FLAT',         210.00),
+        ('ironline-fabrication',       'WELDER_FABRICATOR', 'Mobile welding call-out', 'On-site repair, MIG and stick.',                        120, 'HOURLY',       145.00, 'WELDER_MOBILE_CALLOUT'),
+        ('ironline-fabrication',       'WELDER_FABRICATOR', 'Handrail fabrication',    'Measured, built and installed.',                        480, 'QUOTE_ONLY',   NULL,   'WELDER_HANDRAIL_FAB'),
+        ('ironline-fabrication',       'WELDER_FABRICATOR', 'Trailer hitch repair',    'Receiver, mounts and safety chains.',                    90, 'FLAT',         210.00, 'WELDER_TRAILER_REPAIR'),
 
-        ('platte-industrial-service',  'INDUSTRIAL_MECHANIC', 'Conveyor service',      'Belts, bearings and alignment.',                        240, 'HOURLY',       165.00),
-        ('platte-industrial-service',  'INDUSTRIAL_MECHANIC', 'Pump rebuild',          'Strip, measure, replace and test.',                     480, 'QUOTE_ONLY',   NULL),
-        ('platte-industrial-service',  'INDUSTRIAL_MECHANIC', 'Preventive maintenance visit', 'Scheduled inspection and report.',               180, 'FLAT',         495.00),
+        ('platte-industrial-service',  'INDUSTRIAL_MECHANIC', 'Conveyor service',      'Belts, bearings and alignment.',                        240, 'HOURLY',       165.00, 'INDUSTRIAL_CONVEYOR_SERVICE'),
+        ('platte-industrial-service',  'INDUSTRIAL_MECHANIC', 'Pump rebuild',          'Strip, measure, replace and test.',                     480, 'QUOTE_ONLY',   NULL,   'INDUSTRIAL_PUMP_REBUILD'),
+        ('platte-industrial-service',  'INDUSTRIAL_MECHANIC', 'Preventive maintenance visit', 'Scheduled inspection and report.',               180, 'FLAT',         495.00, 'INDUSTRIAL_PREVENTIVE_MAINTENANCE'),
 
-        ('cherry-creek-arts-studio',   'ARTISAN',     'Custom metal sign',             'Designed, cut and finished to order.',                  480, 'QUOTE_ONLY',   NULL),
-        ('cherry-creek-arts-studio',   'ARTISAN',     'Furniture restoration',         'Strip, repair and refinish.',                           300, 'STARTING_AT',  380.00),
-        ('cherry-creek-arts-studio',   'ARTISAN',     'Stained glass repair',          'Re-leading and replacement panes.',                     180, 'HOURLY',        95.00);
+        ('cherry-creek-arts-studio',   'ARTISAN',     'Custom metal sign',             'Designed, cut and finished to order.',                  480, 'QUOTE_ONLY',   NULL,   'ARTISAN_METAL_SIGN'),
+        ('cherry-creek-arts-studio',   'ARTISAN',     'Furniture restoration',         'Strip, repair and refinish.',                           300, 'STARTING_AT',  380.00, 'ARTISAN_FURNITURE_RESTORE'),
+        ('cherry-creek-arts-studio',   'ARTISAN',     'Stained glass repair',          'Re-leading and replacement panes.',                     180, 'HOURLY',        95.00, 'ARTISAN_STAINED_GLASS');
 
     -- Licences, in all three states the search reads: verified, unverified, and
     -- expired -- the last counts for neither badge, and only exists if a row
@@ -414,16 +424,30 @@ BEGIN
            p.cancellation_fee, p.cancellation_notice_hours, now_utc, now_utc, 0
     FROM seed_pricing p;
 
+    -- LEFT JOIN on the catalogue, and the check after it is the reason. An inner
+    -- join would answer a catalog_code with no entry by dropping the service
+    -- row: the seed would report success, the business would come up with fewer
+    -- services than the file lists, and nothing would say which one went.
     INSERT INTO business_service (
         id, business_id, trade_id, name, description, estimated_duration_minutes,
-        pricing_mode, price, active, sort_order, created_at, updated_at, version)
+        pricing_mode, price, active, sort_order, catalog_id, created_at, updated_at, version)
     SELECT md5('tradeties.seed.service:' || s.slug || ':' || lower(s.name))::uuid,
            md5('tradeties.seed.business:' || s.slug)::uuid,
            t.id, s.name, s.description, s.minutes, s.pricing_mode, s.price, TRUE,
            (row_number() OVER (PARTITION BY s.slug ORDER BY s.name))::int * 10,
-           now_utc, now_utc, 0
+           c.id, now_utc, now_utc, 0
     FROM seed_service s
-    JOIN trade t ON t.code = s.trade_code;
+    JOIN trade t ON t.code = s.trade_code
+    LEFT JOIN service_catalog c ON c.code = s.catalog_code;
+
+    -- Every seeded service names a catalogue entry, so a null here means a typo
+    -- in a catalog_code or an entry removed from the catalogue without the seed
+    -- being told. Both are silent -- the row still saves, it is simply invisible
+    -- to a catalogue search -- so the seed refuses to finish instead.
+    IF EXISTS (SELECT 1 FROM business_service WHERE catalog_id IS NULL) THEN
+        RAISE EXCEPTION 'Seed services with no catalogue entry: %',
+            (SELECT string_agg(DISTINCT name, ', ') FROM business_service WHERE catalog_id IS NULL);
+    END IF;
 
     -- verified_at is a statement about this exact row: change the state, the
     -- number or the type and it has to be cleared in the same UPDATE.
