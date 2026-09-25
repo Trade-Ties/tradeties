@@ -1,12 +1,15 @@
 import Link from "next/link";
-import { Bell, CalendarClock, Clock3, LogOut, Sliders, User as UserIcon } from "lucide-react";
+import { Bell, CalendarClock, Clock3, LogOut, Palmtree, Sliders, User as UserIcon } from "lucide-react";
 
 import { signOutFromPortal } from "../actions";
+import { ComingSoonTag } from "../ComingSoon";
+import { DEMO_TIME_OFF } from "../demo-data";
+import { timeOffRange } from "../TimeOffBanner";
+import { WeekHours } from "./WeekHours";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { fetchMyBookingPolicy, fetchMyWorkingHours } from "@/lib/api/business";
 import { portalSession, portalToken } from "@/lib/portal/session";
-import { WIZARD_PATH } from "@/lib/routes";
-import { DAYS_OF_WEEK, dayName, formatTime } from "@/components/profile/time";
+import { CALENDAR_TIME_OFF_PATH, WIZARD_PATH, wizardPathAt } from "@/lib/routes";
 
 export default async function SettingsPage() {
   const { user } = await portalSession();
@@ -16,6 +19,9 @@ export default async function SettingsPage() {
     fetchMyWorkingHours(token),
     fetchMyBookingPolicy(token),
   ]);
+
+  // Demo data, like the calendar's: the backend stores time off, but nothing can write it yet.
+  const upcomingTimeOff = DEMO_TIME_OFF.filter((off) => off.to >= new Date(new Date().setHours(0, 0, 0, 0)));
 
   return (
     <div className="mx-auto w-full max-w-5xl px-8 py-10">
@@ -54,28 +60,13 @@ export default async function SettingsPage() {
               <Clock3 className="size-4 text-brand-500" />
               Working hours
             </CardTitle>
-            <Link href={WIZARD_PATH} className="text-xs font-semibold text-brand-500 hover:underline">
+            <Link href={wizardPathAt("availability", "workingHours")} className="text-xs font-semibold text-brand-500 hover:underline">
               Edit
             </Link>
           </CardHeader>
           <CardContent className="px-5 pb-5">
             {workingHours.ok && workingHours.data ? (
-              <dl className="flex flex-col gap-2">
-                {DAYS_OF_WEEK.map((dow) => {
-                  const day = workingHours.data!.days.find((d) => d.dayOfWeek === dow);
-                  const blocks = day?.blocks ?? [];
-                  return (
-                    <div key={dow} className="flex items-center justify-between border-b border-line py-1.5 text-sm last:border-0">
-                      <dt className="text-muted-ink">{dayName(dow)}</dt>
-                      <dd className={blocks.length === 0 ? "text-faint" : "font-medium"}>
-                        {blocks.length === 0
-                          ? "Closed"
-                          : blocks.map((b) => `${formatTime(b.startsAt)}–${formatTime(b.endsAt)}`).join(", ")}
-                      </dd>
-                    </div>
-                  );
-                })}
-              </dl>
+              <WeekHours hours={workingHours.data} />
             ) : (
               <p className="text-sm text-muted-ink">
                 Not set up yet.{" "}
@@ -91,10 +82,38 @@ export default async function SettingsPage() {
         <Card className="gap-4 rounded-3xl border border-line bg-white py-0 shadow-card">
           <CardHeader className="flex flex-row items-center justify-between px-5 pt-5">
             <CardTitle className="flex items-center gap-2 text-base font-semibold">
+              <Palmtree className="size-4 text-brand-500" />
+              Time off
+            </CardTitle>
+            <Link href={CALENDAR_TIME_OFF_PATH} className="text-xs font-semibold text-brand-500 hover:underline">
+              Add time off
+            </Link>
+          </CardHeader>
+          <CardContent className="px-5 pb-5">
+            {upcomingTimeOff.length > 0 ? (
+              <ul className="flex flex-col gap-2">
+                {upcomingTimeOff.map((off) => (
+                  <li key={off.id} className="flex items-center justify-between border-b border-line py-1.5 text-sm last:border-0">
+                    <span className="font-medium">{timeOffRange(off)}</span>
+                    <span className="text-muted-ink">{off.note ?? "Away"}</span>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="text-sm text-muted-ink">
+                Nothing planned. Going away? Add the days and customers can&apos;t book you on them.
+              </p>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card className="gap-4 rounded-3xl border border-line bg-white py-0 shadow-card">
+          <CardHeader className="flex flex-row items-center justify-between px-5 pt-5">
+            <CardTitle className="flex items-center gap-2 text-base font-semibold">
               <CalendarClock className="size-4 text-brand-500" />
               Booking policy
             </CardTitle>
-            <Link href={WIZARD_PATH} className="text-xs font-semibold text-brand-500 hover:underline">
+            <Link href={wizardPathAt("availability", "bookingPolicy")} className="text-xs font-semibold text-brand-500 hover:underline">
               Edit
             </Link>
           </CardHeader>
@@ -127,9 +146,7 @@ export default async function SettingsPage() {
               <Bell className="size-4 text-brand-500" />
               Notifications
             </CardTitle>
-            <span className="rounded-full bg-brand-50 px-2.5 py-1 text-[11px] font-semibold text-brand-500">
-              Coming soon
-            </span>
+            <ComingSoonTag />
           </CardHeader>
           <CardContent className="flex flex-col gap-3 px-5 pb-5 opacity-50">
             <ToggleRow label="Email me about new booking requests" />

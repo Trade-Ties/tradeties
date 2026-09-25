@@ -46,13 +46,15 @@ import {
   PROFILE_PATH,
   SETTINGS_PATH,
 } from "@/lib/routes";
+import { cn } from "@/lib/utils";
 
 const NAV = [
   { label: "Dashboard", href: DASHBOARD_PATH, icon: LayoutDashboard },
   { label: "Inbox", href: INBOX_PATH, icon: Inbox },
   { label: "Calendar", href: CALENDAR_PATH, icon: CalendarDays },
-  { label: "Insights", href: INSIGHTS_PATH, icon: LineChart },
-  { label: "Invoices", href: INVOICES_PATH, icon: Receipt },
+  // Not live yet: still reachable, so the page can say what is coming, but marked and muted here.
+  { label: "Insights", href: INSIGHTS_PATH, icon: LineChart, soon: true },
+  { label: "Invoices", href: INVOICES_PATH, icon: Receipt, soon: true },
   { label: "Business profile", href: PROFILE_PATH, icon: Building2 },
   { label: "Settings", href: SETTINGS_PATH, icon: Settings },
 ];
@@ -81,12 +83,20 @@ export function AppSidebar({ user }: { user: User }) {
                       `startsWith` would light it up on all of them. */}
                   <SidebarMenuButton
                     isActive={pathname === item.href}
-                    tooltip={item.label}
-                    className="h-10 gap-3 text-base [&_svg]:size-5 group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:[&&]:size-10! group-data-[collapsible=icon]:[&_svg]:size-6"
+                    tooltip={item.soon ? `${item.label} (coming soon)` : item.label}
+                    className={cn(
+                      "h-10 gap-3 text-base [&_svg]:size-5 group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:[&&]:size-10! group-data-[collapsible=icon]:[&_svg]:size-6",
+                      item.soon && "text-sidebar-foreground/50"
+                    )}
                     render={<Link href={item.href} />}
                   >
                     <item.icon />
                     <span>{item.label}</span>
+                    {item.soon && (
+                      <span className="ml-auto rounded-full bg-sidebar-accent px-2 py-0.5 text-[10px] font-semibold text-sidebar-foreground/70 group-data-[collapsible=icon]:hidden">
+                        Soon
+                      </span>
+                    )}
                   </SidebarMenuButton>
                 </SidebarMenuItem>
               ))}
