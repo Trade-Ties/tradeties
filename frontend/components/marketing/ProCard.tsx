@@ -5,8 +5,12 @@ import { ArrowRight, BadgeCheck } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { Dialog, DialogTrigger } from "@/components/ui/dialog";
+import { PreviewCard, PreviewCardContent, PreviewCardTrigger } from "@/components/ui/preview-card";
 import { cn } from "@/lib/utils";
 import type { Pro } from "@/components/marketing/pros-data";
+import { BookingModal } from "./BookingModal";
+import { ProfilePreviewCard } from "./ProfilePreviewCard";
 
 const today = new Date(new Date().setHours(0, 0, 0, 0));
 
@@ -31,6 +35,14 @@ const today = new Date(new Date().setHours(0, 0, 0, 0));
 export interface ProCardSlot {
   key: string;
   label: string;
+  /**
+   * The full, spelled-out date and time for the booking modal, which has room a card's slot
+   * button doesn't — "Thursday, September 24" / "2:15 PM" rather than the button's compact
+   * "2:15 PM" (today) or "Thu 2:15 PM" (other days). Split in two so the modal can join them
+   * with its own wording instead of parsing `label` back apart.
+   */
+  dateLabel: string;
+  timeLabel: string;
   /** Draws the slot in the "go" colour, for an opening the reader can still take today. */
   today: boolean;
 }
@@ -56,6 +68,12 @@ export interface ProCardView {
   rateFrom?: string;
   /** Trust badges, already worded. Empty draws no row at all rather than an empty one. */
   badges: string[];
+  /** Neighborhood/city — present for a real result too (it has `city`/`state`), unlike the fields below. */
+  location?: string;
+  /** Display only, never a real link — absent for a real result, which has no site on file yet. */
+  website?: string;
+  /** Absent for a real result — the search endpoint doesn't return a business's service list. */
+  services?: string[];
   slots: ProCardSlot[];
   /**
    * Whether a slot can actually be taken. False renders the times as what they are — the next
@@ -85,11 +103,16 @@ export function proCardView(pro: Pro): ProCardView {
     distance: `${pro.miles} mi`,
     rateFrom: String(pro.rateFrom),
     badges: pro.verified ? ["Licensed", "Identity verified"] : ["Licensed"],
+    location: pro.location,
+    website: pro.website,
+    services: pro.services,
     slots: pro.slots.map((slot) => ({
       key: slot.date.toISOString() + slot.time,
       // The day is on `date` and the time of day is on `time`; only a slot on another day needs
       // to say which one.
       label: isSameDay(slot.date, today) ? slot.time : `${format(slot.date, "EEE")} ${slot.time}`,
+      dateLabel: format(slot.date, "EEEE, MMMM d"),
+      timeLabel: slot.time,
       today: isSameDay(slot.date, today),
     })),
     bookable: true,
@@ -124,26 +147,33 @@ export function ProCard({ view, className }: { view: ProCardView; className?: st
         the trade badge and everything under it always starts at the same
         height across cards instead of shifting up for the shorter ones.
       */}
-      <div className="mb-4 flex min-h-16 items-center gap-3">
-        <div
-          className="grid size-[46px] shrink-0 place-items-center rounded-full text-base font-bold tracking-[-0.02em] text-white"
-          style={{ background: view.color }}
+      <PreviewCard>
+        <PreviewCardTrigger
+          render={<div className="mb-4 flex min-h-16 w-fit cursor-default items-center gap-3" />}
         >
-          {view.initials}
-        </div>
-        <div>
-          <p className="m-0 text-[16.5px] font-bold leading-tight tracking-[-0.02em]">
-            {view.href ? (
-              <Link href={view.href} className="text-brand no-underline hover:text-brand-500">
-                {view.title}
-              </Link>
-            ) : (
-              view.title
-            )}
-          </p>
-          <p className="m-0 text-[13.5px] text-muted-ink">{view.subtitle}</p>
-        </div>
-      </div>
+          <div
+            className="grid size-[46px] shrink-0 place-items-center rounded-full text-base font-bold tracking-[-0.02em] text-white"
+            style={{ background: view.color }}
+          >
+            {view.initials}
+          </div>
+          <div>
+            <p className="m-0 text-[16.5px] font-bold leading-tight tracking-[-0.02em]">
+              {view.href ? (
+                <Link href={view.href} className="text-brand no-underline hover:text-brand-500">
+                  {view.title}
+                </Link>
+              ) : (
+                view.title
+              )}
+            </p>
+            <p className="m-0 text-[13.5px] text-muted-ink">{view.subtitle}</p>
+          </div>
+        </PreviewCardTrigger>
+        <PreviewCardContent>
+          <ProfilePreviewCard view={view} />
+        </PreviewCardContent>
+      </PreviewCard>
 
       {view.trade && (
         <Badge className="mb-3.5 h-auto w-fit self-start rounded-full border-transparent bg-brand-50 px-3 py-1 text-[11.5px] font-semibold text-brand-500">
@@ -191,24 +221,34 @@ export function ProCard({ view, className }: { view: ProCardView; className?: st
         card ends the same height either way.
       */}
       <div className="mt-auto flex min-h-[116px] flex-col gap-1.5">
-        {view.slots.slice(0, 3).map((slot) => (
-          <Button
-            key={slot.key}
-            type="button"
-            variant="outline"
-            disabled={!view.bookable}
-            className={
-              slot.today
-                ? "h-auto rounded-[10px] border-[#BFEBD8] bg-go-bg px-2.5 py-2 font-mono text-[12.5px] font-medium text-[#07734F] hover:border-go hover:bg-go hover:text-white"
-                : "h-auto rounded-[10px] border-line bg-white px-2.5 py-2 font-mono text-[12.5px] font-medium text-brand hover:border-brand hover:bg-brand hover:text-white"
-            }
-          >
-            {view.bookable ? `Book ${slot.label}` : slot.label}
-            {view.bookable && (
-              <ArrowRight className="ml-0.5 size-3 opacity-0 transition-opacity duration-150 group-hover/button:opacity-100" />
-            )}
-          </Button>
-        ))}
+        {view.slots.slice(0, 3).map((slot) => {
+          const slotClassName = slot.today
+            ? "h-auto rounded-[10px] border-[#BFEBD8] bg-go-bg px-2.5 py-2 font-mono text-[12.5px] font-medium text-[#07734F] hover:border-go hover:bg-go hover:text-white"
+            : "h-auto rounded-[10px] border-line bg-white px-2.5 py-2 font-mono text-[12.5px] font-medium text-brand hover:border-brand hover:bg-brand hover:text-white";
+
+          // Not bookable (a live search result, which no confirmed-availability
+          // concept exists for yet): render the time as a plain label, not a
+          // button that opens a booking flow nothing behind it can honour.
+          if (!view.bookable) {
+            return (
+              <Button key={slot.key} type="button" variant="outline" disabled className={slotClassName}>
+                {slot.label}
+              </Button>
+            );
+          }
+
+          return (
+            <Dialog key={slot.key}>
+              <DialogTrigger
+                render={<Button type="button" variant="outline" className={slotClassName} />}
+              >
+                {`Book ${slot.label}`}
+                <ArrowRight className="ml-0.5 size-3 opacity-0 transition-opacity duration-150 group-hover/button:opacity-100" />
+              </DialogTrigger>
+              <BookingModal view={view} slot={slot} />
+            </Dialog>
+          );
+        })}
       </div>
 
       {/*
