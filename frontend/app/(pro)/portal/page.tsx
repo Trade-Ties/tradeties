@@ -28,7 +28,7 @@ export default async function PortalPage() {
           ← Back to TradeTies
         </Link>
 
-        <h1 className="mt-8 text-3xl font-semibold tracking-tight">Tradesperson portal</h1>
+        <h1 className="mt-8 text-3xl font-semibold tracking-tight">Professionals portal</h1>
         <p className="mt-3 text-muted-foreground">
           Manage your profile, your calendar and the requests customers send you.
         </p>
@@ -51,7 +51,7 @@ export default async function PortalPage() {
         <p className="mt-8 text-sm text-muted-foreground">
           Looking to hire instead?{" "}
           <Link href={MARKETPLACE_PATH} className="underline underline-offset-4 hover:text-foreground">
-            Search tradespeople
+            Search professionals
           </Link>{" "}
           — no account required.
         </p>
