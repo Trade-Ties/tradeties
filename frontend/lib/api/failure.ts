@@ -119,3 +119,12 @@ export const isVersionConflict = (failure: ApiFailure): boolean =>
  * still lists the row, because it is only replaced by a step that finished.
  */
 export const isAlreadyGone = (failure: ApiFailure): boolean => failure.status === 404;
+
+/**
+ * The start named when sending a request is not one that business offers any more — somebody
+ * else's request was accepted onto it, or the page has been open a while.
+ *
+ * Told apart from {@link INVALID_SELECTION} because the remedy differs: this one sends the
+ * customer back to the calendar, that one back to the list of services.
+ */
+export const SLOT_NOT_OFFERED = "urn:tradeties:problem:slot-not-offered";
