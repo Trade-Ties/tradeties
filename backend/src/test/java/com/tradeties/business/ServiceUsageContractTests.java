@@ -13,26 +13,34 @@ import org.springframework.context.annotation.Import;
 import org.springframework.jdbc.core.JdbcTemplate;
 
 /**
- * Keeps {@code NoServiceReferencesYet} honest.
+ * Keeps {@link ServiceUsage} honest about which tables it speaks for.
  *
- * <p>That bean answers "nothing references a service", and it is right — today. What makes it
- * right is a property of the schema, not an opinion, so the schema is asked rather than
- * trusted. The day a foreign key onto {@code business_service} lands, this fails and names the
- * table that did it.
+ * <p>It used to guard the opposite claim. Until {@code job} landed, nothing in the schema
+ * referenced {@code business_service} and a bean said so; this test asked PostgreSQL rather than
+ * trusting the bean, and failed the day that stopped being true — which is how the implementation
+ * came to be written in the same change as the table.
  *
- * <p>Without this the bean would quietly go stale: removal would take the delete branch for a
- * service an appointment names, the constraint would refuse it, and the failure would surface
- * as a 500 somewhere far from the change that caused it.
+ * <p>Now it guards the list. {@code RequestedServices} answers for {@code job_request} and for
+ * nothing else, so a second referencing table means a second thing that can hold a service — and
+ * an implementation that still looks at one of them would let a tradesperson remove a service the
+ * new table names, quietly taking the record of it away from whoever could still read it.
  */
 @SpringBootTest
 @Import(TestcontainersConfiguration.class)
 class ServiceUsageContractTests {
 
+	/**
+	 * The tables {@code ServiceUsage} is known to speak for. Adding one here is a claim that its
+	 * implementation was extended to ask about it.
+	 */
+	private static final List<String> ANSWERED_FOR =
+			List.of("job_request.job_request_business_id_service_id_fkey");
+
 	@Autowired
 	JdbcTemplate jdbcTemplate;
 
 	@Test
-	void noForeignKeyPointsAtAServiceYet() {
+	void everyForeignKeyOntoAServiceIsOneServiceUsageAnswersFor() {
 		List<String> referencing = jdbcTemplate.queryForList("""
 				SELECT child.relname || '.' || c.conname
 				FROM pg_constraint c
@@ -42,12 +50,11 @@ class ServiceUsageContractTests {
 				  AND parent.relname = 'business_service'
 				ORDER BY 1""", String.class);
 
-		assertEquals(List.of(), referencing, """
-				Something now has a foreign key onto business_service, so NoServiceReferencesYet \
-				is answering a question it can no longer answer. Removing a service that this \
-				table points at would take the delete branch and be refused by the constraint. \
-				Replace the bean with a real ServiceUsage in the module that owns the new table, \
-				and delete NoServiceReferencesYet — two beans of one interface will stop the \
-				application from starting until you do.""");
+		assertEquals(ANSWERED_FOR, referencing, """
+				A table now references business_service that ServiceUsage does not ask about. \
+				Removing a service that table names would take the delete branch and disappear \
+				from the profile, taking the only readable record of what was asked for with it. \
+				Extend the ServiceUsage implementation to cover the new table, then add its \
+				constraint to ANSWERED_FOR.""");
 	}
 }

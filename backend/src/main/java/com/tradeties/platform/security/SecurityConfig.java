@@ -93,6 +93,11 @@ class SecurityConfig {
 	SecurityFilterChain apiFilterChain(HttpSecurity http) throws Exception {
 		return http
 				.authorizeHttpRequests(auth -> auth
+						// The first anonymous WRITE. Everything permitted below it is a read, and
+						// this one creates rows a tradesperson has to act on — with no rate limit
+						// in front of it. That is a deliberate gap, and it must be closed before
+						// the application is reachable beyond the test environment.
+						.requestMatchers(HttpMethod.POST, "/api/v1/jobs").permitAll()
 						.requestMatchers(HttpMethod.GET,
 								"/api/v1/trades", "/api/v1/us-states", "/api/v1/time-zones", "/api/v1/service-jobs",
 								"/api/v1/businesses", "/api/v1/businesses/{slug}",
