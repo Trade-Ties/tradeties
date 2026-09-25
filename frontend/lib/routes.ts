@@ -12,10 +12,12 @@ export const MARKETPLACE_PATH = "/";
 /**
  * A business's public page, and the one path here that is printed on a van rather than clicked.
  *
- * The contract calls the segment `tradeties.com/pro/{slug}` and freezes the slug at the first
- * publish for exactly that reason, so this spelling is not this app's to change on a whim.
+ * At the root — `tradeties.com/{slug}` — the address the wizard shows and the contract freezes at
+ * the first publish, so this spelling is not this app's to change on a whim. The root is shared
+ * with the site's own pages; `ReservedSlugs` in the backend is what keeps a business from taking
+ * one of their names, and a new top-level route belongs on that list before it ships.
  */
-export const proPath = (slug: string) => `/pro/${slug}`;
+export const proPath = (slug: string) => `/${slug}`;
 
 export const PORTAL_PATH = "/portal";
 
