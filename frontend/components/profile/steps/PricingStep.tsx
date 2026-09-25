@@ -15,6 +15,7 @@ import type { MaterialPricingMode, TravelFeeMode } from "@/lib/api/wire";
 import { CountField, MoneyField, PercentField } from "../AmountField";
 import { statesAnAmount } from "../toWire";
 import type { PricingForm, StepProps } from "../types";
+import { FocusTarget } from "../focusTarget";
 
 const BILLING_MINIMUMS = toOptions(MINIMUM_BILLING_OPTIONS, (m) => `${m} minutes`);
 const BILLING_INCREMENTS = toOptions(BILLING_INCREMENT_OPTIONS, (m) => `${m} minutes`);
@@ -53,12 +54,14 @@ export function PricingStep({ data, update }: StepProps<PricingForm>) {
   return (
     <>
         <FieldGrid columns={3}>
-          <MoneyField
-            label="Hourly rate"
-            hint="What a service priced by the hour bills at."
-            value={data.hourlyRate}
-            onValueChange={(hourlyRate) => update({ ...data, hourlyRate })}
-          />
+          <FocusTarget name="hourlyRate">
+            <MoneyField
+              label="Hourly rate"
+              hint="What a service priced by the hour bills at."
+              value={data.hourlyRate}
+              onValueChange={(hourlyRate) => update({ ...data, hourlyRate })}
+            />
+          </FocusTarget>
 
           <SelectField
             label="Minimum billing"

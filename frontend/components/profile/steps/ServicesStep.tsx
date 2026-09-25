@@ -27,6 +27,7 @@ import {
   serviceProblem,
   serviceTradeIsGone,
 } from "../validate";
+import { FocusTarget } from "../focusTarget";
 
 interface ServicesStepProps {
   data: ServiceForm[];
@@ -118,199 +119,201 @@ export function ServicesStep({
   };
 
   return (
-    <Field
-      label="Services"
-      hint="What clients can book. Drag to set the order they see them in."
-      labelAction={data.length > 0 ? `${data.length} listed` : undefined}
-    >
-      <div className="space-y-2 pt-1">
-        {data.length === 0 && (
-          <EmptyList>No services yet. Add the first thing a client can book you for.</EmptyList>
-        )}
+    <FocusTarget name="services" section>
+      <Field
+        label="Services"
+        hint="What clients can book. Drag to set the order they see them in."
+        labelAction={data.length > 0 ? `${data.length} listed` : undefined}
+      >
+        <div className="space-y-2 pt-1">
+          {data.length === 0 && (
+            <EmptyList>No services yet. Add the first thing a client can book you for.</EmptyList>
+          )}
 
-        {data.map((service, idx) => {
-          const isOpen = rows.openId === service.key;
-          const name = service.name.trim();
-          const isDuplicate = duplicates.has(serviceNameKey(service) ?? "");
-          const showPrice = service.pricingMode !== "QUOTE_ONLY";
-          const priceOptional = service.pricingMode === "HOURLY";
+          {data.map((service, idx) => {
+            const isOpen = rows.openId === service.key;
+            const name = service.name.trim();
+            const isDuplicate = duplicates.has(serviceNameKey(service) ?? "");
+            const showPrice = service.pricingMode !== "QUOTE_ONLY";
+            const priceOptional = service.pricingMode === "HOURLY";
 
-          // Resolved against the whole catalogue rather than the dropdown above, so a service
-          // still names its trade while the catalogue and the selection disagree.
-          const tradeLabel = tradeName(reference, service.tradeId);
+            // Resolved against the whole catalogue rather than the dropdown above, so a service
+            // still names its trade while the catalogue and the selection disagree.
+            const tradeLabel = tradeName(reference, service.tradeId);
 
-          /**
-           * The trade above was unticked and this row is still filed under it.
-           *
-           * Shown rather than swept away: nothing has been sent yet, so putting the trade back
-           * has to put this back with it. What it cannot be is written — the composite foreign
-           * key refuses it, as a 400 about the whole step — so the row says so here and
-           * `serviceIsWritable` holds it back, and saving the step is where it is finally spent.
-           */
-          const tradeIsGone = serviceTradeIsGone(service, claimed);
+            /**
+             * The trade above was unticked and this row is still filed under it.
+             *
+             * Shown rather than swept away: nothing has been sent yet, so putting the trade back
+             * has to put this back with it. What it cannot be is written — the composite foreign
+             * key refuses it, as a 400 about the whole step — so the row says so here and
+             * `serviceIsWritable` holds it back, and saving the step is where it is finally spent.
+             */
+            const tradeIsGone = serviceTradeIsGone(service, claimed);
 
-          // Shared with `serviceIsWritable`, so what the row is badged with and what the save
-          // holds back are the same answer rather than two guesses at it.
-          const problem = serviceProblem(service, duplicates, claimed);
+            // Shared with `serviceIsWritable`, so what the row is badged with and what the save
+            // holds back are the same answer rather than two guesses at it.
+            const problem = serviceProblem(service, duplicates, claimed);
 
-          const rowName = name === "" ? `service ${idx + 1}` : service.name;
+            const rowName = name === "" ? `service ${idx + 1}` : service.name;
 
-          // The row's own trade stays in its own dropdown once it has been unticked, or the
-          // control holds a value that is not among its options and reads as empty.
-          const rowTradeOptions =
-            tradeIsGone && tradeLabel !== ""
-              ? [...serviceTradeOptions, { value: service.tradeId, label: tradeLabel }]
-              : serviceTradeOptions;
+            // The row's own trade stays in its own dropdown once it has been unticked, or the
+            // control holds a value that is not among its options and reads as empty.
+            const rowTradeOptions =
+              tradeIsGone && tradeLabel !== ""
+                ? [...serviceTradeOptions, { value: service.tradeId, label: tradeLabel }]
+                : serviceTradeOptions;
 
-          return (
-            <CollapsibleRow
-              key={service.key}
-              panelId={`service-${service.key}`}
-              open={isOpen}
-              onToggle={() => rows.toggle(service.key)}
-              title={name === "" ? "Untitled service" : service.name}
-              titleMuted={name === ""}
-              problem={problem}
-              summary={
-                <>
-                  {tradeLabel !== "" && <span>{tradeLabel}</span>}
-                  <span>{durationLabel(service.estimatedDurationMinutes)}</span>
-                  <span className="tabular-nums">{priceLabel(service)}</span>
-                </>
-              }
-              leading={
-                <GripVertical
-                  aria-hidden="true"
-                  className={cn(
-                    "size-4 shrink-0 text-muted-foreground",
-                    !isOpen && "cursor-grab active:cursor-grabbing"
-                  )}
-                />
-              }
-              actions={
-                <>
-                  <IconButton
-                    label={`Duplicate ${rowName}`}
-                    onClick={() => duplicateService(service, idx)}
-                  >
-                    <Copy className="size-4" />
-                  </IconButton>
-                  <IconButton
-                    label={`Remove ${rowName}`}
-                    onClick={() => rows.remove(service.key)}
-                  >
-                    <Trash2 className="size-4" />
-                  </IconButton>
-                </>
-              }
-              panelClassName="space-y-4 p-4"
-              // Only while folded: `draggable` on a container holding text inputs costs you the
-              // ability to select their contents with the mouse.
-              draggable={!isOpen}
-              onDragStart={(e) => {
-                // Firefox cancels a drag whose handler leaves the `dataTransfer` empty, and
-                // there is no second way to reorder. The payload is never read back — setting
-                // one is what starts the drag, and `dragIndex` carries the row.
-                e.dataTransfer.setData("text/plain", String(idx));
-                e.dataTransfer.effectAllowed = "move";
-                setDragIndex(idx);
-              }}
-              onDragOver={(e) => {
-                e.preventDefault();
-                e.dataTransfer.dropEffect = "move";
-              }}
-              onDrop={() => handleDrop(idx)}
-              onDragEnd={() => setDragIndex(null)}
-              className={cn("transition-opacity", dragIndex === idx && "opacity-50")}
-            >
-              <FieldGrid columns={3}>
-                <TextField
-                  label="Name"
-                  required
-                  autoFocus={rows.focusId === service.key}
-                  fieldClassName="sm:col-span-2"
-                  value={service.name}
-                  maxLength={FIELD_MAX.serviceName}
-                  placeholder="e.g. Clog removal"
-                  error={
-                    isDuplicate ? "You already have a service with this name." : undefined
-                  }
-                  onChange={(e) => rows.edit(service.key, "name", e.target.value)}
-                />
-
-                <AutocompleteField
-                  label="Trade"
-                  required
-                  placeholder="Search"
-                  options={rowTradeOptions}
-                  value={service.tradeId}
-                  error={
-                    service.tradeId === ""
-                      ? "Choose one of the trades you offer."
-                      : tradeIsGone
-                        ? `You no longer offer ${tradeLabel || "that trade"}. Pick another ` +
-                          "trade, or this service goes with it when the step is saved."
-                        : undefined
-                  }
-                  onValueChange={(tradeId) => rows.edit(service.key, "tradeId", tradeId)}
-                />
-              </FieldGrid>
-
-              <FieldGrid columns={3}>
-                <SelectField
-                  label="Calendar duration"
-                  required
-                  hint="Time reserved in your calendar."
-                  options={DURATION_OPTIONS}
-                  value={service.estimatedDurationMinutes}
-                  onValueChange={(minutes) =>
-                    rows.edit(service.key, "estimatedDurationMinutes", minutes)
-                  }
-                />
-
-                <SelectField
-                  label="Price model"
-                  required
-                  options={PRICING_MODES}
-                  value={service.pricingMode}
-                  onValueChange={(mode) => rows.edit(service.key, "pricingMode", mode)}
-                />
-
-                {showPrice && (
-                  <MoneyField
-                    label={priceOptional ? "Different hourly rate" : "Price"}
-                    required={!priceOptional}
-                    hint={priceOptional ? "Empty uses your standard hourly rate." : undefined}
-                    value={service.price}
-                    onValueChange={(price) => rows.edit(service.key, "price", price)}
+            return (
+              <CollapsibleRow
+                key={service.key}
+                panelId={`service-${service.key}`}
+                open={isOpen}
+                onToggle={() => rows.toggle(service.key)}
+                title={name === "" ? "Untitled service" : service.name}
+                titleMuted={name === ""}
+                problem={problem}
+                summary={
+                  <>
+                    {tradeLabel !== "" && <span>{tradeLabel}</span>}
+                    <span>{durationLabel(service.estimatedDurationMinutes)}</span>
+                    <span className="tabular-nums">{priceLabel(service)}</span>
+                  </>
+                }
+                leading={
+                  <GripVertical
+                    aria-hidden="true"
+                    className={cn(
+                      "size-4 shrink-0 text-muted-foreground",
+                      !isOpen && "cursor-grab active:cursor-grabbing"
+                    )}
                   />
-                )}
-              </FieldGrid>
+                }
+                actions={
+                  <>
+                    <IconButton
+                      label={`Duplicate ${rowName}`}
+                      onClick={() => duplicateService(service, idx)}
+                    >
+                      <Copy className="size-4" />
+                    </IconButton>
+                    <IconButton
+                      label={`Remove ${rowName}`}
+                      onClick={() => rows.remove(service.key)}
+                    >
+                      <Trash2 className="size-4" />
+                    </IconButton>
+                  </>
+                }
+                panelClassName="space-y-4 p-4"
+                // Only while folded: `draggable` on a container holding text inputs costs you the
+                // ability to select their contents with the mouse.
+                draggable={!isOpen}
+                onDragStart={(e) => {
+                  // Firefox cancels a drag whose handler leaves the `dataTransfer` empty, and
+                  // there is no second way to reorder. The payload is never read back — setting
+                  // one is what starts the drag, and `dragIndex` carries the row.
+                  e.dataTransfer.setData("text/plain", String(idx));
+                  e.dataTransfer.effectAllowed = "move";
+                  setDragIndex(idx);
+                }}
+                onDragOver={(e) => {
+                  e.preventDefault();
+                  e.dataTransfer.dropEffect = "move";
+                }}
+                onDrop={() => handleDrop(idx)}
+                onDragEnd={() => setDragIndex(null)}
+                className={cn("transition-opacity", dragIndex === idx && "opacity-50")}
+              >
+                <FieldGrid columns={3}>
+                  <TextField
+                    label="Name"
+                    required
+                    autoFocus={rows.focusId === service.key}
+                    fieldClassName="sm:col-span-2"
+                    value={service.name}
+                    maxLength={FIELD_MAX.serviceName}
+                    placeholder="e.g. Clog removal"
+                    error={
+                      isDuplicate ? "You already have a service with this name." : undefined
+                    }
+                    onChange={(e) => rows.edit(service.key, "name", e.target.value)}
+                  />
 
-              {/* Capped like the name above it, and for the same reason: `ServiceInput`
-                  stops at 2000, and a pasted body past it is a 400 about the whole step
-                  naming neither the field nor the row. */}
-              <TextareaField
-                label="Description"
-                rows={2}
-                maxLength={FIELD_MAX.serviceDescription}
-                value={service.description}
-                placeholder="What's included in this service?"
-                onChange={(e) => rows.edit(service.key, "description", e.target.value)}
-              />
-            </CollapsibleRow>
-          );
-        })}
+                  <AutocompleteField
+                    label="Trade"
+                    required
+                    placeholder="Search"
+                    options={rowTradeOptions}
+                    value={service.tradeId}
+                    error={
+                      service.tradeId === ""
+                        ? "Choose one of the trades you offer."
+                        : tradeIsGone
+                          ? `You no longer offer ${tradeLabel || "that trade"}. Pick another ` +
+                            "trade, or this service goes with it when the step is saved."
+                          : undefined
+                    }
+                    onValueChange={(tradeId) => rows.edit(service.key, "tradeId", tradeId)}
+                  />
+                </FieldGrid>
 
-        <Button
-          variant="outline"
-          onClick={() => rows.add((key) => makeEmptyService(key, defaultTradeId))}
-          className="w-full"
-        >
-          <Plus className="mr-2 size-4" />
-          Add service
-        </Button>
-      </div>
-    </Field>
+                <FieldGrid columns={3}>
+                  <SelectField
+                    label="Calendar duration"
+                    required
+                    hint="Time reserved in your calendar."
+                    options={DURATION_OPTIONS}
+                    value={service.estimatedDurationMinutes}
+                    onValueChange={(minutes) =>
+                      rows.edit(service.key, "estimatedDurationMinutes", minutes)
+                    }
+                  />
+
+                  <SelectField
+                    label="Price model"
+                    required
+                    options={PRICING_MODES}
+                    value={service.pricingMode}
+                    onValueChange={(mode) => rows.edit(service.key, "pricingMode", mode)}
+                  />
+
+                  {showPrice && (
+                    <MoneyField
+                      label={priceOptional ? "Different hourly rate" : "Price"}
+                      required={!priceOptional}
+                      hint={priceOptional ? "Empty uses your standard hourly rate." : undefined}
+                      value={service.price}
+                      onValueChange={(price) => rows.edit(service.key, "price", price)}
+                    />
+                  )}
+                </FieldGrid>
+
+                {/* Capped like the name above it, and for the same reason: `ServiceInput`
+                    stops at 2000, and a pasted body past it is a 400 about the whole step
+                    naming neither the field nor the row. */}
+                <TextareaField
+                  label="Description"
+                  rows={2}
+                  maxLength={FIELD_MAX.serviceDescription}
+                  value={service.description}
+                  placeholder="What's included in this service?"
+                  onChange={(e) => rows.edit(service.key, "description", e.target.value)}
+                />
+              </CollapsibleRow>
+            );
+          })}
+
+          <Button
+            variant="outline"
+            onClick={() => rows.add((key) => makeEmptyService(key, defaultTradeId))}
+            className="w-full"
+          >
+            <Plus className="mr-2 size-4" />
+            Add service
+          </Button>
+        </div>
+      </Field>
+    </FocusTarget>
   );
 }

@@ -1,9 +1,11 @@
 import { useState } from "react";
+import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { IconButton } from "@/components/ui/icon-button";
 import { Switch } from "@/components/ui/switch";
 import { Copy, Plus, Trash2 } from "lucide-react";
 import { CheckboxField, CheckboxGrid, Field, SelectControl, toOptions } from "@/components/ui/field";
+import { CALENDAR_TIME_OFF_PATH } from "@/lib/routes";
 import { cn } from "@/lib/utils";
 import { makeTimeBlock } from "../defaults";
 import { nextKey } from "../rowList";
@@ -17,6 +19,7 @@ import {
 } from "../time";
 import type { StepProps, WorkingDayForm, WorkingHoursForm } from "../types";
 import { overlappingBlockKeys } from "../validate";
+import { FocusTarget } from "../focusTarget";
 
 /** Quarter-hour slots in an hour, which is the block length and the gap a new one is offered at. */
 const AN_HOUR = 4;
@@ -190,147 +193,160 @@ export function HoursStep({ data, update }: StepProps<WorkingHoursForm>) {
   const weekTotal = weeklyMinutes(data);
 
   return (
-    <Field
-      label="Working hours"
-      required
-      hint="When you take jobs. Clients only see slots inside these hours."
-      labelAction={`${formatHours(weekTotal)} a week`}
-    >
-      <div className="divide-y rounded-lg border">
-        {data.map((dayData) => {
-          const day = dayName(dayData.dayOfWeek);
-          const overlaps = overlappingBlockKeys(dayData.blocks);
-          const isCopying = copyFrom === dayData.dayOfWeek;
+    <FocusTarget name="workingHours" section>
+      <div className="space-y-2">
+        <Field
+          label="Working hours"
+          required
+          hint="When you take jobs. Clients only see slots inside these hours."
+          labelAction={`${formatHours(weekTotal)} a week`}
+        >
+          <div className="divide-y rounded-lg border">
+            {data.map((dayData) => {
+              const day = dayName(dayData.dayOfWeek);
+              const overlaps = overlappingBlockKeys(dayData.blocks);
+              const isCopying = copyFrom === dayData.dayOfWeek;
 
-          return (
-            <div
-              key={dayData.dayOfWeek}
-              className="grid items-start gap-x-3 gap-y-2 px-3 py-2 sm:grid-cols-[9.5rem_1fr_auto]"
-            >
-              <label className="flex h-10 cursor-pointer items-center gap-3 text-sm">
-                <Switch
-                  checked={dayData.open}
-                  onCheckedChange={(v) => toggleDay(dayData.dayOfWeek, v === true)}
-                />
-                <span className={cn("font-medium", !dayData.open && "text-muted-foreground")}>
-                  {day}
-                </span>
-              </label>
+              return (
+                <div
+                  key={dayData.dayOfWeek}
+                  className="grid items-start gap-x-3 gap-y-2 px-3 py-2 sm:grid-cols-[9.5rem_1fr_auto]"
+                >
+                  <label className="flex h-10 cursor-pointer items-center gap-3 text-sm">
+                    <Switch
+                      checked={dayData.open}
+                      onCheckedChange={(v) => toggleDay(dayData.dayOfWeek, v === true)}
+                    />
+                    <span className={cn("font-medium", !dayData.open && "text-muted-foreground")}>
+                      {day}
+                    </span>
+                  </label>
 
-              {dayData.open ? (
-                <div className="space-y-2">
-                  {dayData.blocks.map((block) => {
-                    const isOverlapping = overlaps.has(block.key);
+                  {dayData.open ? (
+                    <div className="space-y-2">
+                      {dayData.blocks.map((block) => {
+                        const isOverlapping = overlaps.has(block.key);
 
-                    return (
-                      <div key={block.key}>
-                        <div className="flex h-10 items-center gap-2">
-                          <SelectControl
-                            aria-label={`${day} start time`}
-                            aria-invalid={isOverlapping || undefined}
-                            className="w-[7.5rem]"
-                            contentClassName="max-h-64"
-                            options={START_TIME_OPTIONS}
-                            value={block.startsAt}
-                            onValueChange={(startsAt) =>
-                              editBlock(dayData.dayOfWeek, block.key, "startsAt", startsAt)
-                            }
-                          />
+                        return (
+                          <div key={block.key}>
+                            <div className="flex h-10 items-center gap-2">
+                              <SelectControl
+                                aria-label={`${day} start time`}
+                                aria-invalid={isOverlapping || undefined}
+                                className="w-[7.5rem]"
+                                contentClassName="max-h-64"
+                                options={START_TIME_OPTIONS}
+                                value={block.startsAt}
+                                onValueChange={(startsAt) =>
+                                  editBlock(dayData.dayOfWeek, block.key, "startsAt", startsAt)
+                                }
+                              />
 
-                          <span aria-hidden="true" className="text-sm text-muted-foreground">
-                            –
-                          </span>
+                              <span aria-hidden="true" className="text-sm text-muted-foreground">
+                                –
+                              </span>
 
-                          <SelectControl
-                            aria-label={`${day} end time`}
-                            aria-invalid={isOverlapping || undefined}
-                            className="w-[7.5rem]"
-                            contentClassName="max-h-64"
-                            options={endOptionsAfter(block.startsAt)}
-                            value={block.endsAt}
-                            onValueChange={(endsAt) =>
-                              editBlock(dayData.dayOfWeek, block.key, "endsAt", endsAt)
-                            }
-                          />
+                              <SelectControl
+                                aria-label={`${day} end time`}
+                                aria-invalid={isOverlapping || undefined}
+                                className="w-[7.5rem]"
+                                contentClassName="max-h-64"
+                                options={endOptionsAfter(block.startsAt)}
+                                value={block.endsAt}
+                                onValueChange={(endsAt) =>
+                                  editBlock(dayData.dayOfWeek, block.key, "endsAt", endsAt)
+                                }
+                              />
 
-                          {/* The first range is what makes the day open — the switch removes
-                              it, so there is nothing for a bin to do beside it. */}
-                          {dayData.blocks.length > 1 && (
-                            <IconButton
-                              label={`Remove this time range from ${day}`}
-                              onClick={() => removeBlock(dayData.dayOfWeek, block.key)}
-                            >
-                              <Trash2 className="size-4" />
-                            </IconButton>
-                          )}
-                        </div>
+                              {/* The first range is what makes the day open — the switch removes
+                                  it, so there is nothing for a bin to do beside it. */}
+                              {dayData.blocks.length > 1 && (
+                                <IconButton
+                                  label={`Remove this time range from ${day}`}
+                                  onClick={() => removeBlock(dayData.dayOfWeek, block.key)}
+                                >
+                                  <Trash2 className="size-4" />
+                                </IconButton>
+                              )}
+                            </div>
 
-                        {isOverlapping && (
-                          <p className="text-xs text-destructive">
-                            This range overlaps another one on {day}.
-                          </p>
-                        )}
+                            {isOverlapping && (
+                              <p className="text-xs text-destructive">
+                                This range overlaps another one on {day}.
+                              </p>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <span className="flex h-10 items-center text-sm text-muted-foreground">
+                      Closed
+                    </span>
+                  )}
+
+                  {dayData.open && (
+                    <div className="flex h-10 items-center gap-1">
+                      <IconButton
+                        label={`Add another time range to ${day}`}
+                        onClick={() => addBlock(dayData.dayOfWeek)}
+                      >
+                        <Plus className="size-4" />
+                      </IconButton>
+                      <IconButton
+                        label={`Copy ${day}'s hours to other days`}
+                        aria-expanded={isCopying}
+                        onClick={() => (isCopying ? setCopyFrom(null) : openCopy(dayData.dayOfWeek))}
+                      >
+                        <Copy className="size-4" />
+                      </IconButton>
+                    </div>
+                  )}
+
+                  {isCopying && (
+                    <div className="col-span-full space-y-3 rounded-lg bg-muted/50 p-3">
+                      <p className="text-xs font-medium text-muted-foreground">
+                        Copy {day}&rsquo;s hours to
+                      </p>
+
+                      <CheckboxGrid>
+                        {data
+                          .filter((d) => d.dayOfWeek !== dayData.dayOfWeek)
+                          .map((d) => (
+                            <CheckboxField
+                              key={d.dayOfWeek}
+                              label={dayName(d.dayOfWeek)}
+                              checked={copyTargets.includes(d.dayOfWeek)}
+                              onCheckedChange={() => toggleTarget(d.dayOfWeek)}
+                            />
+                          ))}
+                      </CheckboxGrid>
+
+                      <div className="flex gap-2">
+                        <Button size="sm" onClick={applyCopy} disabled={copyTargets.length === 0}>
+                          Apply
+                        </Button>
+                        <Button size="sm" variant="ghost" onClick={() => setCopyFrom(null)}>
+                          Cancel
+                        </Button>
                       </div>
-                    );
-                  })}
+                    </div>
+                  )}
                 </div>
-              ) : (
-                <span className="flex h-10 items-center text-sm text-muted-foreground">
-                  Closed
-                </span>
-              )}
-
-              {dayData.open && (
-                <div className="flex h-10 items-center gap-1">
-                  <IconButton
-                    label={`Add another time range to ${day}`}
-                    onClick={() => addBlock(dayData.dayOfWeek)}
-                  >
-                    <Plus className="size-4" />
-                  </IconButton>
-                  <IconButton
-                    label={`Copy ${day}'s hours to other days`}
-                    aria-expanded={isCopying}
-                    onClick={() => (isCopying ? setCopyFrom(null) : openCopy(dayData.dayOfWeek))}
-                  >
-                    <Copy className="size-4" />
-                  </IconButton>
-                </div>
-              )}
-
-              {isCopying && (
-                <div className="col-span-full space-y-3 rounded-lg bg-muted/50 p-3">
-                  <p className="text-xs font-medium text-muted-foreground">
-                    Copy {day}&rsquo;s hours to
-                  </p>
-
-                  <CheckboxGrid>
-                    {data
-                      .filter((d) => d.dayOfWeek !== dayData.dayOfWeek)
-                      .map((d) => (
-                        <CheckboxField
-                          key={d.dayOfWeek}
-                          label={dayName(d.dayOfWeek)}
-                          checked={copyTargets.includes(d.dayOfWeek)}
-                          onCheckedChange={() => toggleTarget(d.dayOfWeek)}
-                        />
-                      ))}
-                  </CheckboxGrid>
-
-                  <div className="flex gap-2">
-                    <Button size="sm" onClick={applyCopy} disabled={copyTargets.length === 0}>
-                      Apply
-                    </Button>
-                    <Button size="sm" variant="ghost" onClick={() => setCopyFrom(null)}>
-                      Cancel
-                    </Button>
-                  </div>
-                </div>
-              )}
-            </div>
-          );
-        })}
+              );
+            })}
+          </div>
+        </Field>
+        {/* Under the hint rather than inside the field, which prints its hint after its children.
+            A week repeats; an absence does not, so it lives in the calendar, not in these hours. */}
+        <p className="text-xs text-muted-foreground">
+          Going away?{" "}
+          <Link href={CALENDAR_TIME_OFF_PATH} className="font-semibold text-brand-500 hover:underline">
+            Add time off
+          </Link>{" "}
+          and customers can&apos;t book you on those days.
+        </p>
       </div>
-    </Field>
+    </FocusTarget>
   );
 }

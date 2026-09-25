@@ -478,6 +478,9 @@ paths:
         **A `true` is not a reservation.** Two callers can hold the same answer at
         the same moment; the unique index decides, and whoever creates second gets
         a 409.
+
+        **Reserved slugs are `false` for everybody**, the holder included — see
+        `Slug`.
       parameters:
         - name: slug
           in: query
@@ -1499,7 +1502,7 @@ components:
     Slug:
       type: string
       description: |
-        The public URL segment: `tradeties.com/pro/{slug}`. Lower case letters,
+        The public URL segment: `tradeties.com/{slug}`. Lower case letters,
         digits and single hyphens. Proposed from the display name in the wizard,
         then checked for availability.
 
@@ -1512,6 +1515,11 @@ components:
 
         The display name proposes it and does not own it: the two part company the
         moment a business is renamed, and it is the URL that stays.
+
+        **Some slugs are reserved.** Profiles share the root of the domain with the
+        site's own pages, so names like `portal`, `help` or `pricing` cannot be
+        taken: creating with one, or moving to one, is a 409. A business that held a
+        name before it was reserved keeps it.
       pattern: '^[a-z0-9]+(-[a-z0-9]+)*$'
       maxLength: 80
       examples: ["joes-plumbing"]

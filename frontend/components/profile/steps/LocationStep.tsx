@@ -4,10 +4,12 @@ import type { ReferenceData } from "@/lib/api/reference";
 import { DIGIT, useCaret } from "../caret";
 import { FIELD_MAX } from "../limits";
 import { format as formatPostalCode } from "../postalCode";
-import { stateOptions, timeZoneOptions } from "../reference";
+import { stateName, stateOptions, timeZoneName, timeZoneOptions } from "../reference";
+import { isSplitState, zoneForState } from "../stateTimeZones";
 import { useTouched } from "../touched";
 import type { AddressForm, ProfileForm, StepProps } from "../types";
 import { postalCodeProblem } from "../validate";
+import { FocusTarget } from "../focusTarget";
 
 interface LocationStepProps extends StepProps<ProfileForm> {
   reference: ReferenceData;
@@ -26,6 +28,32 @@ export function LocationStep({ data, update, reference }: LocationStepProps) {
   // on every keystroke of the address above.
   const states = stateOptions(reference);
   const timeZones = timeZoneOptions(reference);
+
+  /**
+   * The state brings its time zone with it, as long as the zone is still the one the state
+   * suggested — or none yet. One picked by hand stays: the tradesperson knew better.
+   */
+  const pickState = (state: string) => {
+    const followsState = data.timeZone === "" || data.timeZone === zoneForState(data.address.state);
+    const suggested = zoneForState(state);
+
+    update({
+      ...data,
+      address: { ...data.address, state },
+      timeZone: followsState && suggested !== "" ? suggested : data.timeZone,
+    });
+  };
+
+  const state = data.address.state;
+  const fromState = data.timeZone !== "" && data.timeZone === zoneForState(state);
+  const zoneHint =
+    data.timeZone === ""
+      ? "Filled in once you pick your state."
+      : fromState && isSplitState(state)
+        ? `Most of ${stateName(reference, state)} is on ${timeZoneName(reference, data.timeZone)}. Change it if you're in the part that isn't.`
+        : fromState
+          ? "Filled in from your state. Booking times are shown in this time zone."
+          : "Booking times are shown in this time zone.";
 
   return (
     <>
@@ -71,31 +99,33 @@ export function LocationStep({ data, update, reference }: LocationStepProps) {
           placeholder="Search"
           options={states}
           value={data.address.state}
-          onValueChange={(state) => setAddress({ state })}
+          onValueChange={pickState}
         />
 
-        <TextField
-          label="ZIP code"
-          required
-          inputMode="numeric"
-          autoComplete="postal-code"
-          value={data.address.postalCode}
-          error={settled("postalCode", postalCodeProblem(data.address.postalCode))}
-          onBlur={touch("postalCode")}
-          onChange={(e) => {
-            const postalCode = formatPostalCode(e.target.value);
+        <FocusTarget name="postalCode">
+          <TextField
+            label="ZIP code"
+            required
+            inputMode="numeric"
+            autoComplete="postal-code"
+            value={data.address.postalCode}
+            error={settled("postalCode", postalCodeProblem(data.address.postalCode))}
+            onBlur={touch("postalCode")}
+            onChange={(e) => {
+              const postalCode = formatPostalCode(e.target.value);
 
-            keepCaret(e, postalCode, DIGIT);
-            setAddress({ postalCode });
-          }}
-        />
+              keepCaret(e, postalCode, DIGIT);
+              setAddress({ postalCode });
+            }}
+          />
+        </FocusTarget>
       </FieldGrid>
 
       <FieldGrid columns={2}>
         <AutocompleteField
           label="Time zone"
           required
-          hint="Booking times are shown in this time zone."
+          hint={zoneHint}
           placeholder="Search"
           options={timeZones}
           value={data.timeZone}
