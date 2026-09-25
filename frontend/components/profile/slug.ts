@@ -20,7 +20,7 @@ export const SLUG_MAX = 80;
  * other names two different hosts a line apart.
  */
 export const PROFILE_URL_PREFIX =
-  process.env.NEXT_PUBLIC_PROFILE_URL_PREFIX || "tradeties.com/pro/";
+  process.env.NEXT_PUBLIC_PROFILE_URL_PREFIX || "tradeties.com/";
 
 /**
  * A display name as a URL segment: lower case, words joined by single hyphens.

@@ -20,6 +20,20 @@ services:
     # is still created by a Flyway migration, as btree_gist already is.
     image: postgis/postgis:18-3.6-alpine
 
+    # postgis/postgis publishes amd64 only -- no arm64 build exists for this image
+    # at all, on any tag. Without this, Docker Desktop on Apple Silicon refuses to
+    # pull it outright ("no matching manifest for linux/arm64/v8"). This runs it
+    # under Rosetta emulation instead; needs "Use Rosetta for x86_64/arm64
+    # emulation" enabled in Docker Desktop's settings, which is the default on
+    # recent versions. Harmless, and a no-op, on an amd64 host.
+    platform: linux/amd64
+
+    # Back up whenever Docker is, so a reboot or a Docker Desktop restart does not
+    # leave the backend failing on "Connection to localhost:5432 refused" until
+    # somebody remembers `docker compose up -d`. A `docker compose stop` still
+    # keeps it down.
+    restart: unless-stopped
+
     # The defaults in application.yml are exactly these, so `./mvnw spring-boot:run`
     # needs no environment at all.
     environment:

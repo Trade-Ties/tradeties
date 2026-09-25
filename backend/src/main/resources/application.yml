@@ -70,7 +70,7 @@ workos:
 # builds its links from the same variable, as NEXT_PUBLIC_PROFILE_URL_PREFIX, because the two
 # appear a line apart: the URL field prints the prefix and the slug-locked 409 below it repeats.
 tradeties:
-  profile-url-prefix: ${PROFILE_URL_PREFIX:tradeties.com/pro/}
+  profile-url-prefix: ${PROFILE_URL_PREFIX:tradeties.com/}
 
   # The customer search answers one page at a time and stops at a cap. Paging makes the
   # list reachable; the cap makes it finite, and the two solve different problems --

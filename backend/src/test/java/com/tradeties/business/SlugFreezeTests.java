@@ -76,7 +76,7 @@ class SlugFreezeTests {
 				.andExpect(status().isConflict())
 				// The address they already gave out, not the one they asked for: that is the thing
 				// the refusal is protecting, and the only one worth naming back.
-				.andExpect(jsonPath("$.detail").value(containsString("tradeties.com/pro/locks-url")));
+				.andExpect(jsonPath("$.detail").value(containsString("tradeties.com/locks-url")));
 
 		mockMvc.perform(get("/api/v1/me/business").with(token))
 				.andExpect(jsonPath("$.slug").value("locks-url"));

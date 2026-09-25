@@ -8,6 +8,7 @@ import {
 import type { ReferenceData } from "@/lib/api/reference";
 import { tradeOptions } from "../reference";
 import type { StepProps, TradesForm } from "../types";
+import { FocusTarget } from "../focusTarget";
 
 interface TradeStepProps extends StepProps<TradesForm> {
   reference: ReferenceData;
@@ -55,15 +56,17 @@ export function TradeStep({ data, update, reference }: TradeStepProps) {
 
   return (
     <>
-      <AutocompleteField
-        label="Primary trade"
-        required
-        hint="The one that best describes your main business."
-        placeholder="Search"
-        options={options}
-        value={data.primaryTradeId}
-        onValueChange={selectPrimary}
-      />
+      <FocusTarget name="primaryTrade" section>
+        <AutocompleteField
+          label="Primary trade"
+          required
+          hint="The one that best describes your main business."
+          placeholder="Search"
+          options={options}
+          value={data.primaryTradeId}
+          onValueChange={selectPrimary}
+        />
+      </FocusTarget>
 
       <Field
         label="Additional trades"

@@ -13,6 +13,7 @@ import com.tradeties.business.InvalidSelectionException;
 import com.tradeties.business.OnboardingProgress;
 import com.tradeties.business.OnboardingStep;
 import com.tradeties.business.ReadinessCheckCode;
+import com.tradeties.business.SlugReservedException;
 import com.tradeties.business.SlugTakenException;
 import com.tradeties.business.StaleVersionException;
 import com.tradeties.business.UnconfirmedTimeZoneChangeException;
@@ -130,13 +131,17 @@ public class BusinessService implements Businesses, OnboardingProgress {
 	 * person who holds it would be a wrong answer rather than a conservative one. Asked here rather
 	 * than corrected by the client, which would be this rule re-implemented across the wire.
 	 *
+	 * <p>A {@link ReservedSlugs reserved} slug is unavailable to everybody, its holder included:
+	 * a business that got one before it was listed keeps it through {@link #replace}, but is not
+	 * told it is free to take.
+	 *
 	 * @return whether the slug can currently be taken by this owner. A snapshot, not a
 	 *         reservation — two callers may hold the same answer at once, and the unique index
 	 *         decides.
 	 */
 	@Transactional(readOnly = true)
 	public boolean isSlugAvailableFor(UUID ownerUserId, String slug) {
-		return !repository.existsBySlugAndOwnerUserIdNot(slug, ownerUserId);
+		return !ReservedSlugs.isReserved(slug) && !repository.existsBySlugAndOwnerUserIdNot(slug, ownerUserId);
 	}
 
 	/**
@@ -156,6 +161,9 @@ public class BusinessService implements Businesses, OnboardingProgress {
 
 		if (repository.existsByOwnerUserId(ownerUserId)) {
 			throw new BusinessAlreadyExistsException();
+		}
+		if (ReservedSlugs.isReserved(input.slug())) {
+			throw new SlugReservedException(input.slug());
 		}
 		if (repository.existsBySlug(input.slug())) {
 			throw new SlugTakenException(input.slug());
@@ -220,9 +228,16 @@ public class BusinessService implements Businesses, OnboardingProgress {
 		// slug arrives back unchanged on nearly every save of steps 1 and 2 — and for a published
 		// profile the line above has just proved it is identical. The unique index is what makes
 		// this safe to skip: a real collision still comes back as the violation caught below.
-		if (profile.slugWouldMove(input.slug())
-				&& repository.existsBySlugAndOwnerUserIdNot(input.slug(), ownerUserId)) {
-			throw new SlugTakenException(input.slug());
+		//
+		// The reserved list is asked under the same condition, and that is what grandfathers a
+		// business holding a name from before it was listed: it can keep saving, never move to one.
+		if (profile.slugWouldMove(input.slug())) {
+			if (ReservedSlugs.isReserved(input.slug())) {
+				throw new SlugReservedException(input.slug());
+			}
+			if (repository.existsBySlugAndOwnerUserIdNot(input.slug(), ownerUserId)) {
+				throw new SlugTakenException(input.slug());
+			}
 		}
 
 		// Read before the change, because that is the question: what was this profile meeting a

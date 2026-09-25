@@ -2,30 +2,53 @@ import Link from "next/link";
 import { Building2 } from "lucide-react";
 
 import ProfileWizard from "@/components/profile/ProfileWizard";
+import { isFocusTarget, type FocusTargetName } from "@/components/profile/focusTarget";
 import { restore } from "@/components/profile/fromWire";
 import { PROFILE_URL_PREFIX } from "@/components/profile/slug";
-import { STEPS, resumeStepIndex } from "@/components/profile/wizardSteps";
+import { STEPS, resumeAt, type Resume } from "@/components/profile/wizardSteps";
 import { buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { fetchMyBusiness, type BusinessProfile } from "@/lib/api/business";
-import { loadOnboarding } from "@/lib/api/onboarding";
+import { fetchMyBusiness, fetchMyReadiness, fetchTimeZones, type BusinessProfile } from "@/lib/api/business";
+import { loadOnboarding, type OnboardingLoad } from "@/lib/api/onboarding";
 import type { ApiResult } from "@/lib/api/problem";
 import { portalToken } from "@/lib/portal/session";
-import { DASHBOARD_PATH, WIZARD_PARAM, WIZARD_PATH } from "@/lib/routes";
+import { DASHBOARD_PATH, WIZARD_PARAM, WIZARD_PATH, WIZARD_SECTION_PARAM } from "@/lib/routes";
 
 export default async function BusinessProfilePage({
   searchParams,
 }: {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
-  // Presence, not value: a link hand-trimmed to `?edit` means the same as the full `WIZARD_PATH`.
-  const editing = (await searchParams)[WIZARD_PARAM] !== undefined;
+  const params = await searchParams;
+  // Presence first: a link hand-trimmed to `?edit` means the same as the full `WIZARD_PATH`.
+  const editing = params[WIZARD_PARAM] !== undefined;
 
-  return editing ? <WizardScreen /> : <Overview />;
+  return editing ? <WizardScreen openAt={requestedOpening(params)} /> : <Overview />;
+}
+
+/** Where a link asked the wizard to open, as `wizardPathAt` writes it. */
+interface Opening {
+  step: number;
+  focus: FocusTargetName | null;
+}
+
+/**
+ * A step the link names, and a section of it; null when it names none, which is every
+ * `WIZARD_PATH` link. Anything that is not a step or a section is read as not given rather than
+ * refused — a stale or hand-edited link still opens the wizard.
+ */
+function requestedOpening(params: Record<string, string | string[] | undefined>): Opening | null {
+  const step = STEPS.findIndex((s) => s.key === params[WIZARD_PARAM]);
+  if (step < 0) return null;
+
+  const section = params[WIZARD_SECTION_PARAM];
+  return { step, focus: typeof section === "string" && isFocusTarget(section) ? section : null };
 }
 
 async function Overview() {
-  const business = await fetchMyBusiness(await portalToken());
+  const token = await portalToken();
+  const [business, timeZones] = await Promise.all([fetchMyBusiness(token), fetchTimeZones(token)]);
+  const resume = await resumeFor(business, token);
 
   return (
     <div className="mx-auto w-full max-w-5xl px-8 py-10">
@@ -33,14 +56,43 @@ async function Overview() {
       <p className="mb-8 text-muted-ink">What customers see when they find you.</p>
 
       <div className="flex flex-col gap-4">
-        <StatusCard business={business} />
-        {business.ok && business.data !== null && <Details profile={business.data} />}
+        <StatusCard business={business} resume={resume} />
+        {business.ok && business.data !== null && (
+          <Details
+            profile={business.data}
+            // "Eastern Time" rather than the id it is stored as; the id is still better than nothing.
+            timeZone={
+              (timeZones.ok && timeZones.data?.find((z) => z.code === business.data!.timeZone)?.displayName) ||
+              business.data.timeZone
+            }
+          />
+        )}
       </div>
     </div>
   );
 }
 
-async function WizardScreen() {
+/**
+ * Where "Continue" will reopen the wizard, worked out the way the wizard itself works it out so
+ * the step the card names is the step that opens. Only for a draft that has never been live —
+ * the one card that names a step. A checklist that cannot be read is not worth failing the page
+ * over: the counter alone still gives an answer.
+ */
+async function resumeFor(
+  business: ApiResult<BusinessProfile | null>,
+  token: string
+): Promise<Resume | null> {
+  if (!business.ok || business.data === null) return null;
+
+  const profile = business.data;
+  if (profile.status !== "DRAFT" || profile.slugLocked) return null;
+
+  const readiness = await fetchMyReadiness(token);
+
+  return resumeAt(profile.onboardingCompletedStep, readiness.ok ? readiness.data : null);
+}
+
+async function WizardScreen({ openAt }: { openAt: Opening | null }) {
   const load = await loadOnboarding(await portalToken());
 
   if (load.state === "unavailable") {
@@ -48,19 +100,43 @@ async function WizardScreen() {
   }
 
   return (
-    <div className="h-[calc(100dvh-var(--portal-header))] w-full px-8 py-10">
+    // No height of its own: the wizard runs as long as its step and the page scrolls.
+    <div className="w-full px-8">
       {load.state === "not-started" ? (
         <ProfileWizard reference={load.reference} />
       ) : (
-        <ProfileWizard
-          reference={load.reference}
-          initial={restore(load.snapshot)}
-          initialStep={resumeStepIndex(load.snapshot.profile.onboardingCompletedStep)}
-          // The server's own checklist, so the publish step opens on the real conditions.
-          initialReadiness={load.snapshot.readiness}
-        />
+        <ResumedWizard load={load} openAt={openAt} />
       )}
     </div>
+  );
+}
+
+/**
+ * Only a profile that exists can be opened part-way: before one does, every later step is held
+ * behind the Business step, so a link naming one opens at the start like any other.
+ */
+function ResumedWizard({
+  load,
+  openAt,
+}: {
+  load: Extract<OnboardingLoad, { state: "resumable" }>;
+  openAt: Opening | null;
+}) {
+  const { snapshot } = load;
+  const resume =
+    openAt !== null
+      ? { index: openAt.step, focus: openAt.focus }
+      : resumeAt(snapshot.profile.onboardingCompletedStep, snapshot.readiness);
+
+  return (
+    <ProfileWizard
+      reference={load.reference}
+      initial={restore(snapshot)}
+      initialStep={resume.index}
+      initialFocus={resume.focus}
+      // The server's own checklist, so the publish step opens on the real conditions.
+      initialReadiness={snapshot.readiness}
+    />
   );
 }
 
@@ -101,7 +177,7 @@ interface CardCopy {
   emphasis: "default" | "outline";
 }
 
-function copyFor(business: ApiResult<BusinessProfile | null>): CardCopy {
+function copyFor(business: ApiResult<BusinessProfile | null>, resume: Resume | null): CardCopy {
   if (!business.ok) {
     return {
       title: "Your business profile",
@@ -156,18 +232,25 @@ function copyFor(business: ApiResult<BusinessProfile | null>): CardCopy {
     };
   }
 
-  const nextIndex = resumeStepIndex(profile.onboardingCompletedStep);
+  // Named as well as numbered: after a jump back, "step 1 of 6" alone reads as starting over.
+  const next = STEPS[resume?.index ?? 0];
 
   return {
     title: "Finish your business profile",
-    description: `Step ${nextIndex + 1} of ${STEPS.length} - Until it is published, your profile shows nothing.`,
+    description: `Next: ${next.title} (step ${(resume?.index ?? 0) + 1} of ${STEPS.length}). Until it is published, your profile shows nothing.`,
     action: "Continue",
     emphasis: "default",
   };
 }
 
-function StatusCard({ business }: { business: ApiResult<BusinessProfile | null> }) {
-  const { title, description, action, emphasis } = copyFor(business);
+function StatusCard({
+  business,
+  resume,
+}: {
+  business: ApiResult<BusinessProfile | null>;
+  resume: Resume | null;
+}) {
+  const { title, description, action, emphasis } = copyFor(business, resume);
   // Mirrors the amber "needs setup" language on the dashboard overview — same underlying
   // condition, so it should look the same wherever it shows up.
   const needsAttention = emphasis === "default";
@@ -211,7 +294,7 @@ const STATUS_BADGE: Record<BusinessProfile["status"], BadgeLook> = {
   SUSPENDED: { label: "Suspended", className: "bg-destructive/10 text-destructive" },
 };
 
-function Details({ profile }: { profile: BusinessProfile }) {
+function Details({ profile, timeZone }: { profile: BusinessProfile; timeZone: string }) {
   const status = STATUS_BADGE[profile.status];
   const { address } = profile;
 
@@ -232,12 +315,12 @@ function Details({ profile }: { profile: BusinessProfile }) {
               {status.label}
             </span>
           </Row>
-          <Row label="Public address">
+          <Row label="Public profile URL">
             {profile.slugLocked || profile.status === "PUBLISHED"
               ? `${PROFILE_URL_PREFIX}${profile.slug}`
               : `${PROFILE_URL_PREFIX}${profile.slug} — not taken until you publish`}
           </Row>
-          <Row label="Shown to customers">{profile.displayName}</Row>
+          <Row label="Business name shown">{profile.displayName}</Row>
           <Row label="Registered name">{profile.legalName}</Row>
           <Row label="About">{profile.description}</Row>
           <Row label="Phone">{profile.phone}</Row>
@@ -248,7 +331,7 @@ function Details({ profile }: { profile: BusinessProfile }) {
               .filter(Boolean)
               .join(" · ")}
           </Row>
-          <Row label="Time zone">{profile.timeZone}</Row>
+          <Row label="Time zone">{timeZone}</Row>
           <Row label="Service radius">{`${profile.serviceRadiusMiles} miles`}</Row>
         </dl>
       </CardContent>
