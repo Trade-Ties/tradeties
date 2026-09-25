@@ -21,6 +21,12 @@ import java.util.List;
  *                 working day being described, and nine in the morning is nine where they work
  * @param hourlyRate the general rate, or {@code null} for a business that has not filled its
  *                   pricing in — which is common, and says nothing about the business
+ * @param offersThisJob whether this business lists the picked job, or null when none was picked.
+ *                      Null and {@code FALSE} are different answers — one is "nobody asked", the
+ *                      other "we looked". It says listed rather than able: service lists average
+ *                      three entries for businesses that do thirty kinds of work, so false covers
+ *                      the plumber who can fix a toilet and never wrote it down. Which is why it
+ *                      sorts the results and does not filter them
  * @param licensed whether an unexpired licence is on file. False covers "no licence needed in
  *                 this trade and state" as well as "not entered", so it is worth a badge when
  *                 true and worth silence when false
@@ -39,6 +45,7 @@ public record BusinessSearchResult(
 		double distanceMiles,
 		String timeZone,
 		BigDecimal hourlyRate,
+		Boolean offersThisJob,
 		boolean licensed,
 		boolean licenseVerified,
 		List<Instant> nextSlots) {

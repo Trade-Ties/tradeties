@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { format, isSameDay } from "date-fns";
 import { ArrowRight, BadgeCheck } from "lucide-react";
 
@@ -61,6 +62,14 @@ export interface ProCardView {
    * openings — instead of as a button that promises a booking nothing can yet accept.
    */
   bookable: boolean;
+  /**
+   * The business's own page, for a card that stands for a real one.
+   *
+   * Absent for the sample listings, which stand for nobody and have no page to open. A card
+   * without it is exactly the card that existed before, rather than one linking somewhere
+   * apologetic.
+   */
+  href?: string;
 }
 
 /** The sample listings, in the shape above. */
@@ -123,7 +132,15 @@ export function ProCard({ view, className }: { view: ProCardView; className?: st
           {view.initials}
         </div>
         <div>
-          <p className="m-0 text-[16.5px] font-bold leading-tight tracking-[-0.02em]">{view.title}</p>
+          <p className="m-0 text-[16.5px] font-bold leading-tight tracking-[-0.02em]">
+            {view.href ? (
+              <Link href={view.href} className="text-brand no-underline hover:text-brand-500">
+                {view.title}
+              </Link>
+            ) : (
+              view.title
+            )}
+          </p>
           <p className="m-0 text-[13.5px] text-muted-ink">{view.subtitle}</p>
         </div>
       </div>
@@ -193,6 +210,21 @@ export function ProCard({ view, className }: { view: ProCardView; className?: st
           </Button>
         ))}
       </div>
+
+      {/*
+        The card's actual action while nothing can accept a booking. It sits under the openings
+        rather than over them because the times are what somebody scans the grid for — and it is
+        a link and not a button, since it opens a page rather than doing something.
+      */}
+      {view.href && (
+        <Link
+          href={view.href}
+          className="mt-3 inline-flex items-center gap-1 text-[13px] font-semibold text-brand-500 no-underline"
+        >
+          Services and rates
+          <ArrowRight className="size-3.5" aria-hidden="true" />
+        </Link>
+      )}
     </Card>
   );
 }

@@ -341,6 +341,9 @@ class BusinessController implements BusinessApi {
 		return new com.tradeties.generated.model.ReadinessCheck()
 				.code(com.tradeties.generated.model.ReadinessCheckCode.valueOf(check.code().name()))
 				.passed(check.passed())
+				// Advice and condition on one list, told apart by this rather than by the client
+				// knowing which codes are which.
+				.blocking(check.blocking())
 				.detail(check.detail());
 	}
 
@@ -396,12 +399,15 @@ class BusinessController implements BusinessApi {
 				.price(toWire(details.price()))
 				.active(details.active())
 				.sortOrder(details.sortOrder())
+				.catalogId(details.catalogId())
 				.version(details.version());
 	}
 
 	private static ServiceDefinition toDefinition(ServiceInput input) {
 		return new ServiceDefinition(
 				input.getTradeId(),
+				// The picker sends one; a service typed by hand sends none, which is ordinary.
+				input.getCatalogId(),
 				required(input.getName(), "name"),
 				input.getDescription(),
 				input.getEstimatedDurationMinutes(),
@@ -413,6 +419,9 @@ class BusinessController implements BusinessApi {
 	private static ServiceDefinition toDefinition(ServiceUpdate update) {
 		return new ServiceDefinition(
 				update.getTradeId(),
+				// Never read on this path: ServiceOffering.apply leaves the link alone, so an edit
+				// to a ticked service keeps it. The comment there says why that matters.
+				null,
 				required(update.getName(), "name"),
 				update.getDescription(),
 				update.getEstimatedDurationMinutes(),

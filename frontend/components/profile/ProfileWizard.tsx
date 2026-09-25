@@ -18,7 +18,7 @@ import {
 } from "@/app/(pro)/profile/create/actions";
 import { blankForm, nothingStored } from "./defaults";
 import { dayName } from "./time";
-import { focusTarget, type FocusTargetName } from "./focusTarget";
+import { FocusTarget, focusTarget, type FocusTargetName } from "./focusTarget";
 import { STEPS } from "./wizardSteps";
 import { buildReview, type ReviewGroup } from "./review";
 import {
@@ -815,12 +815,15 @@ export default function ProfileWizard({
               update={set.trades}
               reference={reference}
             />
-            <ServicesStep
-              data={formData.services}
-              update={set.services}
-              reference={reference}
-              selectedTradeIds={selectedTradeIds}
-            />
+            {/* Marked here rather than inside the step, which the service catalogue work owns. */}
+            <FocusTarget name="services" section>
+              <ServicesStep
+                data={formData.services}
+                update={set.services}
+                reference={reference}
+                selectedTradeIds={selectedTradeIds}
+              />
+            </FocusTarget>
           </MergedStep>
         );
       case "pricing":

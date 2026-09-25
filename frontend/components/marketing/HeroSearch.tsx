@@ -11,6 +11,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { DEFAULT_JOB_SUGGESTIONS } from "@/components/marketing/job-suggestions";
+import { JOB_INPUT_CLASS, JobSuggestBox } from "@/components/marketing/JobSuggestBox";
 
 // Computed at render time (client-only component) so this always reflects the
 // visitor's own local date rather than a hardcoded or server-clock value.
@@ -28,6 +29,12 @@ const WHEN_OPTIONS: { mode: Exclude<WhenMode, "custom">; label: string; sublabel
 export function HeroSearch() {
   const router = useRouter();
   const [job, setJob] = useState("");
+  /**
+   * The catalogue job behind what is in the box, when the customer picked one rather than typing
+   * their own words. Sent alongside the text so the search narrows by the job itself instead of
+   * reading a trade out of prose — which is where "Toilet is leaking" used to reach roofers.
+   */
+  const [service, setService] = useState<string | null>(null);
   const [zip, setZip] = useState("");
 
   const [whenMode, setWhenMode] = useState<WhenMode>("today");
@@ -63,6 +70,7 @@ export function HeroSearch() {
 
     const params = new URLSearchParams({ zip });
     if (job.trim()) params.set("job", job.trim());
+    if (service) params.set("service", service);
     params.set("when", whenMode === "custom" && customDate ? format(customDate, "yyyy-MM-dd") : whenMode);
 
     router.push(`/browse?${params}`);
@@ -94,14 +102,15 @@ export function HeroSearch() {
               >
                 What&apos;s wrong?
               </Label>
-              <Input
+              <JobSuggestBox
                 id="job"
-                type="text"
                 value={job}
-                onChange={(e) => setJob(e.target.value)}
+                onValueChange={setJob}
+                onPickedChange={setService}
+                zip={zip}
                 maxLength={300}
                 placeholder={DEFAULT_JOB_SUGGESTIONS.placeholder}
-                className="h-auto w-full border-0 bg-transparent p-0 text-[15.5px] font-medium text-brand shadow-none outline-none placeholder:font-normal placeholder:text-faint focus-visible:ring-0"
+                className={JOB_INPUT_CLASS}
               />
             </div>
 

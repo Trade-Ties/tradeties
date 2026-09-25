@@ -2,6 +2,7 @@ package com.tradeties.business.internal;
 
 import java.math.BigDecimal;
 import java.time.Instant;
+import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
 
@@ -9,10 +10,15 @@ import com.tradeties.business.BusinessDetails;
 import com.tradeties.business.BusinessInput;
 import com.tradeties.business.BusinessStatus;
 import com.tradeties.business.GeoPoint;
+import com.tradeties.business.LicenseDetails;
 import com.tradeties.business.OnboardingStep;
 import com.tradeties.business.PostalAddress;
+import com.tradeties.business.PricingTerms;
 import com.tradeties.business.ProfileSuspendedException;
+import com.tradeties.business.PublicProfile;
+import com.tradeties.business.ServiceDetails;
 import com.tradeties.business.SlugLockedException;
+import com.tradeties.business.TradeSelection;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
@@ -412,5 +418,39 @@ class BusinessProfile {
 				status,
 				onboardingCompletedStep,
 				version);
+	}
+
+	/**
+	 * The same row as {@link #toDetails()}, cut down to what a stranger may see.
+	 *
+	 * <p>Next to its sibling on purpose. The two differ by the legal name, the phone, the email,
+	 * the street and the coordinates — and that difference <em>is</em> the anonymity rule, not a
+	 * consequence of it. Read as a pair, a field added to this entity has to be left out of the
+	 * public mapping deliberately; read apart, it would be left out by having been forgotten.
+	 *
+	 * <p>The status is absent for a different reason: this profile is only ever assembled for a
+	 * published one, so the field could say nothing a caller does not already know.
+	 *
+	 * <p>What a customer reads that is not a column of this row — the trades, the services, the
+	 * terms and the licences — arrives as arguments rather than being fetched. An entity that
+	 * reached four more tables would be a query path invisible at the call site.
+	 */
+	PublicProfile toPublicProfile(TradeSelection trades,
+			List<ServiceDetails> services,
+			PricingTerms pricing,
+			List<LicenseDetails> licenses) {
+
+		return new PublicProfile(
+				slug,
+				displayName,
+				description,
+				websiteUrl,
+				city,
+				state,
+				timeZone,
+				trades,
+				services,
+				pricing,
+				licenses);
 	}
 }

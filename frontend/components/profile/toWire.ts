@@ -234,6 +234,9 @@ export function toTrades(t: TradesForm): BusinessTradesRequest {
 export function toService(s: ServiceForm): ServiceInput {
   return {
     tradeId: s.tradeId,
+    // Undefined rather than null for a hand-typed row: the contract makes it optional, and
+    // sending an explicit null would say "unlink this", which is a different statement.
+    ...(s.catalogId ? { catalogId: s.catalogId } : {}),
     name: s.name.trim(),
     description: optional(s.description),
     estimatedDurationMinutes: s.estimatedDurationMinutes,

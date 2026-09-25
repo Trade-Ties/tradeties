@@ -14,12 +14,14 @@ import { Label } from "@/components/ui/label";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { FilterPill } from "@/components/marketing/FilterPill";
 import { ProCard, type ProCardSlot, type ProCardView } from "@/components/marketing/ProCard";
+import { amount, colorOf, initialsOf } from "@/components/marketing/business-format";
 import {
   availabilityLabel,
   parseWhenParam,
   today,
   type AvailabilityFilter,
 } from "@/components/marketing/when-filter";
+import { proPath } from "@/lib/routes";
 import type { components } from "@/lib/api/schema";
 
 type SearchResults = components["schemas"]["BusinessSearchResults"];
@@ -58,6 +60,16 @@ export function JobSearchResults({
 
   const results = found.results ?? [];
   const trades = found.matchedTrades ?? [];
+  const picked = found.matchedService ?? null;
+
+  /**
+   * The backend orders every business that lists the picked job ahead of every one that does not,
+   * so one split is enough and no second request is needed. Absent `offersThisJob` means no job
+   * was picked — then there is nothing to divide and everything stays in one grid.
+   */
+  const listing = results.filter((r) => r.offersThisJob === true);
+  const rest = results.filter((r) => r.offersThisJob === false);
+  const divided = picked !== null && listing.length > 0 && rest.length > 0;
 
   // Drafts only. What is displayed is what the URL says, so there is no second copy of the search
   // to fall out of step with it — cancelling is dropping the draft, not restoring a snapshot.
@@ -138,7 +150,11 @@ export function JobSearchResults({
             </Badge>
           </div>
 
-          {job && <Understood job={job} trades={trades} />}
+          {picked ? (
+            <Picked label={picked.label} zip={zip} when={when} />
+          ) : (
+            job && <Understood job={job} trades={trades} />
+          )}
         </div>
 
         <div className="grid grid-cols-1 gap-8 min-[960px]:grid-cols-[280px_1fr]">
@@ -340,6 +356,33 @@ export function JobSearchResults({
                   </>
                 )}
               </p>
+            ) : divided ? (
+              /*
+                Two groups, not two lists. The first offers exactly what was asked for; the second
+                does the trade and has not written this job down — which is not the same as being
+                unable to do it, since a service list averages three entries for a business that
+                does thirty kinds of work. Hiding the second group would be the tidier page and
+                the emptier one.
+              */
+              <div className="space-y-8">
+                <div className="grid grid-cols-[repeat(auto-fill,260px)] items-start gap-5">
+                  {listing.map((result) => (
+                    <ProCard key={result.slug} view={viewOf(result)} />
+                  ))}
+                </div>
+
+                <div>
+                  <p className="mb-4 text-[13.5px] text-muted-ink">
+                    <span className="font-medium text-brand">Also nearby</span> — these do the trade
+                    but have not listed this job. Worth asking.
+                  </p>
+                  <div className="grid grid-cols-[repeat(auto-fill,260px)] items-start gap-5">
+                    {rest.map((result) => (
+                      <ProCard key={result.slug} view={viewOf(result)} />
+                    ))}
+                  </div>
+                </div>
+              </div>
             ) : (
               <div className="grid grid-cols-[repeat(auto-fill,260px)] items-start gap-5">
                 {results.map((result) => (
@@ -351,6 +394,28 @@ export function JobSearchResults({
         </div>
       </div>
     </section>
+  );
+}
+
+/**
+ * The job the customer chose, and a way out of it.
+ *
+ * Clickable where `Understood` is not, and the difference is real rather than cosmetic: that one
+ * reports a reading nobody can undo without rewording their sentence, while this one reports a
+ * choice — so dropping it is a link back to the same search without the job.
+ */
+function Picked({ label, zip, when }: { label: string; zip: string; when: string }) {
+  const wider = new URLSearchParams({ zip });
+  if (when) wider.set("when", when);
+
+  return (
+    <p className="mt-2 text-[14.5px] text-muted-ink">
+      Showing tradespeople for{" "}
+      <span className="font-medium text-brand">“{label}”</span>{" "}
+      <Link href={`/browse?${wider}`} className="font-semibold text-brand-500 hover:underline">
+        show everyone nearby
+      </Link>
+    </p>
   );
 }
 
@@ -414,11 +479,12 @@ function viewOf(result: SearchResult): ProCardView {
     subtitle: `${result.city}, ${result.state}`,
     trade: result.primaryTrade ?? undefined,
     distance: miles(result.distanceMiles),
-    rateFrom: result.hourlyRate ? rate(result.hourlyRate) : undefined,
+    rateFrom: result.hourlyRate ? amount(result.hourlyRate) : undefined,
     badges,
     slots: (result.nextSlots ?? []).map((slot) => opening(slot, result.timeZone)),
     // Nothing can accept a booking yet, so the times are shown as what they are.
     bookable: false,
+    href: proPath(result.slug),
   };
 }
 
@@ -454,29 +520,4 @@ function opening(instant: string, timeZone: string): ProCardSlot {
  */
 function miles(distance: number): string {
   return distance < 1 ? "under a mile" : `${Math.round(distance)} mi`;
-}
-
-/** The wire carries four decimal places because money is stored that way; nobody reads $85.0000. */
-function rate(amount: string): string {
-  const value = Number(amount);
-  return Number.isInteger(value) ? String(value) : value.toFixed(2);
-}
-
-function initialsOf(displayName: string): string {
-  const words = displayName.split(/\s+/).filter(Boolean);
-  return words.slice(0, 2).map((word) => word[0]!.toUpperCase()).join("");
-}
-
-/**
- * A colour per business, derived from the slug rather than stored.
- *
- * Deterministic on purpose: the same business is the same colour on every render and on both
- * sides of hydration, and a marketplace that has never asked anybody for a brand colour has none
- * to show.
- */
-const AVATAR_COLORS = ["#1E4E82", "#0E9F6E", "#B4530A", "#0A2F5C", "#6D3FA8", "#B91C1C", "#CA8A04", "#C2410C"];
-
-function colorOf(slug: string): string {
-  const sum = [...slug].reduce((total, character) => total + character.charCodeAt(0), 0);
-  return AVATAR_COLORS[sum % AVATAR_COLORS.length]!;
 }

@@ -45,5 +45,16 @@ public enum ReadinessCheckCode {
 	PRICING_SET,
 
 	/** Bookable with no working hours means bookable with no free slots, ever. */
-	WORKING_HOURS_SET
+	WORKING_HOURS_SET,
+
+	/**
+	 * Advice rather than a condition, and the only one here that is.
+	 *
+	 * <p>The six above are things a booking cannot happen without. This one is about being
+	 * found: a customer who picks a job from the search box is answered with the businesses
+	 * that list it, and a profile listing two is a profile absent from most of those searches.
+	 * Listing more does not make it more bookable, so it does not hold publishing up — a
+	 * business that genuinely does two things is not wrong for saying so.
+	 */
+	ENOUGH_JOBS_TO_BE_FOUND
 }

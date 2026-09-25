@@ -40,6 +40,18 @@ class ReferenceController implements ReferenceApi {
 	}
 
 	@Override
+	public ResponseEntity<List<com.tradeties.generated.model.ServiceJob>> listServiceJobs() {
+
+		return ResponseEntity.ok(referenceService.allServiceJobs().stream()
+				.map(job -> new com.tradeties.generated.model.ServiceJob()
+						.id(job.id())
+						.code(job.code())
+						.label(job.label())
+						.tradeId(job.tradeId()))
+				.toList());
+	}
+
+	@Override
 	public ResponseEntity<List<UsState>> listUsStates() {
 
 		List<UsState> states = referenceService.allStates().stream()

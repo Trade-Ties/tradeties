@@ -34,6 +34,10 @@ export default async function BrowsePage({
   const job = firstValue(params.job);
   const zip = firstValue(params.zip);
   const when = firstValue(params.when);
+  // The job the customer picked out of the suggestions, if they picked one. Carried in the URL
+  // rather than held in memory so the page is shareable and survives a reload — the same reason
+  // everything else about this search lives there.
+  const service = firstValue(params.service);
   const page = pageNumber(firstValue(params.page));
 
   // Arriving with any of these means the hero search bar sent you here —
@@ -45,13 +49,13 @@ export default async function BrowsePage({
   // The page number is deliberately not among them: it says where in a
   // search you are, not that there is one, and on its own it is nothing to
   // page through.
-  const cameFromSearch = job !== "" || zip !== "" || when !== "";
+  const cameFromSearch = job !== "" || zip !== "" || when !== "" || service !== "";
 
   return (
     <>
       <SiteHeader />
       {cameFromSearch ? (
-        <Searched job={job} zip={zip} when={when} page={page} />
+        <Searched job={job} zip={zip} when={when} service={service} page={page} />
       ) : (
         // BrowseProfessionals reads its own initial state via
         // useSearchParams(), which the App Router requires a Suspense
@@ -79,11 +83,13 @@ async function Searched({
   job,
   zip,
   when,
+  service,
   page,
 }: {
   job: string;
   zip: string;
   when: string;
+  service: string;
   page: number | null;
 }) {
   if (zip.length !== 5) {
@@ -95,7 +101,7 @@ async function Searched({
     );
   }
 
-  const result = await searchBusinesses(zip, job || null, page);
+  const result = await searchBusinesses(zip, job || null, service || null, page);
 
   // A postal code the backend cannot place is the one failure worth its own words — and it is
   // recognised by its problem type, not by the status. A description over the length the contract

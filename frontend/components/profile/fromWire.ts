@@ -123,6 +123,7 @@ function toServiceForms(services: Service[]): ServiceForm[] {
       serverId: service.id,
       version: service.version,
       tradeId: service.tradeId,
+      catalogId: service.catalogId ?? undefined,
       name: service.name,
       description: text(service.description),
       estimatedDurationMinutes: service.estimatedDurationMinutes,

@@ -12,6 +12,7 @@ import com.tradeties.business.BusinessSearchResults;
 import com.tradeties.business.GeoPoint;
 import com.tradeties.business.InvalidSelectionException;
 import com.tradeties.business.NextAvailability;
+import com.tradeties.business.ServiceJob;
 import com.tradeties.business.TradeMatch;
 
 import org.springframework.beans.factory.annotation.Value;
@@ -56,9 +57,15 @@ public class BusinessSearchService {
 	 */
 	private static final int SLOTS_PER_RESULT = 3;
 
+	/** Stands in for the picked job when none was. Never read — the flag beside it is false. */
+	private static final UUID NOTHING_PICKED = new UUID(0, 0);
+
 	private final CatalogZipRepository zips;
 	private final JobDescriptionMatcher matcher;
+	private final ServiceCatalogRepository catalogue;
+	private final CatalogTradeRepository trades;
 	private final BusinessSearchRepository businesses;
+	private final CatalogGaps gaps;
 	private final NextAvailability availability;
 	private final int pageSize;
 	private final int maxResults;
@@ -72,14 +79,20 @@ public class BusinessSearchService {
 	 */
 	BusinessSearchService(CatalogZipRepository zips,
 			JobDescriptionMatcher matcher,
+			ServiceCatalogRepository catalogue,
+			CatalogTradeRepository trades,
 			BusinessSearchRepository businesses,
+			CatalogGaps gaps,
 			NextAvailability availability,
 			@Value("${tradeties.search.page-size}") int pageSize,
 			@Value("${tradeties.search.max-results}") int maxResults) {
 
 		this.zips = zips;
 		this.matcher = matcher;
+		this.catalogue = catalogue;
+		this.trades = trades;
 		this.businesses = businesses;
+		this.gaps = gaps;
 		this.availability = availability;
 		this.pageSize = pageSize;
 		this.maxResults = maxResults;
@@ -100,13 +113,22 @@ public class BusinessSearchService {
 	 *         exist, for the same reason
 	 */
 	@Transactional(readOnly = true)
-	public BusinessSearchResults search(String postalCode, String jobDescription, String name, int page) {
+	public BusinessSearchResults search(String postalCode, String jobDescription, String serviceCode,
+			String name, int page) {
+
 		GeoPoint origin = Geocoder.fiveDigitZip(postalCode)
 				.flatMap(zips::findById)
 				.map(CatalogZip::toPoint)
 				.orElseThrow(() -> new InvalidSelectionException("No such ZIP code: " + postalCode));
 
-		List<TradeMatch> matched = matcher.match(jobDescription);
+		ServiceJob picked = pickedJob(serviceCode);
+
+		// A picked job is not a guess, so nothing is read out of the prose beside it. The box
+		// still holds the label of what was chosen, which the matcher would read as a trade all
+		// over again and occasionally as the wrong one.
+		List<TradeMatch> matched = picked == null ? matcher.match(jobDescription) : tradeOf(picked);
+
+		noteIfTheCatalogueHasNoWordForIt(picked, jobDescription);
 
 		boolean narrowByTrade = !matched.isEmpty();
 		List<UUID> tradeIds = matched.isEmpty()
@@ -126,12 +148,14 @@ public class BusinessSearchService {
 		int wanted = Math.min(pageSize, maxResults - offset);
 
 		if (wanted <= 0 || offset >= total) {
-			return new BusinessSearchResults(matched, List.of(), page, pageSize, total, totalCapped);
+			return new BusinessSearchResults(picked, matched, List.of(), page, pageSize, total, totalCapped);
 		}
 
 		List<BusinessSearchRepository.SearchRow> rows = businesses
 				.findServing(origin.latitude(), origin.longitude(),
-						narrowByTrade, tradeIds, narrowByName, wanted, offset);
+						narrowByTrade, tradeIds, narrowByName,
+						picked != null, picked == null ? NOTHING_PICKED : picked.id(),
+						wanted, offset);
 
 		Map<UUID, List<Instant>> slots = availability.nextSlots(
 				rows.stream().collect(Collectors.toMap(
@@ -142,10 +166,82 @@ public class BusinessSearchService {
 		List<BusinessSearchResult> results = rows.stream()
 				.map(row -> new BusinessSearchResult(row.getSlug(), row.getDisplayName(), row.getCity(),
 						row.getState(), row.getPrimaryTrade(), row.getDistanceMiles(), row.getTimeZone(),
-						row.getHourlyRate(), row.getLicensed(), row.getLicenseVerified(),
-						slots.getOrDefault(row.getId(), List.of())))
+						row.getHourlyRate(), row.getOffersThisJob(), row.getLicensed(),
+						row.getLicenseVerified(), slots.getOrDefault(row.getId(), List.of())))
 				.toList();
 
-		return new BusinessSearchResults(matched, results, page, pageSize, total, totalCapped);
+		return new BusinessSearchResults(picked, matched, results, page, pageSize, total, totalCapped);
+	}
+
+	/**
+	 * A description the catalogue could not name, written down where somebody will see it.
+	 *
+	 * <p>This is the only place that gap is visible. The search still answers — it reads a trade
+	 * out of the words and returns plumbers — so nothing about the result says "we have no name
+	 * for what you asked for". Left unrecorded, the catalogue only ever grows by somebody
+	 * guessing, which is how it came to have no entry for a leaking toilet.
+	 *
+	 * <p>Only when nothing was picked: a customer who chose from the list was answered by the
+	 * catalogue, whatever they had typed on the way there.
+	 *
+	 * <p>Asked of the catalogue rather than of the trade matcher, and the two disagree on purpose.
+	 * The matcher answering PLUMBER means the words reached a trade's vocabulary; it says nothing
+	 * about whether the job has a name. "Toilet is leaking" does the first and not the second.
+	 *
+	 * <p><strong>What this cannot see.</strong> The bar is the one the suggestions use, so what is
+	 * recorded is "the customer was shown nothing" rather than "the customer was shown nothing
+	 * useful". "Squirrels in the loft" reaches half its words through {@code the} and {@code loft},
+	 * so the catalogue offered a loft conversion and this stays quiet — a real gap, unrecorded.
+	 *
+	 * <p>Sharpening the bar here would split the two questions and start recording descriptions
+	 * the customer was in fact offered something for. The other direction — recording every search
+	 * that ended without a pick — records nearly all of them, because most people never look at
+	 * the dropdown. Between a signal that misses some gaps and one that drowns them, this is the
+	 * one worth having first; what it collects is evidence either way, and the day somebody reads
+	 * the table they will know which kind it is.
+	 */
+	private void noteIfTheCatalogueHasNoWordForIt(ServiceJob picked, String jobDescription) {
+		if (picked != null || jobDescription == null || jobDescription.isBlank()) {
+			return;
+		}
+
+		if (!catalogue.canName(jobDescription, ServiceSuggestionService.WORTH_CALLING_A_MATCH)) {
+			gaps.note(CatalogGaps.Source.CUSTOMER, jobDescription);
+		}
+	}
+
+	/**
+	 * Null for "they picked nothing", an exception for "that is not a job".
+	 *
+	 * <p>The same answer an unknown postal code gets, for the same reason: a code can only reach
+	 * here from a stale link or a hand-edited URL, and answering "nobody near you does this" would
+	 * send somebody to widen a search that was never narrow.
+	 */
+	private ServiceJob pickedJob(String serviceCode) {
+		if (serviceCode == null || serviceCode.isBlank()) {
+			return null;
+		}
+
+		return catalogue.findByCode(serviceCode.trim())
+				.map(row -> new ServiceJob(row.getId(), row.getCode(), row.getLabel(), row.getTradeId()))
+				.orElseThrow(() -> new InvalidSelectionException("No such service: " + serviceCode));
+	}
+
+	/**
+	 * The picked job's trade, in the shape a read of prose would have answered in.
+	 *
+	 * <p>Filled rather than left empty so that a client reading only {@code matchedTrades} still
+	 * sees what the results were narrowed to. The score is 1 because nothing was ranked — the
+	 * customer chose, and {@code matchedService} beside it is the honest account of that.
+	 *
+	 * <p>Empty if the trade has been retired since the job was picked, which narrows by nothing
+	 * rather than by a trade nobody can hold. The job itself is already gone from the catalogue in
+	 * that case, so this is the second of two guards and not the first.
+	 */
+	private List<TradeMatch> tradeOf(ServiceJob picked) {
+		return trades.findById(picked.tradeId())
+				.map(CatalogTrade::toOption)
+				.map(option -> List.of(new TradeMatch(option.id(), option.code(), option.displayName(), 1.0)))
+				.orElse(List.of());
 	}
 }

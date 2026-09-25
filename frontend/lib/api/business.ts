@@ -69,6 +69,20 @@ export function fetchTrades(accessToken: string): Promise<ApiResult<Trade[]>> {
   return attempt("GET /api/v1/trades", () => apiClient(accessToken).GET("/api/v1/trades"));
 }
 
+/**
+ * Every job the marketplace has a name for.
+ *
+ * Reference data, read once with the trades and the states. Unfiltered: step 4's picker narrows
+ * it to the trades chosen in step 3, and those can be chosen in the same sitting — a list the
+ * server had already narrowed would be stale by the time somebody reached the screen that uses
+ * it.
+ */
+export function fetchServiceJobs(accessToken: string) {
+  return attempt("GET /api/v1/service-jobs", () =>
+    apiClient(accessToken).GET("/api/v1/service-jobs"),
+  );
+}
+
 export function fetchUsStates(accessToken: string): Promise<ApiResult<UsState[]>> {
   return attempt("GET /api/v1/us-states", () => apiClient(accessToken).GET("/api/v1/us-states"));
 }

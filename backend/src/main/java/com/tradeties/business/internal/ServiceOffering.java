@@ -65,6 +65,14 @@ class ServiceOffering {
 	@Column(name = "trade_id", nullable = false)
 	private UUID tradeId;
 
+	/**
+	 * The marketplace job this service answers, or null for one typed by hand that fits no
+	 * catalogue entry. Nullable on purpose: the catalogue does not know every job yet, and a
+	 * service it cannot place is still a service somebody offers.
+	 */
+	@Column(name = "catalog_id")
+	private UUID catalogId;
+
 	@Column(name = "name", nullable = false, length = 160)
 	private String name;
 
@@ -104,6 +112,7 @@ class ServiceOffering {
 	ServiceOffering(UUID businessId, ServiceDefinition definition, int sortOrder) {
 		this.businessId = businessId;
 		this.sortOrder = sortOrder;
+		this.catalogId = definition.catalogId();
 		apply(definition);
 	}
 
@@ -119,7 +128,20 @@ class ServiceOffering {
 		this.updatedAt = Instant.now();
 	}
 
-	/** Unconditional, because the write is a replacement and not a merge. */
+	/**
+	 * Unconditional, because the write is a replacement and not a merge.
+	 *
+	 * <p><strong>{@code catalogId} is the one exception, and it is set in the constructor
+	 * instead.</strong> A replacement carries what the holder edited — the name, the time, the
+	 * price — and the catalogue link is none of those: it was decided when the service was
+	 * ticked. Clearing it here would happen every time somebody corrected a price, and the
+	 * damage would be invisible from the screen they did it on: the service stays, the profile
+	 * looks unchanged, and the business quietly drops out of every search for that job.
+	 *
+	 * <p>Re-linking a hand-typed service to a catalogue entry is a real need and deliberately not
+	 * this operation. It belongs to the review queue that promotes typed services into the
+	 * catalogue, and it will want to say so explicitly rather than ride along in a full write.
+	 */
 	final void apply(ServiceDefinition definition) {
 		this.tradeId = definition.tradeId();
 		this.name = definition.name();
@@ -152,7 +174,7 @@ class ServiceOffering {
 
 	ServiceDetails toDetails() {
 		return new ServiceDetails(
-				id, tradeId, name, description, estimatedDurationMinutes,
+				id, tradeId, catalogId, name, description, estimatedDurationMinutes,
 				pricingMode, price, active, sortOrder, version);
 	}
 }

@@ -1,8 +1,9 @@
 import { useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Check, ChevronRight, CircleAlert, Pencil } from "lucide-react";
+import { Check, ChevronRight, CircleAlert, Lightbulb, Pencil } from "lucide-react";
 import type { ProfileReadiness } from "@/lib/api/wire";
+import { cn } from "@/lib/utils";
 import { CollapsibleRow } from "../CollapsibleRow";
 import type { FocusTargetName } from "../focusTarget";
 import { CHECK_TARGETS } from "../wizardSteps";
@@ -50,15 +51,41 @@ function ReadinessChecklist({
       </h3>
 
       <ul className="space-y-2">
-        {readiness.checks.map((check) =>
-          check.passed ? (
-            <li key={check.code} className="flex items-start gap-2 text-sm">
-              <Check aria-hidden="true" className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
-              {/* The icon is the only thing that says which of the two a line is. */}
-              <span className="sr-only">Done:</span>
-              <span className="text-muted-foreground">{check.detail}</span>
-            </li>
+        {readiness.checks.map((check) => {
+          /*
+            Three states, not two. A failing condition holds the profile off the market; a
+            failing piece of advice does not, and drawing it in the same alarmed red would tell
+            somebody they are blocked by something that blocks nothing — on the screen where
+            they are trying to go live.
+          */
+          const open = !check.passed && check.blocking;
+          const suggested = !check.passed && !check.blocking;
+
+          const icon = open ? (
+            <CircleAlert aria-hidden="true" className="mt-0.5 size-4 shrink-0 text-destructive" />
+          ) : suggested ? (
+            <Lightbulb aria-hidden="true" className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
           ) : (
+            <Check aria-hidden="true" className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
+          );
+          // The icon is the only thing that says which of the three a line is.
+          const label = (
+            <span className="sr-only">{open ? "Still open:" : suggested ? "Suggestion:" : "Done:"}</span>
+          );
+
+          // A passed line has nowhere to send anybody; an open one or a suggestion leads to the
+          // field that settles it.
+          if (check.passed) {
+            return (
+              <li key={check.code} className="flex items-start gap-2 text-sm">
+                {icon}
+                {label}
+                <span className="text-muted-foreground">{check.detail}</span>
+              </li>
+            );
+          }
+
+          return (
             <li key={check.code}>
               <button
                 type="button"
@@ -68,17 +95,21 @@ function ReadinessChecklist({
                 }}
                 className="group -mx-2 flex w-[calc(100%+1rem)] items-start gap-2 rounded-md px-2 py-1 text-left text-sm hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
               >
-                <CircleAlert aria-hidden="true" className="mt-0.5 size-4 shrink-0 text-destructive" />
-                <span className="sr-only">Still open:</span>
-                <span className="flex-1 underline-offset-2 group-hover:underline">{check.detail}</span>
-                <ChevronRight
-                  aria-hidden="true"
-                  className="mt-0.5 size-4 shrink-0 text-muted-foreground"
-                />
+                {icon}
+                {label}
+                <span
+                  className={cn(
+                    "flex-1 underline-offset-2 group-hover:underline",
+                    !open && "text-muted-foreground"
+                  )}
+                >
+                  {check.detail}
+                </span>
+                <ChevronRight aria-hidden="true" className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
               </button>
             </li>
-          )
-        )}
+          );
+        })}
       </ul>
     </div>
   );

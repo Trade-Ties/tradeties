@@ -36,6 +36,11 @@ tags:
       The customer's half: finding a tradesperson. Public, unauthenticated, and
       deliberately anonymous — nothing here takes a token and nothing it returns
       names a person.
+  - name: admin
+    description: |
+      TradeTies' own staff, and the only tag whose operations are about the marketplace
+      rather than about one participant in it. Everything here requires `PLATFORM_ADMIN`,
+      a role that is never granted through a public endpoint.
   - name: business
     description: |
       The tradesperson's own business. Every operation here resolves the business
@@ -140,6 +145,41 @@ paths:
                 type: array
                 items:
                   $ref: "#/components/schemas/Trade"
+
+  /api/v1/service-jobs:
+    get:
+      tags: [reference]
+      operationId: listServiceJobs
+      security: []
+      summary: Every job the marketplace has a name for.
+      description: |
+        The catalogue as a flat list, in trade order and then catalogue order. Reference data
+        like the trades beside it: the same for every caller, so it is read once and handed to
+        whatever needs it.
+
+        **This is what step 4's picker is built on.** Adding a service by hand means naming,
+        timing and pricing it, so tradespeople add three and stop — the seeded marketplace
+        averages 3.1 each, for businesses that do thirty kinds of work. A list that thin cannot
+        be searched on: a plumber who never wrote "toilet" down is one the customer with a
+        leaking toilet never sees. Ticking has to be the cheap path, or the data the search
+        needs never arrives.
+
+        **Unfiltered on purpose.** A caller that wants only the jobs one business could offer
+        narrows by `tradeId` itself, against the trades that business holds. Filtering here
+        instead would answer for the trades it held when the page loaded — and step 3, where
+        they are chosen, is the screen before the one that asks.
+
+        Inactive jobs are never returned, and inactive trades take their jobs with them: a job
+        nobody can be filed under is not a choice.
+      responses:
+        "200":
+          description: Active jobs, in presentation order.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ServiceJob"
 
   /api/v1/us-states:
     get:
@@ -262,6 +302,39 @@ paths:
           schema:
             type: string
             maxLength: 300
+        - name: service
+          in: query
+          required: false
+          description: |
+            A job the customer picked out of the catalogue, by its `code`. What
+            `GET /api/v1/service-catalog` suggested while they typed, sent back when they
+            chose one.
+
+            **This is the difference between asking and guessing.** `job` is prose the server
+            reads a trade out of, and it is wrong often enough to matter — "Toilet is leaking"
+            used to reach roofers, because roofing carries the word `leak`. A code was chosen
+            from a list, so there is nothing to read: the trade is the job's own, and the
+            guessing stops.
+
+            **It ranks rather than filters, and that is a decision worth knowing about.**
+            Businesses that offer exactly this job come first, marked by `offersThisJob`;
+            the rest of the trade follows. Filtering to the first group would be the tidier
+            list and, today, the emptier one — service lists average three entries per
+            business, so a plumber who never wrote "toilet" down is a plumber who can fix
+            it and is not on the list. Sorting says what is certain without hiding what is
+            likely.
+
+            Takes precedence over `job` when both are sent, which is the normal case: the
+            box still holds the label of what was picked. `name` still narrows on top of
+            it — someone can want this job from that business.
+
+            A code the catalogue does not list answers `400`, the same way an unknown postal
+            code does and for the same reason: it can only come from a stale link or a
+            hand-edited URL, and an empty result would blame the wrong thing.
+          schema:
+            type: string
+            maxLength: 64
+            examples: ["PLUMBER_TOILET_REPLACE"]
         - name: name
           in: query
           required: false
@@ -327,6 +400,258 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/BusinessSearchResults"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+
+  /api/v1/businesses/{slug}:
+    parameters:
+      - name: slug
+        in: path
+        required: true
+        description: |
+          The URL segment this business was published under. Frozen from the first
+          publish onwards, which is what makes a link to this page worth printing on a
+          van.
+        schema:
+          $ref: "#/components/schemas/Slug"
+    get:
+      tags: [marketplace]
+      operationId: getBusinessBySlug
+      security: []
+      summary: One tradesperson, as a customer sees them.
+      description: |
+        What a search result has no room for: every service with the time it takes, the
+        terms the work is charged on, and the licences on file.
+
+        **A service is read before a calendar can be drawn.** What a service carries is a
+        duration, and a duration is what gives an appointment a length —
+        `AT_LEAST_ONE_SERVICE` is a publishing condition for that reason. So free slots
+        are a question about a *service*, not about a business, and this is where the
+        customer answers it.
+
+        **Published profiles only, and one `404` for everything else.** A slug nobody
+        holds, a profile still in draft, one the marketplace has suspended: all the same
+        answer. Telling them apart would publish TradeTies' moderation decisions to
+        anybody who can type a URL.
+
+        **What is missing is missing on purpose, and it is what the search leaves out
+        too.** No street address — a trade address is often somebody's home — no
+        coordinates, and no legal name. No phone number and no email either: the request
+        flow is the contact channel, and a dispatch line printed here would route around
+        the appointment this page exists to arrange.
+
+        Anonymous, like the search. No token is taken and none is needed.
+      responses:
+        "200":
+          description: The profile.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PublicBusinessProfile"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/businesses/{slug}/availability:
+    parameters:
+      - name: slug
+        in: path
+        required: true
+        description: |
+          The business whose diary is being read, by the address it was published
+          under.
+        schema:
+          $ref: "#/components/schemas/Slug"
+    get:
+      tags: [marketplace]
+      operationId: getBusinessAvailability
+      security: []
+      summary: When this business is free to do this job.
+      description: |
+        The calendar behind the profile, and the first operation that needs a service
+        rather than a business.
+
+        **The grid decides the starts; the service decides how long each one runs.**
+        The business declares a grid — starts on the hour, or on the half hour — and
+        every start on it that falls inside a working block is offered. A morning that
+        ends at noon therefore has eight starts on a half-hour grid, the last at 11:30,
+        and it has eight of them whether the job takes half an hour or takes three.
+
+        **A start is not a promise that the work ends inside the block.** Ninety minutes
+        from 11:30 runs to 13:00, past the end of that morning, and this operation says
+        so rather than withholding the start: the tradesperson decides on the request,
+        and whether their day stretches is theirs to answer. A client must therefore
+        draw the span from `appointmentMinutes` — a start time alone no longer tells a
+        customer when they get their afternoon back.
+
+        `serviceId` is still required, and for two reasons that outlive the change: it
+        is what `appointmentMinutes` is read from, and it is what declared time off is
+        measured against, so a job long enough to run into a holiday is not offered a
+        start before it.
+
+        **What is subtracted:** the working week, less declared time off, less the notice
+        the tradesperson requires, bounded by how far ahead they take bookings. Accepted
+        appointments join that list when there are any to subtract.
+
+        **The window is shortened, not refused.** Ask for more than the diary holds and
+        the answer covers what it does hold, with `from` and `to` reporting which days
+        were actually read. That is how a client learns this business books six weeks out
+        without a second operation to ask it.
+
+        **Nothing here is a reservation.** These are the starts that were free when the
+        question was asked. The tradesperson decides on a request, and until they do the
+        same slot stays on offer to everybody else — DECISIONS section 1 makes that a
+        rule rather than an accident, so two customers seeing one slot is correct
+        behaviour and not a race to paper over.
+
+        Anonymous, like the rest of the customer side. Nothing in the answer names a
+        person, and a closed week, a holiday and an unfilled diary are one empty list.
+      parameters:
+        - name: serviceId
+          in: query
+          required: true
+          description: |
+            Which of this business's services the appointment is for, by the `id` that
+            `GET /api/v1/businesses/{slug}` returned.
+
+            A service this business does not offer, or one it has since deactivated,
+            answers `400` rather than an empty list — the same reasoning an unknown
+            postal code gets on the search. It can only arrive from a stale page, and
+            "nobody is free" would send somebody off to try another week.
+          schema:
+            type: string
+            format: uuid
+        - name: from
+          in: query
+          required: true
+          description: |
+            The first day to read, as a calendar date in the business's own `timeZone`.
+
+            Moved later when it falls inside the notice the tradesperson requires. The
+            day it moves to comes back in `from` — though the notice may still have
+            removed the first hours of that day. `slots` is the exact answer; `from` and
+            `to` are the span it was read over.
+          schema:
+            type: string
+            format: date
+            examples: ["2026-10-05"]
+        - name: to
+          in: query
+          required: true
+          description: |
+            The last day to read, inclusive, in the same zone.
+
+            Shortened to the booking horizon, and to at most 31 days after `from`: a
+            month is what a calendar shows, and a year of quarter-hour starts is a
+            payload nobody reads. Both shortenings are reported in `to`.
+
+            Earlier than `from` is the one window refused rather than shortened. There is
+            nothing to shorten it to, and it can only be a client's own bug.
+          schema:
+            type: string
+            format: date
+            examples: ["2026-10-12"]
+      responses:
+        "200":
+          description: The openings, and the window they were read over.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BusinessAvailability"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/service-catalog:
+    get:
+      tags: [marketplace]
+      operationId: suggestServices
+      security: []
+      summary: Jobs that begin like what the customer is typing.
+      description: |
+        The search box, one keystroke at a time. Where `job` on the search hands the
+        server a finished sentence to interpret, this hands it an unfinished word and
+        gets back jobs the marketplace already has a name for — so the customer picks
+        a known job instead of the server guessing at prose.
+
+        **Matched by letters, not by meaning,** which is the opposite of `job` and the
+        reason they are different operations. `job` is stemmed and read as language;
+        this treats every word typed as the beginning of a word, so four characters of
+        "thermostat" already narrow the list and the fifth narrows it further. Stemming
+        would break exactly that: it stores "washing" as "wash", and "washi" is a prefix
+        of neither.
+
+        **Synonyms are searched, the label is what ranks.** Every entry carries the words
+        a customer types and the words a tradesperson types, so `rooter` reaches
+        "Clear a blocked main sewer line" although that word is nowhere in its name. When
+        a word appears in both, the entry whose name contains it ranks first.
+
+        **Nothing is hidden for want of a supplier.** A job nobody nearby offers is still
+        suggested, marked by `offeredNearby`. Filtering it out would be the tidier list
+        and the worse product: the customer would be unable to say what they need, and
+        TradeTies would never learn that the demand existed. That is the one thing an
+        empty answer cannot tell anybody.
+
+        **Ordered by how well it matched, not by whether it is available.** Availability
+        is a badge, not a sort key — a weak match promoted over a strong one because
+        somebody nearby happens to offer it reads as a broken search box.
+
+        At most eight are returned. This is a dropdown under a text field; a ninth row
+        is one nobody scrolls to, and the number is the server's to choose rather than
+        the client's to ask for.
+
+        Anonymous, like the rest of the customer side. No token is taken and none is
+        needed.
+      parameters:
+        - name: q
+          in: query
+          required: true
+          description: |
+            What the customer has typed so far. Partial words are the normal case, not
+            the exception.
+
+            Text that carries no searchable word — a space, punctuation on its own —
+            answers `200` with an empty list rather than `400`. Somebody halfway through
+            typing has not made a mistake.
+
+            Safe to pass through raw. The server reduces this to words before it becomes
+            a query, so `AT&T` is two words rather than a syntax error.
+          schema:
+            type: string
+            maxLength: 100
+            examples: ["no hot wat"]
+        - name: zip
+          in: query
+          required: false
+          description: |
+            Where the customer is, if they have said yet. Five digits or ZIP+4; only the
+            five are read.
+
+            Optional because the two fields are filled in whatever order suits the
+            customer, and a suggestion list that stays empty until an unrelated field is
+            complete is a dead search box. Without it every suggestion comes back with
+            `offeredNearby` absent — not `false`, which would be a claim nobody made.
+
+            A code the Census does not list answers `400` here for the same reason it
+            does on the search: a typo and "nobody near you does this" are different
+            news.
+          schema:
+            type: string
+            pattern: '^\d{5}(-\d{4})?$'
+            maxLength: 10
+            examples: ["80202"]
+      responses:
+        "200":
+          description: |
+            Matching jobs, best first, at most eight. An empty list means the letters
+            matched no job — not that nobody is available, which is what `offeredNearby`
+            on a filled list says instead.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ServiceSuggestion"
         "400":
           $ref: "#/components/responses/BadRequest"
 
@@ -1142,6 +1467,151 @@ paths:
         "409":
           $ref: "#/components/responses/Conflict"
 
+  /api/v1/admin/service-catalog-suggestions:
+    get:
+      tags: [admin]
+      operationId: listCatalogSuggestions
+      summary: Phrases the catalogue has no name for, most asked first.
+      description: |
+        What customers described and tradespeople typed that no catalogue entry answers.
+        Both are collected without anybody deciding to, and this is where the deciding
+        happens.
+
+        **The count is the whole point.** A single typo sits at one and stays at the bottom;
+        the same missing job asked eighteen times rises to the top and answers "what are we
+        missing" without anybody guessing. `firstSeenAt` is the other half of that: eighteen
+        times since Tuesday and eighteen times since March are different news.
+
+        Ordered by `seenCount`, highest first, then by phrase so that a page is stable
+        between two identical calls.
+      parameters:
+        - name: status
+          in: query
+          required: false
+          description: |
+            Which decisions to show. `NEW` is the queue and the default; the other two are
+            the record of what was already decided, kept rather than deleted so the same
+            judgement is not made twice.
+
+            A dismissed phrase goes on being counted. Nothing moves it back to `NEW` on its
+            own — a decision is not undone by traffic — but one that has quietly climbed to
+            four hundred is worth a second look, and this is how it is found.
+          schema:
+            allOf:
+              - $ref: "#/components/schemas/SuggestionStatus"
+            default: NEW
+        - name: limit
+          in: query
+          required: false
+          description: How many to return. The tail of this list is noise by construction.
+          schema:
+            type: integer
+            format: int32
+            minimum: 1
+            maximum: 200
+            default: 50
+      responses:
+        "200":
+          description: The phrases, most asked first.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/CatalogSuggestion"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /api/v1/admin/service-catalog-suggestions/{suggestionId}/promotion:
+    parameters:
+      - name: suggestionId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    put:
+      tags: [admin]
+      operationId: promoteCatalogSuggestion
+      summary: Turn a collected phrase into a job the marketplace offers.
+      description: |
+        Writes a new catalogue entry and marks the phrase as its source. From that moment,
+        with no deployment: customers are offered the job while they type, tradespeople can
+        tick it in their own list, and the search can narrow to whoever offers it.
+
+        **The phrase is evidence, not the entry.** What is written is the label sent here —
+        "my chimney flue is cracked" is how somebody described a problem, and "Repair a
+        cracked chimney flue" is what the marketplace should call the job. That translation
+        is the work, and it is why this is a person's decision rather than a rule: the
+        development seed is full of "Main line rooter service" and "Repipe assessment",
+        which is how tradespeople write and not how customers search.
+
+        **The code is derived, not supplied.** A stable identity assembled from the trade
+        and the label, so nobody has to invent one and nobody can typo one. A label whose
+        code already exists is refused with `409` naming the clash — which is the answer,
+        because it means the job already has an entry and the phrase should point at that
+        one instead.
+
+        Replayable: promoting a phrase that was already promoted answers `409` rather than
+        writing a second entry.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SuggestionPromotion"
+      responses:
+        "201":
+          description: The catalogue entry that now exists.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ServiceJob"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+
+  /api/v1/admin/service-catalog-suggestions/{suggestionId}/dismissal:
+    parameters:
+      - name: suggestionId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    put:
+      tags: [admin]
+      operationId: dismissCatalogSuggestion
+      summary: Decide a phrase is not a job worth naming.
+      description: |
+        A typo, a duplicate of something already catalogued, or a sentence that describes no
+        job at all. Marked rather than deleted, so the same judgement is not made twice — and
+        so that a dismissed phrase which goes on being asked can still be found later.
+
+        Replayable. Dismissing what is already dismissed changes nothing and answers `204`;
+        dismissing what was promoted is refused, because that decision has a catalogue entry
+        behind it and undoing it is not this operation's business.
+      responses:
+        "204":
+          description: Marked as decided.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+
 components:
   securitySchemes:
     workosAuthKit:
@@ -1182,6 +1652,11 @@ components:
         query by owner rather than checking ownership afterwards, so someone else's
         resource is indistinguishable from a missing one — deliberately. A 403 would
         confirm that the thing exists.
+
+        The anonymous side says the same thing about a different rule: a profile that is
+        not published is not the customer's to see, so a draft, a suspension and a slug
+        nobody holds are one answer. Distinguishing them would publish a moderation
+        decision to anybody who can type a URL.
       content:
         application/problem+json:
           schema:
@@ -1256,6 +1731,17 @@ components:
         or carpentry?" instead of quietly picking one.
       required: [matchedTrades, results, page, pageSize, total, totalCapped]
       properties:
+        matchedService:
+          description: |
+            The job the customer picked, echoed back. Absent when none was — the results
+            then rest on `matchedTrades`, which is a reading of prose rather than a choice.
+
+            Present, it is the better thing to show: "Replace a toilet" is what they asked
+            for, where "Plumber" is what was inferred from it. A client that renders this
+            as a removable chip gives them a way back to the wider list.
+          oneOf:
+            - $ref: "#/components/schemas/ServiceJob"
+            - type: "null"
         matchedTrades:
           type: array
           description: |
@@ -1324,6 +1810,50 @@ components:
             rank, not a probability: two scores close together mean the description did
             not tell them apart, which is the case worth asking the customer about.
 
+    ServiceSuggestion:
+      type: object
+      description: |
+        One job out of the catalogue, as a customer would name it.
+
+        The trade rides along because the client shows it — "Plumber" beside "Unclog a
+        sink drain" is what tells somebody the list understood them — and not because
+        picking this suggestion narrows by trade. It narrows by the job itself, which is
+        the more precise thing and the reason this catalogue exists.
+      required: [code, label, tradeCode, tradeDisplayName]
+      properties:
+        code:
+          type: string
+          maxLength: 64
+          description: |
+            Stable identity of the job, and what a client sends back rather than the
+            label. Labels are editorial and get rewritten; this does not.
+          examples: ["PLUMBER_DRAIN_UNCLOG"]
+        label:
+          type: string
+          maxLength: 120
+          examples: ["Unclog a sink, tub or shower drain"]
+        tradeCode:
+          type: string
+          maxLength: 64
+          examples: ["PLUMBER"]
+        tradeDisplayName:
+          type: string
+          maxLength: 120
+          examples: ["Plumber"]
+        offeredNearby:
+          type: boolean
+          description: |
+            Whether at least one published tradesperson whose service area reaches the
+            given postal code offers this job today.
+
+            **Absent when no `zip` was given**, which is not the same as `false`. False
+            is a measured answer — we looked and nobody near you does this. Absent means
+            nobody asked, and a client that renders the two the same way will tell
+            somebody they cannot be helped before they have said where they are.
+
+            Advisory rather than a promise: it says somebody offers the job, not that
+            they are free this week. The search is what answers that.
+
     BusinessSearchResult:
       type: object
       description: |
@@ -1381,6 +1911,21 @@ components:
           oneOf:
             - $ref: "#/components/schemas/MoneyAmount"
             - type: "null"
+        offersThisJob:
+          type: boolean
+          description: |
+            Whether this business lists the job sent as `service`. **Absent when none was
+            sent**, which is not the same as `false` — one means nobody asked, the other
+            means we looked and they do not list it.
+
+            **It says "listed", not "able".** Service lists average three entries per
+            business, for businesses that do thirty kinds of work, so `false` covers the
+            plumber who can fix a toilet and never wrote it down. That is why this sorts
+            the results rather than filtering them: true is a promise worth showing first,
+            false is not a verdict worth hiding somebody behind.
+
+            Results are ordered so that every `true` precedes every `false`, then by
+            distance as usual, so a client can draw one divider and needs no second request.
         licensed:
           type: boolean
           description: |
@@ -1428,6 +1973,328 @@ components:
           items:
             type: string
             format: date-time
+
+    PublicBusinessProfile:
+      type: object
+      description: |
+        One business as a customer sees it, and deliberately not the same object as
+        `BusinessProfile`. That one is the company as its owner sees it and carries what it
+        takes to *edit* a profile; this one carries what it takes to *choose* one and book it.
+
+        Everything here is either something the business published about itself or something
+        TradeTies checked. Nothing is about a person.
+      required: [slug, displayName, city, state, timeZone, trades, services, pricing, licenses]
+      properties:
+        slug:
+          $ref: "#/components/schemas/Slug"
+        displayName:
+          type: string
+          maxLength: 200
+        description:
+          type: [string, "null"]
+          maxLength: 2000
+        websiteUrl:
+          type: [string, "null"]
+          pattern: '^https?://.+'
+          maxLength: 2048
+        city:
+          type: string
+          maxLength: 100
+        state:
+          $ref: "#/components/schemas/UsStateCode"
+        timeZone:
+          allOf:
+            - $ref: "#/components/schemas/TimeZoneId"
+          description: |
+            The zone this business keeps its hours in, and the one every appointment time
+            around this profile means something in. Sent for the reason the search sends it: a
+            time without a zone is not a time, and a slot rendered on the reader's own clock is
+            the wrong hour for anybody who is not standing where they usually stand.
+        trades:
+          type: array
+          description: |
+            Every trade this business holds, in no particular order — `primaryTradeId` is what
+            says which one it leads with, rather than a position in this list.
+
+            Whole trades and not names, because `PublicService.tradeId` points at them: a
+            client that groups services by trade needs the ids, and one that draws an icon per
+            trade needs the codes.
+          items:
+            $ref: "#/components/schemas/Trade"
+        primaryTradeId:
+          type: string
+          format: uuid
+          description: |
+            Which of `trades` this business leads with. Absent only for a profile published
+            before the checklist required one, which is nothing the customer needs explaining —
+            a client that finds it missing shows the trades it has.
+        services:
+          type: array
+          description: |
+            What can actually be booked, in the order the business put them in.
+
+            **This is where a slot search starts.** A slot has no length until one of these is
+            chosen, so a calendar drawn before that would be offering start times nothing can
+            be booked at.
+
+            Never empty for a published profile: `AT_LEAST_ONE_SERVICE` is a publishing
+            condition, and its reason is exactly this one.
+          items:
+            $ref: "#/components/schemas/PublicService"
+        pricing:
+          allOf:
+            - $ref: "#/components/schemas/PublicPricing"
+          description: |
+            Always present, because `PRICING_SET` is a publishing condition too — a request
+            snapshots the cancellation fee when it is sent, so a business with no terms has
+            nothing that could be asked of it.
+        licenses:
+          type: array
+          description: |
+            The licences on file that have not expired, if any.
+
+            **Empty is not an accusation.** Plenty of trades need no licence in plenty of
+            states, and a profile completed before the licence step reads the same way. An
+            expired licence is absent for a different reason: a licence is a statement about
+            today, and an expired one is not a weaker version of it.
+          items:
+            $ref: "#/components/schemas/PublicLicense"
+
+    PublicService:
+      type: object
+      description: |
+        One thing this business does, with the two numbers a customer decides on: how long it
+        takes and what it costs.
+
+        `id` is what a booking will name, and `estimatedDurationMinutes` is what gives that
+        booking a length — which is why a service is chosen before the calendar is drawn.
+
+        **No `active`, no `sortOrder`, no `version`.** Only services still offered are listed,
+        already in the order they were put in, and there is nothing here to write. A
+        deactivated service is the record of an appointment that named it, which belongs to the
+        history rather than to the menu.
+      required: [id, tradeId, name, estimatedDurationMinutes, pricingMode]
+      properties:
+        id:
+          type: string
+          format: uuid
+        tradeId:
+          type: string
+          format: uuid
+          description: Which of the profile's `trades` this service is filed under.
+        name:
+          type: string
+          minLength: 1
+          maxLength: 160
+          examples: ["Clog removal"]
+        description:
+          type: [string, "null"]
+          maxLength: 2000
+        estimatedDurationMinutes:
+          type: integer
+          format: int32
+          description: |
+            The time this reserves in the calendar, which is not the time billed. What the
+            business sets aside; what the customer pays follows `pricing`.
+          minimum: 15
+          maximum: 480
+        pricingMode:
+          $ref: "#/components/schemas/ServicePricingMode"
+        price:
+          oneOf:
+            - $ref: "#/components/schemas/MoneyAmount"
+            - type: "null"
+          description: |
+            The fixed price, for a service that has one. Null for an hourly service, whose
+            rate is `pricing.hourlyRate` — and null there too is a question unanswered rather
+            than work given away.
+
+    PublicPricing:
+      type: object
+      description: |
+        What the work is charged on, before anyone has asked for a quote. The same terms
+        `Pricing` carries, minus the `version` there is nothing here to write with.
+
+        **`cancellationFee` and `cancellationNoticeHours` are the pair that has to be read
+        before a request is sent.** The fee is snapshotted onto the request at that moment, so
+        what was displayed is what binds — and a customer sending requests to several
+        businesses at once is being told, in dollars, what a double booking would cost.
+      required:
+        - currency
+        - minimumBillableMinutes
+        - billingIncrementMinutes
+        - serviceCallFeeWaivedIfHired
+        - travelFeeMode
+        - materialPricingMode
+        - cancellationFee
+        - cancellationNoticeHours
+      properties:
+        currency:
+          type: string
+          description: USD. Present so a later market does not have to change the shape.
+          minLength: 3
+          maxLength: 3
+        hourlyRate:
+          oneOf:
+            - $ref: "#/components/schemas/MoneyAmount"
+            - type: "null"
+        minimumBillableMinutes:
+          type: integer
+          format: int32
+          description: The "one hour minimum" every US trade quotes.
+          minimum: 1
+        billingIncrementMinutes:
+          type: integer
+          format: int32
+          minimum: 1
+        serviceCallFee:
+          oneOf:
+            - $ref: "#/components/schemas/MoneyAmount"
+            - type: "null"
+          description: The "$89 service call fee", charged for turning up.
+        serviceCallFeeWaivedIfHired:
+          type: boolean
+          description: Only meaningful with a fee — waiving one that does not exist is not a statement.
+        travelFeeMode:
+          $ref: "#/components/schemas/TravelFeeMode"
+        travelFlatFee:
+          oneOf:
+            - $ref: "#/components/schemas/MoneyAmount"
+            - type: "null"
+        travelRatePerMile:
+          oneOf:
+            - $ref: "#/components/schemas/MoneyAmount"
+            - type: "null"
+        freeTravelRadiusMiles:
+          type: [integer, "null"]
+          format: int32
+          minimum: 0
+        materialPricingMode:
+          $ref: "#/components/schemas/MaterialPricingMode"
+        materialMarkupPercent:
+          oneOf:
+            - $ref: "#/components/schemas/PercentAmount"
+            - type: "null"
+        cancellationFee:
+          $ref: "#/components/schemas/MoneyAmount"
+        cancellationNoticeHours:
+          type: integer
+          format: int32
+          description: |
+            Hours, not "one day": 24 answers "may I still cancel" with a subtraction, where
+            "the day before" has to be interpreted first.
+          minimum: 0
+          maximum: 720
+
+    PublicLicense:
+      type: object
+      description: |
+        A licence on file, without the `id` and `version` only its holder can use.
+
+        **`verified`, not `verifiedAt`.** *When* TradeTies checked is the marketplace's own
+        record; *whether* it did is what the customer reads. And what was checked is the
+        licence — a badge claiming anything broader would assert an identity check nobody
+        performed.
+      required: [state, licenseNumber, verified]
+      properties:
+        state:
+          $ref: "#/components/schemas/UsStateCode"
+        licenseNumber:
+          type: string
+          minLength: 1
+          maxLength: 64
+        licenseType:
+          type: [string, "null"]
+          maxLength: 120
+          examples: ["Master Plumber"]
+        issuedOn:
+          type: [string, "null"]
+          format: date
+        expiresOn:
+          type: [string, "null"]
+          format: date
+          description: Null means the licence does not expire, not that nobody filled it in.
+        verified:
+          type: boolean
+          description: Whether TradeTies checked this licence against the issuing state.
+
+    BusinessAvailability:
+      type: object
+      description: |
+        Free start times for one service at one business, and the window they were read
+        over.
+
+        The window is answered as well as the slots because it may be shorter than the
+        one asked for — an empty list over six weeks and an empty list over the two days
+        the diary actually reaches are different news.
+      required: [serviceId, timeZone, appointmentMinutes, from, to, slots, slotsCapped]
+      properties:
+        serviceId:
+          type: string
+          format: uuid
+          description: |
+            Echoed back, so an answer that arrives after the customer has changed their
+            mind can be told from the one they are waiting for.
+        timeZone:
+          type: string
+          description: |
+            The zone every start below is read against — the business's own, never the
+            reader's. Nine in the morning is nine where the tradesperson works, and that
+            is the number both sides of an appointment have to agree on.
+          examples: ["America/Denver"]
+        appointmentMinutes:
+          type: integer
+          format: int32
+          description: |
+            How long each start occupies, which is the chosen service's duration. Sent
+            because it is what turns a start time into a span on a calendar — a client
+            reading it off the profile instead would be keeping a second copy of a
+            number this answer already depends on.
+
+            **Reading it is not optional.** Starts are not cut back to those ending
+            inside the working block, so this is the only thing that tells a customer
+            when the work finishes. A client drawing the starts alone is showing half
+            the appointment.
+          examples: [90]
+        from:
+          type: string
+          format: date
+          description: |
+            The first day read, after the notice the tradesperson requires was applied.
+            Later than the day asked for means that notice reached into the window.
+        to:
+          type: string
+          format: date
+          description: |
+            The last day read, after the booking horizon and the month-long cap were
+            applied.
+
+            Earlier than `from` means the window closed before it opened. That is not an
+            error: a business whose notice reaches past its own horizon has no bookable
+            day at all, and seeing it here is how anybody finds out.
+        slots:
+          type: array
+          description: |
+            Every start in the window that the business's grid offers, soonest first.
+            Instants, to be read against `timeZone`.
+
+            Not filtered by whether the appointment ends before the working block does —
+            see the operation. The one length that still removes a start is declared
+            time off, which the whole appointment has to clear.
+
+            Empty says nothing about why. A closed week, a fortnight of time off and a
+            diary nobody has filled in are one answer, and none of them is the
+            customer's to fix.
+          items:
+            type: string
+            format: date-time
+        slotsCapped:
+          type: boolean
+          description: |
+            True when the walk stopped at the server's limit before it reached the end of
+            the window, so later days in it were never read and `to` is further away than
+            the last slot suggests. A client showing one month at a time will not meet
+            this; one asking for a wide window against a quarter-hour grid will.
 
     Trade:
       type: object
@@ -2017,6 +2884,19 @@ components:
           oneOf:
             - $ref: "#/components/schemas/MoneyAmount"
             - type: "null"
+        catalogId:
+          type: [string, "null"]
+          format: uuid
+          description: |
+            The marketplace job this service answers, when it came from the catalogue or was
+            later matched to it. Null for one typed by hand that fits no entry — which is a
+            normal state, not an incomplete one: the catalogue does not know every job yet,
+            and what it does not know is how it learns.
+
+            **What it costs to be null** is worth saying plainly, because it is invisible from
+            here: a customer who picks a job from the search box is answered with the
+            businesses linked to it, and a service with no link is not among them. It is still
+            found through the trade.
         active:
           type: boolean
           description: A deactivated service keeps its history but is no longer offered.
@@ -2030,6 +2910,126 @@ components:
           format: int64
           readOnly: true
 
+    SuggestionSource:
+      type: string
+      description: |
+        Which side said it. Counted apart because they are different evidence about the same
+        word: a tradesperson naming work they do, and a customer naming work they want.
+      enum:
+        - PRO
+        - CUSTOMER
+
+    SuggestionStatus:
+      type: string
+      description: |
+        What was decided. `NEW` is undecided and is the queue; the other two are kept rather
+        than deleted, so the same judgement is not made twice.
+      enum:
+        - NEW
+        - PROMOTED
+        - DISMISSED
+
+    CatalogSuggestion:
+      type: object
+      description: One phrase the catalogue could not name, and how often it has come up.
+      required: [id, source, phrase, seenCount, firstSeenAt, lastSeenAt, status]
+      properties:
+        id:
+          type: string
+          format: uuid
+        source:
+          $ref: "#/components/schemas/SuggestionSource"
+        phrase:
+          type: string
+          maxLength: 300
+          description: |
+            As typed, with whitespace tidied and nothing else changed. How people write is
+            what somebody reading this is trying to learn, so it is not lowercased or
+            otherwise cleaned up.
+          examples: ["my chimney flue is cracked"]
+        seenCount:
+          type: integer
+          format: int32
+          description: |
+            How often this has been said, counted without regard to capitalisation. The
+            figure that decides whether a phrase is a missing job or somebody's typo.
+        firstSeenAt:
+          type: string
+          format: date-time
+          description: |
+            Never updated. The other half of the count — eighteen times since Tuesday and
+            eighteen times since March say different things about the same number.
+        lastSeenAt:
+          type: string
+          format: date-time
+        status:
+          $ref: "#/components/schemas/SuggestionStatus"
+        promotedTo:
+          type: [string, "null"]
+          format: uuid
+          description: The catalogue entry this became. Present only when `status` is `PROMOTED`.
+
+    SuggestionPromotion:
+      type: object
+      required: [label, tradeId]
+      properties:
+        label:
+          type: string
+          minLength: 1
+          maxLength: 120
+          description: |
+            What the marketplace will call the job, in the customer's words — not the phrase
+            that was collected. "my chimney flue is cracked" is how somebody described a
+            problem; "Repair a cracked chimney flue" is the job. Making that translation is
+            the whole reason a person does this.
+          examples: ["Repair a cracked chimney flue"]
+        tradeId:
+          type: string
+          format: uuid
+          description: |
+            The trade the job is filed under. It decides who can offer it: a business can
+            only link a job under a trade it holds.
+        synonyms:
+          type: [string, "null"]
+          maxLength: 2000
+          description: |
+            The other words people use for it, comma-separated, and worth more than the label
+            for being found. Both vocabularies belong here — what a customer types ("flue
+            cracked", "smoke coming into the room") and what a tradesperson types ("liner",
+            "stack repair") — because the same field answers both.
+
+    ServiceJob:
+      type: object
+      description: One job out of the marketplace catalogue.
+      required: [id, code, label, tradeId]
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: |
+            What a service sends back as `catalogId` when it is created from this job. The id
+            rather than the code, because that is what the service carries and what the search
+            joins on.
+        code:
+          type: string
+          maxLength: 64
+          description: |
+            The job's stable human identity, for logs and for talking about it. Labels get
+            rewritten and ids are opaque; this is neither.
+          examples: ["PLUMBER_TOILET_REPLACE"]
+        label:
+          type: string
+          maxLength: 120
+          description: |
+            The job in the customer's words, and the name the created service takes. It is
+            deliberately not the trade's own wording — "Unclog a sink, tub or shower drain"
+            rather than "Main line rooter service" — because it is the same text a customer
+            searches against.
+          examples: ["Replace a toilet"]
+        tradeId:
+          type: string
+          format: uuid
+
     ServiceInput:
       type: object
       required: [tradeId, name, estimatedDurationMinutes, pricingMode]
@@ -2037,6 +3037,22 @@ components:
         tradeId:
           type: string
           format: uuid
+        catalogId:
+          type: [string, "null"]
+          format: uuid
+          description: |
+            The marketplace job this service answers, when it was picked from the catalogue.
+            Null for one typed by hand, which is an ordinary state — the catalogue does not
+            know every job, and what it does not know is how it learns.
+
+            **It has to sit under the same trade as `tradeId`,** or the request is refused. The
+            two are one statement about one service, and a link pointing at plumbing on a
+            service filed under roofing would be invisible everywhere except in results nobody
+            can explain.
+
+            Only settable when the service is created. `PUT` leaves it alone rather than
+            replacing it, so correcting a price cannot silently unlink a job — see
+            `Service.catalogId` for what unlinking costs.
         name:
           type: string
           minLength: 1
@@ -2523,6 +3539,9 @@ components:
         has not been looked up yet, which clears on its own, or it has been and could not be
         placed, which needs the postal code corrected. Show `detail` rather than a wording of
         your own — this is the condition where the difference matters most.
+        `ENOUGH_JOBS_TO_BE_FOUND` is the one that is advice rather than a condition, and
+        `blocking` on the check says so. It is last because it is about being found rather
+        than about being bookable, and a profile publishes with it failing.
       enum:
         - ADDRESS_GEOCODED
         - PRIMARY_TRADE
@@ -2530,15 +3549,29 @@ components:
         - HOURLY_SERVICES_HAVE_A_RATE
         - PRICING_SET
         - WORKING_HOURS_SET
+        - ENOUGH_JOBS_TO_BE_FOUND
 
     ReadinessCheck:
       type: object
-      required: [code, passed, detail]
+      required: [code, passed, blocking, detail]
       properties:
         code:
           $ref: "#/components/schemas/ReadinessCheckCode"
         passed:
           type: boolean
+        blocking:
+          type: boolean
+          description: |
+            Whether failing this stops the profile being published.
+
+            **Not everything on a checklist is a rule.** The six original checks are things a
+            booking cannot happen without — no address, no trade, no service, no hours, and
+            there is nothing to book. What was added after them is advice: listing more of
+            the jobs customers search by does not make a profile bookable, it makes it
+            findable, and a business that genuinely does two things is not wrong for saying so.
+
+            A client can render the two the same way and be correct about what to fix; one
+            that tells them apart can stop presenting advice as an obstacle.
         detail:
           type: string
           description: What to do about it, phrased for the tradesperson rather than for a log.
@@ -2553,7 +3586,9 @@ components:
       properties:
         ready:
           type: boolean
-          description: True only when every check passed.
+          description: |
+            True only when every **blocking** check passed. A failing piece of advice leaves
+            this true — it is a suggestion about being found, not a condition of being booked.
         checks:
           type: array
           items:

@@ -9,6 +9,14 @@ import type { StepKey } from "@/components/profile/types";
 
 export const MARKETPLACE_PATH = "/";
 
+/**
+ * A business's public page, and the one path here that is printed on a van rather than clicked.
+ *
+ * The contract calls the segment `tradeties.com/pro/{slug}` and freezes the slug at the first
+ * publish for exactly that reason, so this spelling is not this app's to change on a whim.
+ */
+export const proPath = (slug: string) => `/pro/${slug}`;
+
 export const PORTAL_PATH = "/portal";
 
 /**

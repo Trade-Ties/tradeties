@@ -68,6 +68,9 @@ export const CHECK_TARGETS: Record<ReadinessCheckCode, { step: StepKey; field: F
   HOURLY_SERVICES_HAVE_A_RATE: { step: "pricing", field: "hourlyRate" },
   PRICING_SET: { step: "pricing", field: "hourlyRate" },
   WORKING_HOURS_SET: { step: "availability", field: "workingHours" },
+  // Advice rather than a rule — listing more of the jobs customers search by — and settled in
+  // the same place as the service it asks for more of.
+  ENOUGH_JOBS_TO_BE_FOUND: { step: "services", field: "services" },
 };
 
 export interface Resume {
@@ -91,8 +94,10 @@ export interface Resume {
 export function resumeAt(completedStep: number, readiness: ProfileReadiness | null): Resume {
   const reached = stepIndex(RESUME_AT[completedStep]);
 
+  // Only what holds the profile back decides where to reopen. A suggestion left open is not a
+  // reason to send somebody whose profile is ready back to the services step.
   const failing = (readiness?.checks ?? [])
-    .filter((check) => !check.passed)
+    .filter((check) => !check.passed && check.blocking)
     .map((check) => CHECK_TARGETS[check.code])
     .map((target) => ({ index: stepIndex(target.step), focus: target.field }))
     .sort((a, b) => a.index - b.index)[0];

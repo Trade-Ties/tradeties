@@ -8,6 +8,9 @@ export type UpdateBusinessRequest = Schemas["UpdateBusinessRequest"];
 export type Coordinates = Schemas["Coordinates"];
 export type SlugAvailability = Schemas["SlugAvailability"];
 export type Trade = Schemas["Trade"];
+
+/** One job out of the marketplace catalogue — what step 4's picker offers and the search joins on. */
+export type ServiceJob = Schemas["ServiceJob"];
 export type BusinessTrades = Schemas["BusinessTrades"];
 export type BusinessTradesRequest = Schemas["BusinessTradesRequest"];
 export type Service = Schemas["Service"];
