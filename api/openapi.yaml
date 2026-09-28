@@ -63,6 +63,16 @@ tags:
       Its own tag rather than a corner of `marketplace`, because the generator
       makes one interface per tag and the module that owns these tables is not the
       one that owns the search.
+  - name: inbox
+    description: |
+      The tradesperson's side of those same requests: reading them, taking them,
+      turning them down. Every operation resolves the business from the access
+      token, exactly as `business` does.
+
+      Apart from `job` because the two halves have opposite security. That one
+      takes no token by design; nothing here may be reached without one, and a
+      single tag would put both in one generated interface and one controller —
+      which is the class where an authentication mistake hides best.
 
 security:
   - workosAuthKit: []
@@ -1484,6 +1494,161 @@ paths:
         "404":
           $ref: "#/components/responses/NotFound"
 
+  /api/v1/me/business/job-requests:
+    get:
+      tags: [inbox]
+      operationId: listMyJobRequests
+      summary: The requests customers have sent this business.
+      description: |
+        The tradesperson's side of what the calendar offered. Resolved from the
+        access token like everything else under `/me/business`, so there is no id
+        to swap for somebody else's inbox.
+
+        **Everything a job needs taking is here**, because a tradesperson deciding
+        on a request should not have to open three screens to do it: who to call,
+        where to go, what they said is wrong, and the terms the request was sent
+        under. The terms are the snapshot, not today's profile — that is what the
+        customer agreed to.
+
+        Ordered by when the appointment would start, soonest first, because that
+        is the order the decisions are urgent in. A request whose start has
+        already passed is still listed: nothing expires it, and it is the
+        tradesperson's to decline rather than the server's to hide.
+      parameters:
+        - name: status
+          in: query
+          required: false
+          description: |
+            Narrow to one state. Absent means every request this business has ever
+            had, which is what a screen with its own filters wants.
+          schema:
+            $ref: "#/components/schemas/JobRequestStatus"
+      responses:
+        "200":
+          description: The requests, soonest appointment first.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/BusinessJobRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/me/business/job-requests/{requestId}/accept:
+    parameters:
+      - name: requestId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    post:
+      tags: [inbox]
+      operationId: acceptJobRequest
+      summary: Take the job, at the time it was asked for.
+      description: |
+        The first write in this API that commits a tradesperson's calendar, and
+        the point every other booking rule has been waiting for.
+
+        **It is a calendar write, so it serialises on the booking policy row.**
+        The exclusion constraint alone only catches two accepted appointments
+        genuinely overlapping; it cannot catch one being accepted while time off
+        is entered over the same hours in parallel. Taking the same lock every
+        other calendar write takes is what makes those orderly.
+
+        Two rules start applying here that have had nothing to bind on until now:
+        the buffer a business keeps between jobs, and the most appointments it
+        accepts in one of its own days.
+
+        **Accepting takes the hour off everybody else's calendar**, because free
+        slots are working hours less time off less accepted appointments. No
+        separate blocking step exists that could drift out of step with this one.
+
+        A request whose hour was taken while this one sat pending answers `409`.
+        That is the race DECISIONS section 1 resolves at acceptance and not
+        before — until then the same hour was legitimately on offer to everybody.
+      responses:
+        "200":
+          description: The request, now accepted.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BusinessJobRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          description: |
+            The hour is no longer free, or this request is no longer pending.
+            Re-read the list: somebody else's request was accepted onto it, time
+            off now covers it, or the business's own limit for that day is full.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+        "422":
+          description: |
+            The request is not in a state that can be accepted — already decided,
+            withdrawn, or cancelled. Unlike a `409` this does not become possible
+            by trying again.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+
+  /api/v1/me/business/job-requests/{requestId}/decline:
+    parameters:
+      - name: requestId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    post:
+      tags: [inbox]
+      operationId: declineJobRequest
+      summary: Turn the job down, and say why.
+      description: |
+        Costs the customer nothing and commits no calendar, so none of the
+        acceptance rules apply. What it does carry is a reason, because a refusal
+        with no reason reads as a refusal of the person.
+
+        **The row stays.** A declined request is the record of a decision
+        somebody already made, and of what was asked for — the service, the hour
+        and the terms, none of which survive anywhere else once the profile is
+        edited. It also frees the customer to ask this business again, which the
+        partial index over the live states is what permits.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/JobRequestDecline"
+      responses:
+        "200":
+          description: The request, now declined.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BusinessJobRequest"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          description: |
+            The request is not pending any more, so there is nothing to decline.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+
   /api/v1/me/business/booking-policy:
     get:
       tags: [availability]
@@ -2341,6 +2506,8 @@ components:
           type: string
           maxLength: 16
           description: Optional. Some jobs are settled faster by phone than by mail.
+        preferredContact:
+          $ref: "#/components/schemas/ContactMethod"
         description:
           type: string
           minLength: 1
@@ -2466,6 +2633,155 @@ components:
           description: |
             With the fee above, the pair a customer had to have read before sending.
             Both are frozen here exactly as they were displayed.
+
+    ContactMethod:
+      type: string
+      description: |
+        How the customer would rather be reached about this job. Asked because a
+        tradesperson ringing somebody who only reads mail, or mailing somebody who
+        wanted a call, is the small friction that loses a job before it starts.
+
+        Optional wherever it appears: absent means they did not say, which is not
+        the same as either answer and must not be drawn as one.
+      enum:
+        - PHONE
+        - EMAIL
+
+    JobRequestDecline:
+      type: object
+      required: [reason]
+      description: |
+        Why the job is being turned down.
+      properties:
+        reason:
+          type: string
+          minLength: 1
+          maxLength: 500
+          description: |
+            In the tradesperson's own words, and required rather than optional. A
+            refusal with nothing attached reads as a refusal of the person, and
+            "booked that morning already" or "outside the area I cover" is the
+            difference between a customer trying again and never coming back.
+
+            It reaches the customer, so it is written for them rather than as a
+            note to self.
+
+    BusinessJobRequest:
+      type: object
+      description: |
+        One request as the business sees it: everything needed to decide, in one
+        object.
+
+        **Wider than what the customer gets back.** This carries their name, their
+        telephone number and the address the work is at — which the tradesperson
+        needs to do the job and nobody else has any business reading. It is only
+        ever served under `/me/business`.
+      required:
+        - id
+        - status
+        - startsAt
+        - endsAt
+        - timeZone
+        - serviceName
+        - estimatedDurationMinutes
+        - customerName
+        - customerEmail
+        - description
+        - street1
+        - city
+        - state
+        - postalCode
+        - currency
+        - cancellationFee
+        - cancellationNoticeHours
+        - requestedAt
+      properties:
+        id:
+          type: string
+          format: uuid
+        status:
+          $ref: "#/components/schemas/JobRequestStatus"
+        startsAt:
+          type: string
+          format: date-time
+        endsAt:
+          type: string
+          format: date-time
+        timeZone:
+          type: string
+          description: |
+            The zone this appointment is read against. Recorded on the job when it
+            was sent, so a business that moves does not shift what was agreed.
+          examples: ["America/Denver"]
+        serviceName:
+          type: string
+          maxLength: 160
+          description: |
+            The name as it read when the request arrived, not as it reads today.
+            Renaming a service does not rename what somebody asked for.
+        estimatedDurationMinutes:
+          type: integer
+          format: int32
+        customerName:
+          type: string
+          maxLength: 200
+        customerEmail:
+          type: string
+          format: email
+          maxLength: 320
+        customerPhone:
+          type: string
+          maxLength: 16
+          description: Absent when they gave none.
+        preferredContact:
+          $ref: "#/components/schemas/ContactMethod"
+        description:
+          type: string
+          maxLength: 2000
+          description: What the customer said is wrong, in their own words.
+        street1:
+          type: string
+          maxLength: 200
+        street2:
+          type: string
+          maxLength: 200
+        city:
+          type: string
+          maxLength: 100
+        state:
+          $ref: "#/components/schemas/UsStateCode"
+        postalCode:
+          type: string
+          maxLength: 10
+        currency:
+          type: string
+        servicePrice:
+          $ref: "#/components/schemas/MoneyAmount"
+        effectiveHourlyRate:
+          $ref: "#/components/schemas/MoneyAmount"
+        serviceCallFee:
+          $ref: "#/components/schemas/MoneyAmount"
+        cancellationFee:
+          $ref: "#/components/schemas/MoneyAmount"
+        cancellationNoticeHours:
+          type: integer
+          format: int32
+        requestedAt:
+          type: string
+          format: date-time
+          description: |
+            When the customer sent it. What an inbox sorts "oldest waiting" by,
+            and not the same as when the appointment would start.
+        decidedAt:
+          type: string
+          format: date-time
+          description: When it was accepted or declined. Absent while pending.
+        declineReason:
+          type: string
+          maxLength: 500
+          description: |
+            Present only on a declined request, and then always — the reason is
+            required when declining.
 
     JobRequestStatus:
       type: string

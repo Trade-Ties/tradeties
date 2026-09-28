@@ -5,10 +5,13 @@ import java.time.Instant;
 import java.util.UUID;
 
 import com.tradeties.business.GeoPoint;
+import com.tradeties.job.ContactMethod;
 import com.tradeties.job.NewJob;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
@@ -51,6 +54,10 @@ class JobRow {
 
 	@Column(name = "customer_phone", length = 16)
 	private String customerPhone;
+
+	@Enumerated(EnumType.STRING)
+	@Column(name = "preferred_contact", length = 16)
+	private ContactMethod preferredContact;
 
 	@Column(name = "description", nullable = false, length = 2000)
 	private String description;
@@ -114,6 +121,7 @@ class JobRow {
 		this.customerName = details.customerName();
 		this.customerEmail = details.customerEmail();
 		this.customerPhone = details.customerPhone();
+		this.preferredContact = details.preferredContact();
 		this.description = details.description();
 		this.tradeId = tradeId;
 		this.street1 = details.address().street1();
@@ -151,5 +159,49 @@ class JobRow {
 
 	Instant accessTokenExpiresAt() {
 		return accessTokenExpiresAt;
+	}
+
+	String timeZone() {
+		return timeZone;
+	}
+
+	String customerName() {
+		return customerName;
+	}
+
+	String customerEmail() {
+		return customerEmail;
+	}
+
+	String customerPhone() {
+		return customerPhone;
+	}
+
+	ContactMethod preferredContact() {
+		return preferredContact;
+	}
+
+	String description() {
+		return description;
+	}
+
+	String street1() {
+		return street1;
+	}
+
+	String street2() {
+		return street2;
+	}
+
+	String city() {
+		return city;
+	}
+
+	String state() {
+		return state;
+	}
+
+	String postalCode() {
+		return postalCode;
 	}
 }

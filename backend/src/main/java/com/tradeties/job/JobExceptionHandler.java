@@ -8,10 +8,14 @@ import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 
 /**
- * Scoped to {@link JobController}, like every other handler here: a shared one would have to
- * import each module's exceptions and grow a dependency on all of them.
+ * Scoped to this module's two controllers, like every other handler here: a shared one would have
+ * to import each module's exceptions and grow a dependency on all of them.
+ *
+ * <p>Both of them, because the two halves of one request raise the same vocabulary from the same
+ * rows — and a sentence about an hour that is no longer free should not read two ways depending
+ * on which door it came through.
  */
-@RestControllerAdvice(assignableTypes = JobController.class)
+@RestControllerAdvice(assignableTypes = { JobController.class, InboxController.class })
 class JobExceptionHandler {
 
 	/**
@@ -55,6 +59,28 @@ class JobExceptionHandler {
 		ProblemDetail problem = ProblemDetail.forStatus(HttpStatus.BAD_REQUEST);
 		problem.setType(SLOT_NOT_OFFERED);
 		problem.setTitle("Time no longer available");
+		problem.setDetail(exception.getMessage());
+		return problem;
+	}
+
+	/**
+	 * 409, because trying again could genuinely answer differently: the appointment in the way may
+	 * itself be cancelled, or the time off withdrawn. That is the whole difference from the 422
+	 * below.
+	 */
+	@ExceptionHandler(HourNoLongerFreeException.class)
+	ProblemDetail handleHourTaken(HourNoLongerFreeException exception) {
+		ProblemDetail problem = ProblemDetail.forStatus(HttpStatus.CONFLICT);
+		problem.setTitle("That hour is no longer free");
+		problem.setDetail(exception.getMessage());
+		return problem;
+	}
+
+	/** 422: the request's story is over, and no retry reopens it. */
+	@ExceptionHandler(RequestNotPendingException.class)
+	ProblemDetail handleNotPending(RequestNotPendingException exception) {
+		ProblemDetail problem = ProblemDetail.forStatus(HttpStatus.UNPROCESSABLE_ENTITY);
+		problem.setTitle("Already answered");
 		problem.setDetail(exception.getMessage());
 		return problem;
 	}

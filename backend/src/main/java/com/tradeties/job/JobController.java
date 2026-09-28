@@ -44,6 +44,11 @@ class JobController implements JobApi {
 				input.getCustomerName(),
 				input.getCustomerEmail(),
 				input.getCustomerPhone(),
+				// Absent stays absent. The generated enum has no "not said" value, so null is
+				// what carries it, and a default here would invent a preference.
+				input.getPreferredContact() == null
+						? null
+						: ContactMethod.valueOf(input.getPreferredContact().getValue()),
 				input.getDescription(),
 				new PostalAddress(
 						input.getStreet1(),

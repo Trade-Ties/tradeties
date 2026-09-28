@@ -23,4 +23,7 @@ interface TimeOffRepository extends Repository<TimeOffRow, UUID> {
 	 * yet.
 	 */
 	List<TimeOffRow> findByBusinessIdInAndEndsAtAfter(Collection<UUID> businessIds, Instant notBefore);
+
+	/** The same question for one business, which is what a single write path asks before it writes. */
+	List<TimeOffRow> findByBusinessIdAndEndsAtAfter(UUID businessId, Instant notBefore);
 }

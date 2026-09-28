@@ -30,9 +30,12 @@ import org.hibernate.type.SqlTypes;
  * cancellation fee tomorrow changes neither, which is the whole reason they are columns here
  * rather than a join away.
  *
- * <p>Only {@code PENDING} is reachable today. The other five states, and the columns that go with
- * them, are written by the inbox in the next slice — mapped here because the table has them and
- * {@code ddl-auto: validate} would otherwise be checking half a table.
+ * <p>Three of the six states are reachable: a request arrives {@code PENDING} and the business
+ * accepts or declines it. Withdrawal and cancellation are the customer's, and their columns —
+ * {@code withdrawn_at}, {@code cancelled_at}, {@code cancelled_by},
+ * {@code cancellation_fee_charged}, {@code completed_at} — are deliberately unmapped until
+ * something writes them. Mapping a column nothing reads makes this look like the entity it is not,
+ * and {@code ddl-auto: validate} only checks the columns named here.
  */
 @Entity
 @Table(name = "job_request")
@@ -92,6 +95,13 @@ class JobRequestRow {
 	@Column(name = "cancellation_notice_hours_snapshot", nullable = false, updatable = false)
 	private int cancellationNoticeHours;
 
+	/** Set with the status, never apart from it — the table's check constraints insist. */
+	@Column(name = "decided_at")
+	private Instant decidedAt;
+
+	@Column(name = "decline_reason", length = 500)
+	private String declineReason;
+
 	@Column(name = "created_at", nullable = false, updatable = false)
 	private Instant createdAt;
 
@@ -147,6 +157,14 @@ class JobRequestRow {
 		return id;
 	}
 
+	UUID jobId() {
+		return jobId;
+	}
+
+	UUID businessId() {
+		return businessId;
+	}
+
 	RequestStatus status() {
 		return status;
 	}
@@ -177,5 +195,49 @@ class JobRequestRow {
 
 	int cancellationNoticeHours() {
 		return cancellationNoticeHours;
+	}
+
+	BigDecimal servicePrice() {
+		return servicePrice;
+	}
+
+	BigDecimal effectiveHourlyRate() {
+		return effectiveHourlyRate;
+	}
+
+	BigDecimal serviceCallFee() {
+		return serviceCallFee;
+	}
+
+	Instant createdAt() {
+		return createdAt;
+	}
+
+	Instant decidedAt() {
+		return decidedAt;
+	}
+
+	String declineReason() {
+		return declineReason;
+	}
+
+	boolean isPending() {
+		return status == RequestStatus.PENDING;
+	}
+
+	/**
+	 * Both stamps move together, which is what the table's own check constraints insist on: a
+	 * status and its timestamp are two renderings of one fact, and a row carrying only one of them
+	 * makes a report on turnaround times average over nulls.
+	 */
+	void accept(Instant when) {
+		this.status = RequestStatus.ACCEPTED;
+		this.decidedAt = when;
+	}
+
+	void decline(Instant when, String reason) {
+		this.status = RequestStatus.DECLINED;
+		this.decidedAt = when;
+		this.declineReason = reason;
 	}
 }
