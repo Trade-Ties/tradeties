@@ -483,8 +483,6 @@ function viewOf(result: SearchResult): ProCardView {
     badges,
     location: `${result.city}, ${result.state}`,
     slots: (result.nextSlots ?? []).map((slot) => opening(slot, result.timeZone)),
-    // Nothing can accept a booking yet, so the times are shown as what they are.
-    bookable: false,
     href: proPath(result.slug),
   };
 }

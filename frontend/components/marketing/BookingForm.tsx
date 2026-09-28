@@ -10,7 +10,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { dayLabel, dayOf, spanLabel } from "@/components/marketing/availability";
 import { money } from "@/components/marketing/business-format";
-import { sendRequest, type Sent } from "@/app/(marketplace)/pro/[slug]/book/actions";
+import { sendRequest, type Sent } from "@/app/(marketplace)/[slug]/book/actions";
 import { proPath } from "@/lib/routes";
 import type { CreatedJob } from "@/lib/api/marketplace";
 
