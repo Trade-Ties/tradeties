@@ -4,15 +4,20 @@
  * a dashboard write revalidates, and those only agree while they spell it the same.
  */
 
+import type { FocusTargetName } from "@/components/profile/focusTarget";
+import type { StepKey } from "@/components/profile/types";
+
 export const MARKETPLACE_PATH = "/";
 
 /**
  * A business's public page, and the one path here that is printed on a van rather than clicked.
  *
- * The contract calls the segment `tradeties.com/pro/{slug}` and freezes the slug at the first
- * publish for exactly that reason, so this spelling is not this app's to change on a whim.
+ * At the root — `tradeties.com/{slug}` — the address the wizard shows and the contract freezes at
+ * the first publish, so this spelling is not this app's to change on a whim. The root is shared
+ * with the site's own pages; `ReservedSlugs` in the backend is what keeps a business from taking
+ * one of their names, and a new top-level route belongs on that list before it ships.
  */
-export const proPath = (slug: string) => `/pro/${slug}`;
+export const proPath = (slug: string) => `/${slug}`;
 
 export const PORTAL_PATH = "/portal";
 
@@ -29,7 +34,24 @@ export const PROFILE_PATH = "/dashboard/profile";
 
 export const CALENDAR_PATH = "/dashboard/calendar";
 
+/** The calendar showing every request still waiting for an answer, rather than one day. */
+export const CALENDAR_VIEW_PARAM = "view";
+export const CALENDAR_REQUESTS_PATH = `${CALENDAR_PATH}?${CALENDAR_VIEW_PARAM}=requests`;
+
+/** The calendar opened straight into its form on "Time off" — what "Add time off" links to. */
+export const CALENDAR_NEW_PARAM = "new";
+export const CALENDAR_TIME_OFF_PATH = `${CALENDAR_PATH}?${CALENDAR_NEW_PARAM}=time-off`;
+
 export const INBOX_PATH = "/dashboard/inbox";
+
+/** The inbox narrowed to what has not been read. */
+export const INBOX_FILTER_PARAM = "filter";
+export const INBOX_UNREAD_PATH = `${INBOX_PATH}?${INBOX_FILTER_PARAM}=unread`;
+
+/** The inbox opened on one conversation. */
+export const INBOX_CONVERSATION_PARAM = "c";
+export const inboxConversationPath = (conversationId: string) =>
+  `${INBOX_PATH}?${new URLSearchParams({ [INBOX_CONVERSATION_PARAM]: conversationId })}`;
 
 export const INSIGHTS_PATH = "/dashboard/insights";
 
@@ -37,8 +59,14 @@ export const INVOICES_PATH = "/dashboard/invoices";
 
 export const SETTINGS_PATH = "/dashboard/settings";
 
-/** Opens the wizard over the overview. Presence is the signal; the value is never read. */
+/**
+ * Opens the wizard over the overview. Presence is the signal; a value naming a step opens that
+ * step rather than the one the wizard would resume at, and anything else is read as presence.
+ */
 export const WIZARD_PARAM = "edit";
+
+/** With a step named, the part of it to scroll to and put the cursor in. */
+export const WIZARD_SECTION_PARAM = "section";
 
 /**
  * Where the wizard lives: a view of `PROFILE_PATH` rather than a route of its own, because
@@ -47,3 +75,14 @@ export const WIZARD_PARAM = "edit";
  * invalidating and serves cached data.
  */
 export const WIZARD_PATH = `${PROFILE_PATH}?${WIZARD_PARAM}=1`;
+
+/**
+ * The wizard opened at one step, and optionally one section of it — what an Edit next to a
+ * summary elsewhere in the portal links to, so it lands on the thing it was next to.
+ */
+export function wizardPathAt(step: StepKey, section?: FocusTargetName): string {
+  const query = new URLSearchParams({ [WIZARD_PARAM]: step });
+  if (section !== undefined) query.set(WIZARD_SECTION_PARAM, section);
+
+  return `${PROFILE_PATH}?${query}`;
+}

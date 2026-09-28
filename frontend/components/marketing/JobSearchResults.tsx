@@ -481,6 +481,7 @@ function viewOf(result: SearchResult): ProCardView {
     distance: miles(result.distanceMiles),
     rateFrom: result.hourlyRate ? amount(result.hourlyRate) : undefined,
     badges,
+    location: `${result.city}, ${result.state}`,
     slots: (result.nextSlots ?? []).map((slot) => opening(slot, result.timeZone)),
     // Nothing can accept a booking yet, so the times are shown as what they are.
     bookable: false,
@@ -508,8 +509,22 @@ function opening(instant: string, timeZone: string): ProCardSlot {
     hour: "numeric",
     minute: "2-digit",
   }).format(at);
+  // Spelled out, for the booking modal — unused today since these cards render
+  // bookable: false, but computed the same zone-aware way as `label` rather than
+  // left to fall back on something that would silently assume the reader's zone.
+  const dateLabel = new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    weekday: "long",
+    month: "long",
+    day: "numeric",
+  }).format(at);
+  const timeLabel = new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    hour: "numeric",
+    minute: "2-digit",
+  }).format(at);
 
-  return { key: instant, label, today: false };
+  return { key: instant, label, dateLabel, timeLabel, today: false };
 }
 
 /**

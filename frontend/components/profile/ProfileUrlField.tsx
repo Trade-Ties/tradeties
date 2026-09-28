@@ -285,7 +285,7 @@ export function ProfileUrlField({
               maxLength={SLUG_MAX}
               // `aria-required` rather than the native attribute — see `TextField`.
               aria-required
-              // Both "That URL is already taken." and the availability hint live in that line;
+              // Both "That URL is not available." and the availability hint live in that line;
               // without it the box announces a complaint and never its reason.
               aria-describedby={describedBy}
               aria-invalid={taken ? true : undefined}
@@ -358,7 +358,7 @@ function changeButton(locked: boolean, onEdit: () => void): React.ReactNode {
 }
 
 function errorFor(state: SlugState): string | undefined {
-  if (state.status === "taken") return "That URL is already taken.";
+  if (state.status === "taken") return "That URL is not available.";
   if (state.status === "unknown") return COULD_NOT_CHECK;
 
   return undefined;

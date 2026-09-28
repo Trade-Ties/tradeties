@@ -16,7 +16,11 @@ function firstValue(value: string | string[] | undefined): string {
 
 /**
  * A business's public page, at the address the contract freezes at the first publish:
- * `/pro/{slug}`.
+ * `/{slug}`, at the root.
+ *
+ * <p>Every other route is a folder of its own and wins over this one, which is why a slug that
+ * shares a name with one of them could never be reached here — and why the backend refuses those
+ * names (`ReservedSlugs`) rather than this page trying to tell them apart.
  *
  * <p>Read on the server and without a token, like the search. Nothing on it depends on who is
  * looking, which is the property that lets it stay cacheable and the reason a signed-in

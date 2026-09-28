@@ -142,7 +142,7 @@ class BusinessProfile {
 	 * When this profile first went live, and null while it never has.
 	 *
 	 * <p>The reason it exists is the slug. That column is not really the holder's data — it is
-	 * {@code tradeties.com/pro/{slug}}, printed on a van and read out over the phone — and once a
+	 * {@code tradeties.com/{slug}}, printed on a van and read out over the phone — and once a
 	 * copy of it is out in the world nothing here can correct it. So the URL stays editable exactly
 	 * as long as no copy can exist, which is exactly as long as the profile has never been
 	 * published.

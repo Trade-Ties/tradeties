@@ -5,11 +5,12 @@ import { ArrowRight, CalendarCheck, Clock3, Mail } from "lucide-react";
 import { buttonVariants } from "@/components/ui/button";
 import { fetchMyBusiness, fetchMyReadiness, fetchMyTrades } from "@/lib/api/business";
 import { portalSession, portalToken } from "@/lib/portal/session";
-import { WIZARD_PATH } from "@/lib/routes";
+import { CALENDAR_PATH, CALENDAR_REQUESTS_PATH, INBOX_UNREAD_PATH, WIZARD_PATH } from "@/lib/routes";
 
 import { DashboardShell } from "./DashboardShell";
 import { StatTile } from "./StatTile";
-import { DEMO_APPOINTMENTS, DEMO_MESSAGES } from "./demo-data";
+import { DEMO_APPOINTMENTS, DEMO_ENTRIES, DEMO_MESSAGES, DEMO_REVIEWS, DEMO_TIME_OFF } from "./demo-data";
+import { RatingBadge } from "./RatingBadge";
 
 const today = new Date(new Date().setHours(0, 0, 0, 0));
 
@@ -31,7 +32,12 @@ export default async function DashboardPage() {
   const unreadCount = DEMO_MESSAGES.filter((m) => m.unread).length;
 
   return (
-    <DashboardShell appointments={DEMO_APPOINTMENTS} messages={DEMO_MESSAGES}>
+    <DashboardShell
+      appointments={DEMO_APPOINTMENTS}
+      entries={DEMO_ENTRIES}
+      timeOff={DEMO_TIME_OFF}
+      messages={DEMO_MESSAGES}
+    >
       <div className="mb-8 flex flex-wrap items-end justify-between gap-4">
         <div>
           <h1 className="text-3xl font-bold tracking-[-0.02em] text-brand">
@@ -42,6 +48,7 @@ export default async function DashboardPage() {
             Here&apos;s what&apos;s on today.
           </p>
         </div>
+        <RatingBadge reviews={DEMO_REVIEWS} />
       </div>
 
       {needsSetup && (
@@ -60,9 +67,16 @@ export default async function DashboardPage() {
       )}
 
       <div className="mb-6 grid grid-cols-1 gap-3 min-[560px]:grid-cols-3">
-        <StatTile icon={CalendarCheck} label="Today" value={todayCount} unit="appointment" />
-        <StatTile icon={Clock3} label="Need your response" value={pendingCount} unit="request" accent />
-        <StatTile icon={Mail} label="Unread" value={unreadCount} unit="message" />
+        <StatTile icon={CalendarCheck} label="Today" value={todayCount} unit="appointment" href={CALENDAR_PATH} />
+        <StatTile
+          icon={Clock3}
+          label="Need your response"
+          value={pendingCount}
+          unit="request"
+          accent
+          href={CALENDAR_REQUESTS_PATH}
+        />
+        <StatTile icon={Mail} label="Unread" value={unreadCount} unit="message" href={INBOX_UNREAD_PATH} />
       </div>
     </DashboardShell>
   );

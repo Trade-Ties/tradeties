@@ -44,6 +44,10 @@ export interface Pro {
   rateFrom: number;
   /** Identity-verification status — Licensed is shown for every listing; this gates the second trust badge. */
   verified: boolean;
+  /** Display only — no site sits behind it, so it is never rendered as a link. */
+  website: string;
+  /** Neighborhood/city, not an address — the same imprecision `miles` already has, worded instead of measured. */
+  location: string;
   /** What this pro is listed for — a subset of SERVICES_BY_TRADE[trade], drives the Service filter. */
   services: string[];
   slots: ProSlot[];
@@ -53,6 +57,7 @@ export const PROS: Pro[] = [
   {
     initials: "MW", color: "#1E4E82", name: "Marcus Webb", business: "Webb Plumbing Co.",
     trade: "Plumber", rating: 4.9, jobs: 312, miles: 2.4, rateFrom: 85, verified: true,
+    website: "webbplumbingco.com", location: "Capitol Hill, Denver, CO",
     services: ["Leaking faucet", "Clogged drain"],
     slots: [
       { date: addDays(today, 0), time: "2:15 PM" },
@@ -63,6 +68,7 @@ export const PROS: Pro[] = [
   {
     initials: "DA", color: "#0E9F6E", name: "Denise Alvarez", business: "Front Range Electric",
     trade: "Electrician", rating: 4.8, jobs: 207, miles: 3.1, rateFrom: 95, verified: true,
+    website: "frontrangeelectric.com", location: "Highlands, Denver, CO",
     services: ["Outlet not working", "Panel upgrade"],
     slots: [
       { date: addDays(today, 0), time: "3:00 PM" },
@@ -72,6 +78,7 @@ export const PROS: Pro[] = [
   {
     initials: "RO", color: "#B4530A", name: "Ray Okonkwo", business: "Okonkwo Heating & Air",
     trade: "HVAC", rating: 5.0, jobs: 89, miles: 5.7, rateFrom: 110, verified: true,
+    website: "okonkwoheatingair.com", location: "Aurora, CO",
     services: ["Furnace won't start", "Annual tune-up"],
     slots: [
       { date: addDays(today, 3), time: "8:00 AM" },
@@ -81,6 +88,7 @@ export const PROS: Pro[] = [
   {
     initials: "TB", color: "#0A2F5C", name: "Tom Brennan", business: "Brennan Carpentry",
     trade: "Carpenter", rating: 4.7, jobs: 156, miles: 4.2, rateFrom: 75, verified: false,
+    website: "brennancarpentry.com", location: "Washington Park, Denver, CO",
     services: ["Deck repair", "Shelving install"],
     slots: [
       { date: addDays(today, 1), time: "9:00 AM" },
@@ -90,6 +98,7 @@ export const PROS: Pro[] = [
   {
     initials: "AP", color: "#6D3FA8", name: "Ana Petrova", business: "Keystone Lock & Key",
     trade: "Locksmith", rating: 4.9, jobs: 431, miles: 1.8, rateFrom: 65, verified: true,
+    website: "keystonelockkey.com", location: "LoDo, Denver, CO",
     services: ["Door won't lock", "Locked out"],
     slots: [
       { date: addDays(today, 0), time: "1:45 PM" },
@@ -99,6 +108,7 @@ export const PROS: Pro[] = [
   {
     initials: "LR", color: "#B91C1C", name: "Luis Ramirez", business: "Ramirez Home Repair",
     trade: "Handyman", rating: 4.8, jobs: 264, miles: 3.6, rateFrom: 60, verified: true,
+    website: "ramirezhomerepair.com", location: "Five Points, Denver, CO",
     services: ["Furniture assembly", "Small repairs"],
     slots: [
       { date: addDays(today, 0), time: "4:30 PM" },
@@ -108,6 +118,7 @@ export const PROS: Pro[] = [
   {
     initials: "SK", color: "#CA8A04", name: "Sofia Kim", business: "Kim & Sons Painting",
     trade: "Painter", rating: 4.9, jobs: 198, miles: 2.9, rateFrom: 55, verified: true,
+    website: "kimandsonspainting.com", location: "Cherry Creek, Denver, CO",
     services: ["Interior room repaint", "Cabinet refinishing"],
     // Deliberately outside the 7-day window — the only listing "This week" should exclude.
     slots: [
@@ -118,6 +129,7 @@ export const PROS: Pro[] = [
   {
     initials: "PN", color: "#C2410C", name: "Priya Nair", business: "Nair Roofing & Exteriors",
     trade: "Roofer", rating: 4.6, jobs: 143, miles: 6.3, rateFrom: 90, verified: false,
+    website: "nairroofing.com", location: "Lakewood, CO",
     services: ["Roof leak", "Gutter repair"],
     slots: [
       { date: addDays(today, 0), time: "5:00 PM" },
@@ -127,6 +139,7 @@ export const PROS: Pro[] = [
   {
     initials: "JS", color: "#4D7C0F", name: "Jake Sullivan", business: "Sullivan Lawn & Landscape",
     trade: "Landscaper", rating: 4.7, jobs: 176, miles: 4.8, rateFrom: 50, verified: true,
+    website: "sullivanlawnlandscape.com", location: "Littleton, CO",
     services: ["Lawn mowing", "Tree trimming"],
     slots: [
       { date: addDays(today, 3), time: "8:00 AM" },
@@ -136,6 +149,7 @@ export const PROS: Pro[] = [
   {
     initials: "MG", color: "#0D9488", name: "Maria Gutierrez", business: "Gutierrez General Contracting",
     trade: "General Contractor", rating: 4.9, jobs: 98, miles: 5.1, rateFrom: 120, verified: true,
+    website: "gutierrezgc.com", location: "Westminster, CO",
     services: ["Kitchen remodel", "Room addition"],
     slots: [
       { date: addDays(today, 0), time: "6:00 PM" },
@@ -145,6 +159,7 @@ export const PROS: Pro[] = [
   {
     initials: "CP", color: "#1D4ED8", name: "Chris Palmer", business: "Palmer Plumbing",
     trade: "Plumber", rating: 4.6, jobs: 87, miles: 7.2, rateFrom: 70, verified: false,
+    website: "palmerplumbing.com", location: "Englewood, CO",
     services: ["No hot water", "Running toilet"],
     slots: [
       { date: addDays(today, 3), time: "2:00 PM" },
@@ -154,6 +169,7 @@ export const PROS: Pro[] = [
   {
     initials: "EZ", color: "#BE185D", name: "Emily Zhao", business: "Zhao Electric Co.",
     trade: "Electrician", rating: 5.0, jobs: 342, miles: 2.1, rateFrom: 100, verified: true,
+    website: "zhaoelectricco.com", location: "Congress Park, Denver, CO",
     services: ["Breaker keeps tripping", "Flickering lights"],
     slots: [
       { date: addDays(today, 0), time: "12:30 PM" },
@@ -163,6 +179,7 @@ export const PROS: Pro[] = [
   {
     initials: "DO", color: "#0369A1", name: "Daniel Osei", business: "Osei HVAC Solutions",
     trade: "HVAC", rating: 4.8, jobs: 211, miles: 3.9, rateFrom: 105, verified: true,
+    website: "oseihvac.com", location: "Stapleton, Denver, CO",
     services: ["AC not cooling", "Thermostat not responding"],
     slots: [
       { date: addDays(today, 0), time: "3:30 PM" },
@@ -172,6 +189,7 @@ export const PROS: Pro[] = [
   {
     initials: "HW", color: "#7C3AED", name: "Hannah Wright", business: "Wright Carpentry & Trim",
     trade: "Carpenter", rating: 4.9, jobs: 129, miles: 1.5, rateFrom: 80, verified: true,
+    website: "wrightcarpentrytrim.com", location: "Berkeley, Denver, CO",
     services: ["Broken cabinet hinge", "Trim work"],
     slots: [
       { date: addDays(today, 0), time: "10:00 AM" },

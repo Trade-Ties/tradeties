@@ -7,6 +7,7 @@ import {
   START_TIME_GRID_OPTIONS,
 } from "../options";
 import type { BookingPolicyForm, StepProps } from "../types";
+import { FocusTarget } from "../focusTarget";
 
 const GRID_OPTIONS = toOptions(START_TIME_GRID_OPTIONS, (m) => `${m} minutes`);
 const TRAVEL_TIME_OPTIONS = toOptions(BUFFER_OPTIONS, (m) =>
@@ -15,7 +16,7 @@ const TRAVEL_TIME_OPTIONS = toOptions(BUFFER_OPTIONS, (m) =>
 
 export function BookingStep({ data, update }: StepProps<BookingPolicyForm>) {
   return (
-    <>
+    <FocusTarget name="bookingPolicy" section>
       <FieldGrid columns={3}>
         <CountField
           label="Bookable up to"
@@ -88,6 +89,6 @@ export function BookingStep({ data, update }: StepProps<BookingPolicyForm>) {
           }
         />
       </FieldGrid>
-    </>
+    </FocusTarget>
   );
 }

@@ -1,8 +1,12 @@
 import { Inbox } from "lucide-react";
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { INBOX_PATH } from "@/lib/routes";
 import { cn } from "@/lib/utils";
-import type { DemoMessage } from "./demo-data";
+
+import { CardHeaderLink } from "./CardHeaderLink";
+import { latestMessage, type DemoMessage } from "./demo-data";
+import { listTime } from "./messageTime";
 
 export function DashboardInbox({
   messages,
@@ -18,16 +22,17 @@ export function DashboardInbox({
 
   return (
     <Card className="gap-4 rounded-3xl border border-line bg-white py-0 shadow-card">
-      <CardHeader className="px-5 pt-5">
+      <CardHeader className="flex flex-row items-center justify-between px-5 pt-5">
         <CardTitle className="flex items-center gap-2 text-base font-semibold">
           <Inbox className="size-4 text-brand-500" />
           Inbox
           {unreadCount > 0 && (
-            <span className="ml-auto flex size-5 items-center justify-center rounded-full bg-brand text-[11px] font-semibold text-white">
+            <span className="flex size-5 items-center justify-center rounded-full bg-brand text-[11px] font-semibold text-white">
               {unreadCount}
             </span>
           )}
         </CardTitle>
+        <CardHeaderLink href={INBOX_PATH}>Full inbox</CardHeaderLink>
       </CardHeader>
       <CardContent className="px-5 pb-5">
         {messages.length === 0 ? (
@@ -58,9 +63,18 @@ export function DashboardInbox({
                     <p className={m.unread ? "truncate text-sm font-semibold" : "truncate text-sm font-medium"}>
                       {m.customerName}
                     </p>
-                    <span className="shrink-0 text-[11px] text-faint">{m.receivedLabel}</span>
+                    <time
+                      dateTime={latestMessage(m).sentAt.toISOString()}
+                      suppressHydrationWarning
+                      className="shrink-0 text-[11px] text-faint"
+                    >
+                      {listTime(latestMessage(m).sentAt)}
+                    </time>
                   </div>
-                  <p className="truncate text-xs text-muted-ink">{m.preview}</p>
+                  <p className="truncate text-xs text-muted-ink">
+                    {latestMessage(m).from === "pro" && "You: "}
+                    {latestMessage(m).text}
+                  </p>
                 </div>
               </button>
             ))}

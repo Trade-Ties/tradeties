@@ -1,3 +1,4 @@
+import { format } from "date-fns";
 import { Check, MapPin, X } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -16,12 +17,15 @@ export function AppointmentRow({
   onDecline,
   onSelect,
   selected,
+  showDate,
 }: {
   appointment: DemoAppointment;
   onConfirm: (id: string) => void;
   onDecline: (id: string) => void;
   onSelect?: (appointment: DemoAppointment) => void;
   selected?: boolean;
+  /** For a list that spans several days, where the time alone does not say when. */
+  showDate?: boolean;
 }) {
   const pending = appointment.status === "pending";
 
@@ -47,7 +51,12 @@ export function AppointmentRow({
         selected && "ring-2 ring-brand-500"
       )}
     >
-      <div className="w-[74px] shrink-0 text-sm font-semibold text-brand">{appointment.time}</div>
+      <div className="w-[74px] shrink-0 text-sm font-semibold text-brand">
+        {showDate && (
+          <span className="block text-[11px] font-medium text-muted-ink">{format(appointment.date, "EEE, MMM d")}</span>
+        )}
+        {appointment.time}
+      </div>
 
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-2">
@@ -65,10 +74,12 @@ export function AppointmentRow({
         <p className="truncate text-xs text-muted-ink">{appointment.service}</p>
       </div>
 
-      <div className="flex shrink-0 items-center gap-1 text-xs text-muted-ink">
-        <MapPin className="size-3" />
-        {appointment.location}
-      </div>
+      {appointment.address.zip && (
+        <div className="flex shrink-0 items-center gap-1 text-xs text-muted-ink">
+          <MapPin className="size-3" />
+          {appointment.address.zip}
+        </div>
+      )}
 
       {pending && (
         <div className="flex w-full shrink-0 items-center gap-2 min-[420px]:w-auto">

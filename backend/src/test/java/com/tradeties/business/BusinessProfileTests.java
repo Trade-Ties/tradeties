@@ -1,5 +1,6 @@
 package com.tradeties.business;
 
+import static org.hamcrest.Matchers.containsString;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.jwt;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -237,6 +238,42 @@ class BusinessProfileTests {
 								  "serviceRadiusMiles": 25
 								}"""))
 				.andExpect(status().isConflict());
+	}
+
+	/**
+	 * Profiles share the root of the domain with the site's own pages, so a reserved name is
+	 * unavailable to everybody — reported as such by the live check, and refused on create.
+	 */
+	@Test
+	void aReservedSlugCannotBeTaken() throws Exception {
+		RequestPostProcessor token = registeredTradesperson("user_wants_portal");
+
+		mockMvc.perform(get("/api/v1/me/business/slug-available").with(token).param("slug", "portal"))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.available").value(false));
+
+		mockMvc.perform(post("/api/v1/me/business").with(token)
+						.contentType(MediaType.APPLICATION_JSON)
+						.content(profileJson("portal")))
+				.andExpect(status().isConflict())
+				.andExpect(jsonPath("$.detail").value(containsString("reserved")));
+	}
+
+	/** Moving a draft onto a reserved name is refused the same way creating with one is. */
+	@Test
+	void aDraftCannotMoveToAReservedSlug() throws Exception {
+		RequestPostProcessor token = registeredTradesperson("user_moves_to_help");
+
+		mockMvc.perform(post("/api/v1/me/business").with(token)
+						.contentType(MediaType.APPLICATION_JSON)
+						.content(profileJson("moves-to-help")))
+				.andExpect(status().isCreated());
+
+		mockMvc.perform(put("/api/v1/me/business").with(token)
+						.contentType(MediaType.APPLICATION_JSON)
+						.content(profileJson("help").replaceFirst("\\{", "{\"version\": 0,")))
+				.andExpect(status().isConflict())
+				.andExpect(jsonPath("$.detail").value(containsString("reserved")));
 	}
 
 	/**

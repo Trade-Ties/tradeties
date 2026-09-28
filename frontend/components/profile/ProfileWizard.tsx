@@ -1,21 +1,13 @@
 "use client";
 
 import * as React from "react";
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { UNREACHABLE_DETAIL } from "@/lib/api/failure";
 import type { ProfileReadiness } from "@/lib/api/wire";
 import type { ReferenceData } from "@/lib/api/reference";
 import { PROFILE_PATH } from "@/lib/routes";
 import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardFooter,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
-import { Separator } from "@/components/ui/separator";
 import { ChevronLeft, ChevronRight, CircleAlert, Info, Rocket } from "lucide-react";
 
 import {
@@ -26,6 +18,7 @@ import {
 } from "@/app/(pro)/profile/create/actions";
 import { blankForm, nothingStored } from "./defaults";
 import { dayName } from "./time";
+import { FocusTarget, focusTarget, type FocusTargetName } from "./focusTarget";
 import { STEPS } from "./wizardSteps";
 import { buildReview, type ReviewGroup } from "./review";
 import {
@@ -103,7 +96,12 @@ interface ProfileWizardProps {
    * not exist yet and for a checklist that could not be read; the wizard treats them alike.
    */
   initialReadiness?: ProfileReadiness | null;
+  /** The field to put the cursor in on arrival, when `initialStep` was chosen for a failing check. */
+  initialFocus?: FocusTargetName | null;
 }
+
+/** A field waiting for its step to be on screen before it can be focused. */
+type FocusRequest = { step: number; field: FocusTargetName };
 
 function MergedStep({ children }: { children: React.ReactNode }) {
   return <div className="space-y-8">{children}</div>;
@@ -122,8 +120,12 @@ export default function ProfileWizard({
   initial,
   initialStep = 0,
   initialReadiness = null,
+  initialFocus = null,
 }: ProfileWizardProps) {
   const [step, setStep] = useState(initialStep);
+  const [focusRequest, setFocusRequest] = useState<FocusRequest | null>(
+    initialFocus === null ? null : { step: initialStep, field: initialFocus }
+  );
   /**
    * Which screens have been open, seeded with the one the wizard reopens on.
    *
@@ -181,6 +183,24 @@ export default function ProfileWizard({
   const currentKey = STEPS[step].key;
   const isPublishStep = currentKey === "publish";
   const busy = pending !== null;
+
+  /**
+   * Lands a checklist jump on its field once the step holding it is on screen.
+   *
+   * Waits for `busy` to clear as well, because the card is `inert` while a save is in flight and
+   * nothing inside an inert tree takes focus. A request whose jump landed on some other step is
+   * dropped by `showStep`, rather than firing the next time somebody happens to pass that way.
+   */
+  useEffect(() => {
+    if (focusRequest === null || busy || focusRequest.step !== step) return;
+
+    // One frame, so the step that has just been set is in the DOM to be searched.
+    const frame = requestAnimationFrame(() => {
+      focusTarget(focusRequest.field);
+      setFocusRequest(null);
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [focusRequest, step, busy]);
 
   /**
    * The two ways out the wizard's own buttons do not cover — see `useLeaveGuard`.
@@ -332,7 +352,11 @@ export default function ProfileWizard({
     const key = STEPS[index].key;
 
     setVisited((seen) => (seen.has(key) ? seen : new Set(seen).add(key)));
+    setFocusRequest((request) => (request?.step === index ? request : null));
     setStep(index);
+    // The page is what scrolls, so a new step would otherwise open wherever the last one was
+    // left. A field waiting to be focused scrolls itself into view a frame later.
+    window.scrollTo({ top: 0 });
   };
 
   /**
@@ -791,12 +815,15 @@ export default function ProfileWizard({
               update={set.trades}
               reference={reference}
             />
-            <ServicesStep
-              data={formData.services}
-              update={set.services}
-              reference={reference}
-              selectedTradeIds={selectedTradeIds}
-            />
+            {/* Marked here rather than inside the step, which the service catalogue work owns. */}
+            <FocusTarget name="services" section>
+              <ServicesStep
+                data={formData.services}
+                update={set.services}
+                reference={reference}
+                selectedTradeIds={selectedTradeIds}
+              />
+            </FocusTarget>
           </MergedStep>
         );
       case "pricing":
@@ -844,9 +871,11 @@ export default function ProfileWizard({
           <PublishStep
             review={review}
             readiness={readiness}
-            onJumpToStep={(key) => {
+            onJumpToStep={(key, field) => {
               const idx = STEPS.findIndex((s) => s.key === key);
-              if (idx >= 0) void goTo(idx);
+              if (idx < 0) return;
+              setFocusRequest(field === undefined ? null : { step: idx, field });
+              void goTo(idx);
             }}
           />
         );
@@ -856,11 +885,12 @@ export default function ProfileWizard({
   };
 
   return (
-    // A definite height from the page plus a `min-h-0` flex child is what lets the card take
-    // the leftover height and scroll inside itself, so the step navigation stays put on a long
-    // step. `h-full` and nothing more: the wizard is handed its box, it does not claim one.
-    <div className="flex h-full w-full flex-col items-center gap-6">
-      <div className="w-full max-w-4xl shrink-0">
+    // The page scrolls, not a box inside it. What has to stay in reach on a long step is pinned
+    // instead: the step bar to the top of the window and the buttons to the bottom, both in the
+    // same column as the form so the three line up.
+    // At least a window tall, so on a short step the buttons still sit at the bottom of it.
+    <div className="mx-auto flex min-h-[calc(100dvh-var(--portal-header))] w-full max-w-4xl flex-col">
+      <div className="sticky top-0 z-20 bg-background pt-6 pb-4">
         <StepIndicator
           current={step}
           lockedReason={heldOnBusiness ? "the Business step is complete" : undefined}
@@ -868,23 +898,18 @@ export default function ProfileWizard({
         />
       </div>
 
-      <Card className="flex w-full max-w-4xl min-h-0 flex-1 flex-col">
-        <CardHeader className="shrink-0">
-          <CardTitle>{STEPS[step].title}</CardTitle>
-        </CardHeader>
-        <Separator />
-        {/* Sealed while a save is in flight: `saveStep` is handed the form as it stood when
-            the button was pressed and hands it back settled, so a keystroke made during the
-            round trip would be overwritten and never sent. The buttons sit outside this. */}
-        <CardContent
-          inert={busy}
-          aria-busy={busy || undefined}
-          className="min-h-0 flex-1 overflow-y-auto py-5"
-        >
-          {renderStep()}
-        </CardContent>
-        <Separator />
+      <h2 className="mt-4 border-b pb-4 text-2xl font-bold tracking-[-0.01em] text-brand">
+        {STEPS[step].title}
+      </h2>
 
+      {/* Sealed while a save is in flight: `saveStep` is handed the form as it stood when
+          the button was pressed and hands it back settled, so a keystroke made during the
+          round trip would be overwritten and never sent. The buttons sit outside this. */}
+      <div inert={busy} aria-busy={busy || undefined} className="flex-1 py-6">
+        {renderStep()}
+      </div>
+
+      <div className="sticky bottom-0 z-20 flex flex-col gap-3 border-t bg-background py-4">
         {problem !== null && <ProblemStrip>{problem}</ProblemStrip>}
 
         {shownNotice !== null && <NoticeStrip>{shownNotice}</NoticeStrip>}
@@ -899,7 +924,7 @@ export default function ProfileWizard({
           />
         )}
 
-        <CardFooter className="flex shrink-0 justify-between bg-transparent">
+        <div className="flex justify-between">
           {step === 0 ? (
             <div />
           ) : (
@@ -959,8 +984,8 @@ export default function ProfileWizard({
               </Button>
             )}
           </div>
-        </CardFooter>
-      </Card>
+        </div>
+      </div>
     </div>
   );
 }
@@ -1098,7 +1123,7 @@ const NOTHING_TO_LEAVE_BEHIND: Record<Deferral, (form: ProfileFormData) => strin
  */
 function NoticeStrip({ children }: { children: React.ReactNode }) {
   return (
-    <div className="flex shrink-0 items-start gap-3 border-b bg-muted/40 px-6 py-3">
+    <div className="flex items-start gap-3 rounded-xl border bg-muted/40 px-4 py-3">
       <Info className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
       <p className="text-sm text-muted-foreground">{children}</p>
     </div>
@@ -1113,7 +1138,7 @@ function ProblemStrip({ children }: { children: React.ReactNode }) {
   return (
     <div
       role="alert"
-      className="flex shrink-0 items-start gap-3 border-b bg-destructive/5 px-6 py-3"
+      className="flex items-start gap-3 rounded-xl border border-destructive/20 bg-destructive/5 px-4 py-3"
     >
       <CircleAlert className="mt-0.5 size-4 shrink-0 text-destructive" />
       <p className="text-sm">{children}</p>
@@ -1156,7 +1181,7 @@ function ConfirmationQuestion({
   onCancel: () => void;
 }) {
   return (
-    <div className="flex shrink-0 flex-col gap-3 border-b bg-muted/40 px-6 py-4">
+    <div className="flex flex-col gap-3 rounded-xl border bg-muted/40 px-4 py-4">
       <p className="text-sm">{detail}</p>
       <div className="flex gap-2">
         <Button size="sm" onClick={onConfirm} disabled={busy}>

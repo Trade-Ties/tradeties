@@ -1,12 +1,19 @@
 import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
 
-import { DASHBOARD_PATH } from "@/lib/routes";
+import { CALENDAR_NEW_PARAM, CALENDAR_VIEW_PARAM, DASHBOARD_PATH } from "@/lib/routes";
 
-import { DEMO_APPOINTMENTS } from "../demo-data";
+import { DEMO_APPOINTMENTS, DEMO_ENTRIES, DEMO_TIME_OFF } from "../demo-data";
 import { CalendarMonth } from "./CalendarMonth";
 
-export default function CalendarPage() {
+export default async function CalendarPage({
+  searchParams,
+}: {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
+  const params = await searchParams;
+  const view = params[CALENDAR_VIEW_PARAM] === "requests" ? "requests" : "day";
+
   return (
     <div className="mx-auto w-full max-w-5xl px-8 py-10">
       <Link
@@ -17,9 +24,13 @@ export default function CalendarPage() {
         Back to dashboard
       </Link>
 
-      <h1 className="mb-8 text-3xl font-bold tracking-[-0.02em] text-brand">Calendar</h1>
-
-      <CalendarMonth appointments={DEMO_APPOINTMENTS} />
+      <CalendarMonth
+        appointments={DEMO_APPOINTMENTS}
+        entries={DEMO_ENTRIES}
+        timeOff={DEMO_TIME_OFF}
+        initialView={view}
+        openOnTimeOff={params[CALENDAR_NEW_PARAM] === "time-off"}
+      />
     </div>
   );
 }

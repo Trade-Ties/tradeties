@@ -99,6 +99,11 @@ class BusinessExceptionHandler {
 		return conflict(exception.getMessage());
 	}
 
+	@ExceptionHandler(SlugReservedException.class)
+	ProblemDetail handleSlugReserved(SlugReservedException exception) {
+		return conflict(exception.getMessage());
+	}
+
 	/**
 	 * A {@code type} of its own, because there is something for the client to do about it.
 	 *
