@@ -28,6 +28,9 @@ import { prefillFrom, type BookingPrefill, type NewBooking } from "../booking";
 import { BookedNotice } from "../BookedNotice";
 import { NewEntryDialog, type EntryKind } from "../NewEntryDialog";
 import { TimeOffBanner } from "../TimeOffBanner";
+import { acceptRequest, declineRequest } from "../actions";
+import { DeclineDialog } from "../DeclineDialog";
+import { asAppointment, type IncomingRequest } from "../requests";
 
 const today = new Date(new Date().setHours(0, 0, 0, 0));
 const WEEKDAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
@@ -43,20 +46,24 @@ type DayItem =
   { kind: "appointment"; start: Date; item: DemoAppointment } | { kind: "entry"; start: Date; item: CalendarEntry };
 
 export function CalendarMonth({
-  appointments: initial,
+  sent,
   entries: initialEntries,
   timeOff: initialTimeOff,
   initialView = "day",
   openOnTimeOff = false,
 }: {
-  appointments: DemoAppointment[];
+  /** What customers asked for. Named apart from the `requests` view below, which is a day's rows. */
+  sent: IncomingRequest[];
   entries: CalendarEntry[];
   timeOff: TimeOff[];
   initialView?: CalendarListView;
   /** Opens straight into the form on "Time off" — where "Add time off" elsewhere links to. */
   openOnTimeOff?: boolean;
 }) {
-  const [appointments, setAppointments] = useState(initial);
+  // Days built here rather than on the server, for the reason `requests.ts` gives.
+  const [appointments, setAppointments] = useState(() => sent.map(asAppointment));
+  const [refusal, setRefusal] = useState<{ message: string; gone: boolean } | null>(null);
+  const [declining, setDeclining] = useState<DemoAppointment | null>(null);
   const [entries, setEntries] = useState(initialEntries);
   const [timeOff, setTimeOff] = useState(initialTimeOff);
   const [adding, setAdding] = useState(openOnTimeOff);
@@ -74,9 +81,36 @@ export function CalendarMonth({
   const [openId, setOpenId] = useState<string | null>(null);
   const open = appointments.find((a) => a.id === openId) ?? null;
 
-  const confirm = (id: string) =>
-    setAppointments((prev) => prev.map((a) => (a.id === id ? { ...a, status: "confirmed" as const } : a)));
-  const decline = (id: string) => setAppointments((prev) => prev.filter((a) => a.id !== id));
+  /** Nothing moves until the server says it was written — see the dashboard's own note. */
+  const confirm = async (id: string) => {
+    const answer = await acceptRequest(id);
+
+    if (answer.ok) {
+      setAppointments((prev) => prev.map((a) => (a.id === id ? { ...a, status: "confirmed" as const } : a)));
+    } else {
+      setRefusal(answer);
+    }
+  };
+
+  /** Turning a job down needs a reason, so the button opens the box rather than doing it. */
+  const decline = (id: string) => {
+    const request = appointments.find((a) => a.id === id);
+    if (request) {
+      setDeclining(request);
+    }
+  };
+
+  const sendDecline = async (id: string, reason: string) => {
+    const answer = await declineRequest(id, reason);
+
+    if (!answer.ok) {
+      setRefusal(answer);
+      return;
+    }
+
+    setDeclining(null);
+    setAppointments((prev) => prev.filter((a) => a.id !== id));
+  };
 
   // Either way, show the day it went on, which is not necessarily the one picked when the form
   // opened.
@@ -165,6 +199,20 @@ export function CalendarMonth({
       </div>
 
       {notice && <BookedNotice onDismiss={() => setNotice(null)}>{notice}</BookedNotice>}
+
+      {refusal && (
+        <BookedNotice onDismiss={() => setRefusal(null)}>
+          {refusal.message}
+          {refusal.gone && " Reload to see what is still open."}
+        </BookedNotice>
+      )}
+
+      <DeclineDialog
+        key={declining?.id ?? "none"}
+        request={declining}
+        onOpenChange={(open) => !open && setDeclining(null)}
+        onDecline={sendDecline}
+      />
 
       <NewEntryDialog
         key={formKey}

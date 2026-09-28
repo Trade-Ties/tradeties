@@ -1,9 +1,12 @@
 import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
 
+import { fetchMyJobRequests } from "@/lib/api/inbox";
+import { portalToken } from "@/lib/portal/session";
 import { CALENDAR_NEW_PARAM, CALENDAR_VIEW_PARAM, DASHBOARD_PATH } from "@/lib/routes";
 
-import { DEMO_APPOINTMENTS, DEMO_ENTRIES, DEMO_TIME_OFF } from "../demo-data";
+import { DEMO_ENTRIES, DEMO_TIME_OFF } from "../demo-data";
+import { incoming } from "../requests";
 import { CalendarMonth } from "./CalendarMonth";
 
 export default async function CalendarPage({
@@ -13,6 +16,13 @@ export default async function CalendarPage({
 }) {
   const params = await searchParams;
   const view = params[CALENDAR_VIEW_PARAM] === "requests" ? "requests" : "day";
+
+  // The same list the dashboard reads, and it has to be the same: accepting on one screen and
+  // still seeing the hour free on the other is the state this slice exists to remove.
+  const sent = await fetchMyJobRequests(await portalToken());
+  const requests = (sent.ok ? sent.data : [])
+    .filter((request) => request.status === "PENDING" || request.status === "ACCEPTED")
+    .map(incoming);
 
   return (
     <div className="mx-auto w-full max-w-5xl px-8 py-10">
@@ -25,7 +35,7 @@ export default async function CalendarPage({
       </Link>
 
       <CalendarMonth
-        appointments={DEMO_APPOINTMENTS}
+        sent={requests}
         entries={DEMO_ENTRIES}
         timeOff={DEMO_TIME_OFF}
         initialView={view}

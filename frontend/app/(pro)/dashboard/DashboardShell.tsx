@@ -15,7 +15,10 @@ import {
   type BookingPrefill,
   type NewBooking,
 } from "./booking";
+import { acceptRequest, declineRequest } from "./actions";
+import { DeclineDialog } from "./DeclineDialog";
 import { DetailPanel, type Selection } from "./DetailPanel";
+import { asAppointment, type IncomingRequest } from "./requests";
 import {
   knownCustomers,
   type CalendarEntry,
@@ -33,19 +36,28 @@ import { NewEntryDialog } from "./NewEntryDialog";
  * is open without those parts needing any client state of their own.
  */
 export function DashboardShell({
-  appointments: initialAppointments,
+  requests,
   entries: initialEntries,
   timeOff: initialTimeOff,
   messages: initialMessages,
   children,
 }: {
-  appointments: DemoAppointment[];
+  requests: IncomingRequest[];
   entries: CalendarEntry[];
   timeOff: TimeOff[];
   messages: DemoMessage[];
   children: React.ReactNode;
 }) {
-  const [appointments, setAppointments] = useState(initialAppointments);
+  /*
+    The calendar days are built here and not on the server. Each request carries the day its
+    business reads it on, as three numbers; a Date made from them over there would be an instant
+    on the server's clock and would land on the wrong day over here. See `requests.ts`.
+  */
+  const [appointments, setAppointments] = useState(() => requests.map(asAppointment));
+
+  // What a refused answer left to say, and whether re-reading is the move.
+  const [refusal, setRefusal] = useState<{ message: string; gone: boolean } | null>(null);
+  const [declining, setDeclining] = useState<DemoAppointment | null>(null);
   const [entries, setEntries] = useState(initialEntries);
   const [timeOff, setTimeOff] = useState(initialTimeOff);
   const [messages, setMessages] = useState(initialMessages);
@@ -84,7 +96,19 @@ export function DashboardShell({
   const addEntry = (entry: Omit<CalendarEntry, "id">) => setEntries((prev) => [...prev, { ...entry, id: `e${Date.now()}` }]);
   const addTimeOff = (off: Omit<TimeOff, "id">) => setTimeOff((prev) => [...prev, { ...off, id: `t${Date.now()}` }]);
 
-  const confirm = (id: string) => {
+  /**
+   * Taking the job is the one action here that can be refused, and the refusal matters: the hour
+   * may have gone while this page sat open. Nothing moves on screen until the server says it was
+   * written, because a row that flipped to confirmed and then did not would be the worst of it.
+   */
+  const confirm = async (id: string) => {
+    const answer = await acceptRequest(id);
+
+    if (!answer.ok) {
+      setRefusal(answer);
+      return;
+    }
+
     setAppointments((prev) => prev.map((a) => (a.id === id ? { ...a, status: "confirmed" as const } : a)));
     setSelection((sel) =>
       sel?.type === "appointment" && sel.item.id === id
@@ -93,7 +117,26 @@ export function DashboardShell({
     );
   };
 
+  /**
+   * Turning a job down needs a reason, so the button opens the box rather than doing it. The row
+   * only leaves the list once the server has actually written the refusal.
+   */
   const decline = (id: string) => {
+    const request = appointments.find((a) => a.id === id);
+    if (request) {
+      setDeclining(request);
+    }
+  };
+
+  const sendDecline = async (id: string, reason: string) => {
+    const answer = await declineRequest(id, reason);
+
+    if (!answer.ok) {
+      setRefusal(answer);
+      return;
+    }
+
+    setDeclining(null);
     setAppointments((prev) => prev.filter((a) => a.id !== id));
     setSelection((sel) => (sel?.type === "appointment" && sel.item.id === id ? null : sel));
   };
@@ -126,6 +169,20 @@ export function DashboardShell({
       {children}
 
       {notice && <BookedNotice onDismiss={() => setNotice(null)}>{notice}</BookedNotice>}
+
+      {refusal && (
+        <BookedNotice onDismiss={() => setRefusal(null)}>
+          {refusal.message}
+          {refusal.gone && " Reload to see what is still open."}
+        </BookedNotice>
+      )}
+
+      <DeclineDialog
+        key={declining?.id ?? "none"}
+        request={declining}
+        onOpenChange={(open) => !open && setDeclining(null)}
+        onDecline={sendDecline}
+      />
 
       <NewEntryDialog
         key={booking.key}

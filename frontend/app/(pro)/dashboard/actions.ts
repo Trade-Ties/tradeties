@@ -5,6 +5,8 @@ import { revalidatePath } from "next/cache";
 import { signOut, withAuth } from "@workos-inc/authkit-nextjs";
 
 import { registerAsTradesperson } from "@/lib/api/identity";
+import * as api from "@/lib/api/inbox";
+import { portalToken as token } from "@/lib/portal/session";
 import { DASHBOARD_PATH } from "@/lib/routes";
 
 /**
@@ -36,4 +38,51 @@ export async function retryRegistration() {
  */
 export async function signOutFromPortal() {
   await signOut();
+}
+/**
+ * What answering a request can end in, in the words the dashboard puts in front of somebody.
+ *
+ * `gone` is the one worth its own flag: the hour went while the page was open, and the only useful
+ * move is to re-read the list. Everything else is either already answered or the backend being
+ * unreachable, and neither is fixed by looking again.
+ */
+export type Answered =
+  | { ok: true }
+  | { ok: false; message: string; gone: boolean };
+
+/** Takes the job. A 409 means somebody else's hour now; a 422 means this was already answered. */
+export async function acceptRequest(requestId: string): Promise<Answered> {
+  const result = await api.acceptJobRequest(await token(), requestId);
+
+  if (result.ok) {
+    revalidatePath(DASHBOARD_PATH);
+    return { ok: true };
+  }
+
+  if (result.failure.status === 409) {
+    return {
+      ok: false,
+      gone: true,
+      message: result.failure.detail,
+    };
+  }
+
+  return { ok: false, gone: false, message: result.failure.detail };
+}
+
+/**
+ * Turns the job down, with the reason the customer will be given.
+ *
+ * Declining commits no calendar, so it cannot lose a race — the only refusal it meets is a request
+ * that was already answered.
+ */
+export async function declineRequest(requestId: string, reason: string): Promise<Answered> {
+  const result = await api.declineJobRequest(await token(), requestId, reason);
+
+  if (result.ok) {
+    revalidatePath(DASHBOARD_PATH);
+    return { ok: true };
+  }
+
+  return { ok: false, gone: false, message: result.failure.detail };
 }
