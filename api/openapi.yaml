@@ -53,6 +53,16 @@ tags:
       one interface per tag and these tables belong to their own module — the
       calendar is where appointments, time off and working hours have to agree
       with each other, and that agreement is not the profile's business.
+  - name: job
+    description: |
+      What a customer wants done, and the requests they send about it. Public and
+      anonymous like `marketplace`, and separate from it because these are the
+      first operations that write: the search and the profile answer questions,
+      this one creates a row somebody has to act on.
+
+      Its own tag rather than a corner of `marketplace`, because the generator
+      makes one interface per tag and the module that owns these tables is not the
+      one that owns the search.
 
 security:
   - workosAuthKit: []
@@ -654,6 +664,64 @@ paths:
                   $ref: "#/components/schemas/ServiceSuggestion"
         "400":
           $ref: "#/components/responses/BadRequest"
+
+  /api/v1/jobs:
+    post:
+      tags: [job]
+      operationId: createJob
+      security: []
+      summary: Send a customer's first request for a slot.
+      description: |
+        The first write on the customer side, and the first operation in this API
+        that takes no token at all. Everything before it answered a question; this
+        one creates something a tradesperson has to act on.
+
+        **It creates two things: the job and its first request.** The job is what
+        the customer wants done — the address, the description, how to reach them.
+        The request is that job put to one business, for one service, at one start.
+        They are separate because DECISIONS section 1 sends the same job to several
+        tradespeople in parallel, each deciding on their own; the second and later
+        requests are a different operation against a job that already exists.
+
+        **What binds is what was shown.** The caller sends no prices, no duration
+        and no cancellation fee. Every one of those is resolved here, from the
+        business and the service named, and written onto the request as a snapshot.
+        A business that raises its cancellation fee tomorrow must not make today's
+        request more expensive, and a client that could send the numbers could send
+        different ones.
+
+        **`startsAt` is checked against the same walk that offered it.** It has to
+        be a start this business actually offers for this service today — on the
+        grid, inside the working week, past the notice, inside the horizon, clear
+        of declared time off and of appointments already accepted. A start that
+        stopped being offered between the page loading and the form being sent is
+        refused here rather than accepted and declined later.
+
+        **Nothing is reserved by this.** The request is `PENDING`, and a pending
+        request does not take the slot off anybody else's screen — two customers
+        asking for one time is correct behaviour, settled when one of them is
+        accepted and not before.
+
+        The answer carries an access token **once, in the clear**. A customer has
+        no account, so that token is the only way back to what they sent. It is
+        never returned again.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/JobInput"
+      responses:
+        "201":
+          description: The created job, its first request, and the access token.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CreatedJob"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
 
   /api/v1/me/business:
     get:
@@ -2218,6 +2286,206 @@ components:
           type: boolean
           description: Whether TradeTies checked this licence against the issuing state.
 
+    JobInput:
+      type: object
+      description: |
+        Everything a customer supplies to send their first request: who they are,
+        where the work is, what is wrong, and which slot of whose they want.
+
+        **No prices, no duration, no cancellation fee.** Those are resolved on the
+        server from `slug` and `serviceId` and written onto the request as a
+        snapshot. A client that could send them could send different ones, and what
+        binds has to be what was displayed rather than what was posted back.
+      required:
+        - slug
+        - serviceId
+        - startsAt
+        - customerName
+        - customerEmail
+        - description
+        - street1
+        - city
+        - state
+        - postalCode
+      properties:
+        slug:
+          $ref: "#/components/schemas/Slug"
+        serviceId:
+          type: string
+          format: uuid
+          description: |
+            Which of that business's services, by the `id` its profile returned. One
+            it does not offer, or has since deactivated, answers `400` — the same
+            reading the availability operation gives it.
+        startsAt:
+          type: string
+          format: date-time
+          description: |
+            The start the customer picked, as the instant the availability operation
+            returned. Checked against that same walk before anything is written, so
+            a start that has stopped being offered is refused here rather than
+            written and declined days later.
+          examples: ["2026-10-01T14:00:00Z"]
+        customerName:
+          type: string
+          maxLength: 200
+          minLength: 1
+        customerEmail:
+          type: string
+          format: email
+          maxLength: 320
+          description: |
+            The only way back to this job for somebody with no account, together
+            with the access token the answer carries.
+        customerPhone:
+          type: string
+          maxLength: 16
+          description: Optional. Some jobs are settled faster by phone than by mail.
+        description:
+          type: string
+          minLength: 1
+          maxLength: 2000
+          description: |
+            What is wrong, in the customer's own words. Not the service name — that
+            is already known from `serviceId`, and this is the part the tradesperson
+            reads to decide whether the estimate still holds.
+        street1:
+          type: string
+          maxLength: 200
+          minLength: 1
+        street2:
+          type: string
+          maxLength: 200
+          description: Optional. Flat, floor, entrance.
+        city:
+          type: string
+          maxLength: 100
+          minLength: 1
+        state:
+          $ref: "#/components/schemas/UsStateCode"
+        postalCode:
+          type: string
+          pattern: '^\d{5}(-\d{4})?$'
+          maxLength: 10
+          description: |
+            The job site, which is not necessarily where the customer is. Only the
+            five digits are read, and they are what places the site on the map.
+
+    CreatedJob:
+      type: object
+      description: |
+        What was written, and the one credential that comes with it.
+      required: [jobId, accessToken, accessTokenExpiresAt, request]
+      properties:
+        jobId:
+          type: string
+          format: uuid
+        accessToken:
+          type: string
+          description: |
+            **Returned once, in the clear, and never again.** Only its SHA-256 is
+            stored, so this response is the only moment it exists in readable form.
+            A customer has no account and no session; this token is the whole of
+            their way back to what they sent.
+
+            Treat it as a credential. It belongs in a link the customer keeps, not
+            in a page anybody else can reach.
+        accessTokenExpiresAt:
+          type: string
+          format: date-time
+        request:
+          $ref: "#/components/schemas/JobRequestSummary"
+
+    JobRequestSummary:
+      type: object
+      description: |
+        One request as it now stands, including the terms snapshotted onto it.
+        Echoed back rather than left to the client's memory: these are the numbers
+        that bind, and the answer is where a customer sees what was recorded.
+      required:
+        - id
+        - status
+        - businessSlug
+        - businessName
+        - serviceName
+        - estimatedDurationMinutes
+        - startsAt
+        - endsAt
+        - timeZone
+        - currency
+        - cancellationFee
+        - cancellationNoticeHours
+      properties:
+        id:
+          type: string
+          format: uuid
+        status:
+          $ref: "#/components/schemas/JobRequestStatus"
+        businessSlug:
+          $ref: "#/components/schemas/Slug"
+        businessName:
+          type: string
+          maxLength: 200
+        serviceName:
+          type: string
+          maxLength: 160
+          description: |
+            The name as it read when the request was sent. A business that renames
+            the service afterwards does not rename what somebody asked for.
+        estimatedDurationMinutes:
+          type: integer
+          format: int32
+        startsAt:
+          type: string
+          format: date-time
+        endsAt:
+          type: string
+          format: date-time
+          description: |
+            `startsAt` plus the duration above, computed here rather than sent. It is
+            what the overlap check between accepted appointments is written against,
+            so it is not a number a client gets to propose.
+        timeZone:
+          type: string
+          description: |
+            The zone this appointment is read against, recorded on the job.
+
+            It is the business's own. DECISIONS section 1 calls for the job site's,
+            and the two are one thing here until there is data to tell them apart:
+            the postal code table carries coordinates and no zone, so a site's own
+            zone cannot be derived today. Recording the tradesperson's is the honest
+            reading — the slot came out of their working week.
+          examples: ["America/Denver"]
+        currency:
+          type: string
+        cancellationFee:
+          $ref: "#/components/schemas/MoneyAmount"
+        cancellationNoticeHours:
+          type: integer
+          format: int32
+          description: |
+            With the fee above, the pair a customer had to have read before sending.
+            Both are frozen here exactly as they were displayed.
+
+    JobRequestStatus:
+      type: string
+      description: |
+        Where one request stands. Only `PENDING` can occur today — nothing can
+        accept, decline or withdraw yet.
+
+        **All six are declared now anyway.** A new value in a response enum reaches
+        clients that may not handle it: Jackson rejects unknown enum values by
+        default, and an exhaustive TypeScript switch falls through in silence.
+        Adding them later would be a breaking change bought for a shorter list
+        today.
+      enum:
+        - PENDING
+        - ACCEPTED
+        - DECLINED
+        - WITHDRAWN
+        - CANCELLED
+        - COMPLETED
+
     BusinessAvailability:
       type: object
       description: |
@@ -3608,6 +3876,12 @@ components:
           zone, a postal code. Name a different one. The other `400` — a request outside the
           bounds the contract itself declares — carries no type, because nobody chose it and
           the person in front of the client cannot fix it.
+        - `urn:tradeties:problem:slot-not-offered` — a `400` on sending a request. The start
+          named is not one that business is offering for that service any more: somebody
+          else's request was accepted onto it, time off was entered over it, or the page has
+          simply been open a while. Read the calendar again and pick another time — this is
+          not the same remedy as `invalid-selection`, which sends the customer back to the
+          service list instead.
         - `urn:tradeties:problem:unconfirmed-time-zone-change` — answer with a dialogue and
           send the same body again with `timeZoneChangeConfirmed`.
         - `urn:tradeties:problem:slug-locked` — the profile was published, so `slug` is no

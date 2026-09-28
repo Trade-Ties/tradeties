@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 
@@ -200,18 +201,21 @@ export function ServiceCalendar({
                     {spanLabel(pickedTime, appointmentMinutes, timeZone)}
                   </p>
 
-                  <button
-                    type="button"
-                    disabled
-                    className="mt-3 w-full cursor-not-allowed rounded-2xl bg-brand/30 px-6 py-3 text-[15px] font-semibold text-white"
+                  {/*
+                    A link and not a form. The booking page takes its whole input from the address
+                    — the business, the service and this instant — which is what lets somebody
+                    reload it, come back to it, or send it to whoever actually owns the boiler.
+                  */}
+                  <Link
+                    href={`${proPath(slug)}/book?${new URLSearchParams({ service: serviceId, at: pickedTime })}`}
+                    className="mt-3 block w-full rounded-2xl bg-brand px-6 py-3 text-center text-[15px] font-semibold text-white no-underline"
                   >
                     Request this appointment
-                  </button>
+                  </Link>
 
                   <p className="m-0 mt-2.5 text-[13px] leading-relaxed text-muted-ink">
-                    Requesting is not switched on yet, so this button does nothing. Nothing on this
-                    page is held for you either — the same time stays on offer to everybody until
-                    the tradesperson accepts a request for it.
+                    Nothing on this page is held for you — the same time stays on offer to
+                    everybody until the tradesperson accepts a request for it.
                   </p>
                 </div>
               )}

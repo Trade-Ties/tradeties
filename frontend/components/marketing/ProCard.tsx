@@ -5,11 +5,9 @@ import { ArrowRight, BadgeCheck } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { Dialog, DialogTrigger } from "@/components/ui/dialog";
 import { PreviewCard, PreviewCardContent, PreviewCardTrigger } from "@/components/ui/preview-card";
 import { cn } from "@/lib/utils";
 import type { Pro } from "@/components/marketing/pros-data";
-import { BookingModal } from "./BookingModal";
 import { ProfilePreviewCard } from "./ProfilePreviewCard";
 
 const today = new Date(new Date().setHours(0, 0, 0, 0));
@@ -76,11 +74,6 @@ export interface ProCardView {
   services?: string[];
   slots: ProCardSlot[];
   /**
-   * Whether a slot can actually be taken. False renders the times as what they are — the next
-   * openings — instead of as a button that promises a booking nothing can yet accept.
-   */
-  bookable: boolean;
-  /**
    * The business's own page, for a card that stands for a real one.
    *
    * Absent for the sample listings, which stand for nobody and have no page to open. A card
@@ -115,7 +108,6 @@ export function proCardView(pro: Pro): ProCardView {
       timeLabel: slot.time,
       today: isSameDay(slot.date, today),
     })),
-    bookable: true,
   };
 }
 
@@ -226,27 +218,14 @@ export function ProCard({ view, className }: { view: ProCardView; className?: st
             ? "h-auto rounded-[10px] border-[#BFEBD8] bg-go-bg px-2.5 py-2 font-mono text-[12.5px] font-medium text-[#07734F] hover:border-go hover:bg-go hover:text-white"
             : "h-auto rounded-[10px] border-line bg-white px-2.5 py-2 font-mono text-[12.5px] font-medium text-brand hover:border-brand hover:bg-brand hover:text-white";
 
-          // Not bookable (a live search result, which no confirmed-availability
-          // concept exists for yet): render the time as a plain label, not a
-          // button that opens a booking flow nothing behind it can honour.
-          if (!view.bookable) {
-            return (
-              <Button key={slot.key} type="button" variant="outline" disabled className={slotClassName}>
-                {slot.label}
-              </Button>
-            );
-          }
-
+          // A time and never a button. This card cannot start a booking: the openings it shows
+          // come from a grid rather than from a chosen service, so no slot here has a length yet
+          // — which is the one thing a request needs. Booking begins on the business's own page,
+          // where a service has been picked, and `href` below is the way there.
           return (
-            <Dialog key={slot.key}>
-              <DialogTrigger
-                render={<Button type="button" variant="outline" className={slotClassName} />}
-              >
-                {`Book ${slot.label}`}
-                <ArrowRight className="ml-0.5 size-3 opacity-0 transition-opacity duration-150 group-hover/button:opacity-100" />
-              </DialogTrigger>
-              <BookingModal view={view} slot={slot} />
-            </Dialog>
+            <Button key={slot.key} type="button" variant="outline" disabled className={slotClassName}>
+              {slot.label}
+            </Button>
           );
         })}
       </div>

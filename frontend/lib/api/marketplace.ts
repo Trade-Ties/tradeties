@@ -167,3 +167,28 @@ export async function getAvailability(
 
   return { ok: true, data: answered.data as BusinessAvailability };
 }
+
+export type JobInput = components["schemas"]["JobInput"];
+export type CreatedJob = components["schemas"]["CreatedJob"];
+
+/**
+ * Sends a customer's first request for a slot.
+ *
+ * <p>The one write on this side, and the one call in this file that creates something. Anonymous
+ * like the reads around it — a customer has no account, so there is no token to send and none is
+ * taken.
+ *
+ * **The answer carries a credential.** `accessToken` is the clear value, returned once and never
+ * again; only its digest is stored. Nothing may log this result, put it in a URL or hand it to a
+ * third party — it grants access to the customer's own address and telephone number.
+ *
+ * Failures stay failures and are not collapsed, because the three a customer can meet need three
+ * different sentences: a slug nobody holds is a 404, a service this business no longer offers is
+ * a 400 carrying `INVALID_SELECTION`, and a start that has since been taken is a 400 carrying
+ * `SLOT_NOT_OFFERED`. Only the last of them is fixed by picking another time.
+ */
+export function createJob(input: JobInput): Promise<ApiResult<CreatedJob>> {
+  return attempt("POST /api/v1/jobs", () =>
+    publicApiClient().POST("/api/v1/jobs", { body: input }),
+  );
+}
