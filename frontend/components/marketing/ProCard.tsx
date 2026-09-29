@@ -120,7 +120,28 @@ export function proCardView(pro: Pro): ProCardView {
 // so the card's design only has to be maintained in one place. `className` lets each caller own
 // sizing (fixed-width + snap for the rail, full-width for the grid) without touching the card's
 // own visual styling.
-export function ProCard({ view, className }: { view: ProCardView; className?: string }) {
+//
+// `onBook` makes the times buttons that book them, and a click anywhere else on the card book its
+// first time. Only the homepage rail passes it: its cards are samples, and the dialogue it opens is
+// a demo that sends nothing.
+export function ProCard({
+  view,
+  className,
+  onBook,
+}: {
+  view: ProCardView;
+  className?: string;
+  onBook?: (slot: ProCardSlot) => void;
+}) {
+  const firstSlot = view.slots[0];
+  const bookFromCard =
+    onBook && firstSlot
+      ? (e: React.MouseEvent<HTMLDivElement>) => {
+          // React bubbles clicks out of portals, so the hover preview would count as the card.
+          if (e.currentTarget.contains(e.target as Node)) onBook(firstSlot);
+        }
+      : undefined;
+
   const facts = [
     view.rating === undefined ? null : (
       <span key="rating">
@@ -133,8 +154,10 @@ export function ProCard({ view, className }: { view: ProCardView; className?: st
 
   return (
     <Card
+      onClick={bookFromCard}
       className={cn(
         "relative flex flex-col gap-0 rounded-3xl border border-line bg-white p-5 shadow-card ring-0 transition-all duration-200 hover:-translate-y-1 hover:border-brand-100 hover:shadow-lift",
+        bookFromCard && "cursor-pointer",
         className
       )}
     >
@@ -158,7 +181,7 @@ export function ProCard({ view, className }: { view: ProCardView; className?: st
                 className="relative z-10 mb-4 flex min-h-16 w-fit items-center gap-3 text-brand no-underline hover:text-brand-500"
               />
             ) : (
-              <div className="mb-4 flex min-h-16 w-fit cursor-default items-center gap-3" />
+              <div className={cn("mb-4 flex min-h-16 w-fit items-center gap-3", !bookFromCard && "cursor-default")} />
             )
           }
         >
@@ -228,6 +251,25 @@ export function ProCard({ view, className }: { view: ProCardView; className?: st
           const slotClassName = slot.today
             ? "h-auto rounded-[10px] border-[#BFEBD8] bg-go-bg px-2.5 py-2 font-mono text-[12.5px] font-medium text-[#07734F] hover:border-go hover:bg-go hover:text-white"
             : "h-auto rounded-[10px] border-line bg-white px-2.5 py-2 font-mono text-[12.5px] font-medium text-brand hover:border-brand hover:bg-brand hover:text-white";
+
+          if (onBook) {
+            return (
+              <Button
+                key={slot.key}
+                type="button"
+                variant="outline"
+                aria-label={`Book ${slot.dateLabel}, ${slot.timeLabel} with ${view.title}`}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onBook(slot);
+                }}
+                className={slotClassName}
+              >
+                {`Book ${slot.label}`}
+                <ArrowRight className="ml-0.5 size-3 opacity-0 transition-opacity duration-150 group-hover/button:opacity-100" />
+              </Button>
+            );
+          }
 
           if (!slot.href) {
             return (

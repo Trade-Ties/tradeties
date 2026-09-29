@@ -1,10 +1,11 @@
+import { Suspense } from "react";
 import Link from "next/link";
 
 import { SiteHeader } from "@/components/marketing/SiteHeader";
 import { SiteFooter } from "@/components/marketing/SiteFooter";
 import { HeroSearch } from "@/components/marketing/HeroSearch";
 import { AvailabilityRail } from "@/components/marketing/AvailabilityRail";
-import { Badge } from "@/components/ui/badge";
+import { FreeSoonBadge, FreeSoonBadgeFallback } from "@/components/marketing/FreeSoonBadge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 
@@ -79,10 +80,9 @@ export default function MarketplaceLandingPage() {
       */}
       <section className="hero-wash overflow-hidden pb-1 pt-[84px]">
         <div className="mx-auto max-w-[1180px] px-6">
-          <Badge className="animate-tt-rise mb-[22px] h-auto gap-2 rounded-full border-transparent bg-go-bg py-1.5 pl-2.5 pr-3.5 text-[13px] font-semibold text-[#07734F] [animation-delay:40ms]">
-            <span className="animate-tt-pulse size-[7px] rounded-full bg-go" />
-            412 tradespeople free today near you
-          </Badge>
+          <Suspense fallback={<FreeSoonBadgeFallback />}>
+            <FreeSoonBadge />
+          </Suspense>
 
           <h1 className="animate-tt-rise mb-5 max-w-[15ch] text-[clamp(40px,6.4vw,72px)] font-extrabold leading-[1.03] tracking-[-0.038em] [animation-delay:40ms]">
             Broken now.
