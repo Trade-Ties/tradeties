@@ -22,6 +22,7 @@ import {
   type AvailabilityFilter,
 } from "@/components/marketing/when-filter";
 import { proPath } from "@/lib/routes";
+import { rememberZip } from "@/lib/zip-memory";
 import type { components } from "@/lib/api/schema";
 
 type SearchResults = components["schemas"]["BusinessSearchResults"];
@@ -91,6 +92,7 @@ export function JobSearchResults({
   const runSearch = (event: React.FormEvent) => {
     event.preventDefault();
     if (zipDraft.length !== 5) return;
+    rememberZip(zipDraft);
 
     const params = new URLSearchParams({ zip: zipDraft });
     if (jobDraft.trim()) params.set("job", jobDraft.trim());
@@ -466,11 +468,14 @@ function whenParam(availability: AvailabilityFilter, customDate: Date | undefine
   }
 }
 
-/** One search result in the card's own terms, with nothing invented to fill a gap. */
-function viewOf(result: SearchResult): ProCardView {
-  const badges: string[] = [];
-  if (result.licensed) badges.push("Licensed");
-  if (result.licenseVerified) badges.push("Licence verified");
+/**
+ * One search result in the card's own terms, with nothing invented to fill a gap. The landing
+ * page's open slots draw their cards with it too.
+ */
+export function viewOf(result: SearchResult): ProCardView {
+  // Whether a licence is on file, and no more: nothing checks it with the state yet, so the card
+  // does not claim it was.
+  const badges = result.licensed ? ["Licensed"] : [];
 
   // The business's own service for the picked job, when it lists one, so its page opens with that
   // service chosen. The openings on the card were measured by it too, which is what lets a time
@@ -498,6 +503,7 @@ function viewOf(result: SearchResult): ProCardView {
       href: page(slot),
     })),
     href: page(),
+    booking: { slug: result.slug, serviceId: result.serviceId },
   };
 }
 
@@ -513,7 +519,7 @@ function viewOf(result: SearchResult): ProCardView {
  * on the server and again in the browser is the nondeterminism this exists to avoid — for a badge
  * that a day of required notice makes almost unreachable anyway.
  */
-function opening(instant: string, timeZone: string): ProCardSlot {
+export function opening(instant: string, timeZone: string): ProCardSlot {
   const at = new Date(instant);
   const label = new Intl.DateTimeFormat("en-US", {
     timeZone,
@@ -536,7 +542,9 @@ function opening(instant: string, timeZone: string): ProCardSlot {
     minute: "2-digit",
   }).format(at);
 
-  return { key: instant, label, dateLabel, timeLabel, today: false };
+  const dayLabel = new Intl.DateTimeFormat("en-US", { timeZone, weekday: "short" }).format(at);
+
+  return { key: instant, label, dayLabel, dateLabel, timeLabel, today: false };
 }
 
 /**

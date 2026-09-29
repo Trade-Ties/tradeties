@@ -13,41 +13,33 @@ import {
   MapPin,
   RotateCcw,
   Search,
-  ShieldCheck,
-  Star,
   Wrench,
 } from "lucide-react";
 
 import { Calendar } from "@/components/ui/calendar";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Dialog } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Slider } from "@/components/ui/slider";
-import { Switch } from "@/components/ui/switch";
 import { Button } from "@/components/ui/button";
 import { FilterPill } from "@/components/marketing/FilterPill";
-import { ProCard, proCardView } from "@/components/marketing/ProCard";
+import { BookingModal } from "@/components/marketing/BookingModal";
+import { ProCard, proCardView, type ProCardSlot, type ProCardView } from "@/components/marketing/ProCard";
 import { PROS, SERVICES_BY_TRADE, TRADE_ICONS, TRADE_LIST, type Pro } from "@/components/marketing/pros-data";
 import { dateMatchesAvailability, parseWhenParam, today, type AvailabilityFilter } from "@/components/marketing/when-filter";
 
-const RATING_OPTIONS = [
-  { value: "3.0", label: "3.0+" },
-  { value: "4.0", label: "4.0+" },
-  { value: "4.5", label: "4.5+" },
-  { value: "5.0", label: "5.0+" },
-];
 
 const SORT_OPTIONS = [
   { value: "recommended", label: "Recommended" },
-  { value: "rating", label: "Highest rated" },
   { value: "low to high", label: "Price: low to high" },
   { value: "high to low", label: "Price: high to low" },
   { value: "distance", label: "Distance" },
 ];
 
-const MAX_RADIUS = 25;
+const MAX_RADIUS = 50;
 const MAX_RATE = 150;
 
 function matchesAvailability(pro: Pro, availability: AvailabilityFilter, customDate: Date | undefined) {
@@ -73,13 +65,15 @@ export function BrowseProfessionals() {
 
   const [companySearch, setCompanySearch] = useState("");
   const [zip, setZip] = useState(searchParams.get("zip") || "80202");
+  // The same demo dialogue the homepage rail opens: these are the same sample listings, and a time
+  // on one of them should do the same thing wherever the card is shown.
+  const [booking, setBooking] = useState<{ view: ProCardView; slot?: ProCardSlot } | null>(null);
+  const [bookingOpen, setBookingOpen] = useState(false);
   const [radius, setRadius] = useState(MAX_RADIUS);
   const [trades, setTrades] = useState<string[]>([]);
   const [tradeMenuOpen, setTradeMenuOpen] = useState(false);
   const [services, setServices] = useState<string[]>([]);
   const [serviceMenuOpen, setServiceMenuOpen] = useState(false);
-  const [verifiedOnly, setVerifiedOnly] = useState(false);
-  const [minRating, setMinRating] = useState("0");
   const [priceRange, setPriceRange] = useState<number[]>([0, MAX_RATE]);
   const [availability, setAvailability] = useState<AvailabilityFilter>(initialWhen.availability);
   const [customDate, setCustomDate] = useState<Date | undefined>(initialWhen.customDate);
@@ -123,8 +117,6 @@ export function BrowseProfessionals() {
     setRadius(MAX_RADIUS);
     setTrades([]);
     setServices([]);
-    setVerifiedOnly(false);
-    setMinRating("0");
     setPriceRange([0, MAX_RATE]);
     setAvailability("any");
     setCustomDate(undefined);
@@ -136,22 +128,17 @@ export function BrowseProfessionals() {
     radius < MAX_RADIUS ||
     trades.length > 0 ||
     effectiveServices.length > 0 ||
-    verifiedOnly ||
-    minRating !== "0" ||
     priceRange[0] > 0 ||
     priceRange[1] < MAX_RATE ||
     availability !== "any";
 
   const filtered = useMemo(() => {
-    const min = Number(minRating);
     const query = companySearch.trim().toLowerCase();
     const results = PROS.filter((p) => {
       if (query && !p.business.toLowerCase().includes(query)) return false;
       if (p.miles > radius) return false;
       if (trades.length > 0 && !trades.includes(p.trade)) return false;
       if (effectiveServices.length > 0 && !effectiveServices.some((s) => p.services.includes(s))) return false;
-      if (verifiedOnly && !p.verified) return false;
-      if (p.rating < min) return false;
       if (p.rateFrom < priceRange[0] || p.rateFrom > priceRange[1]) return false;
       if (!matchesAvailability(p, availability, customDate)) return false;
       return true;
@@ -159,9 +146,6 @@ export function BrowseProfessionals() {
 
     const sorted = [...results];
     switch (sort) {
-      case "rating":
-        sorted.sort((a, b) => b.rating - a.rating);
-        break;
       case "low to high":
         sorted.sort((a, b) => a.rateFrom - b.rateFrom);
         break;
@@ -175,7 +159,7 @@ export function BrowseProfessionals() {
         break;
     }
     return sorted;
-  }, [companySearch, radius, trades, effectiveServices, verifiedOnly, minRating, priceRange, availability, customDate, sort]);
+  }, [companySearch, radius, trades, effectiveServices, priceRange, availability, customDate, sort]);
 
   return (
     <section className="pb-20 pt-10">
@@ -417,24 +401,8 @@ export function BrowseProfessionals() {
                 </Popover>
               </div>
 
-              {/* Rating */}
-              <div className="mb-6">
-                <FilterLabel icon={Star}>Rating</FilterLabel>
-                <div className="flex flex-wrap items-center justify-between gap-1.5">
-                  {RATING_OPTIONS.map((o) => (
-                    <FilterPill
-                      key={o.value}
-                      active={minRating === o.value}
-                      onClick={() => setMinRating((prev) => (prev === o.value ? "0" : o.value))}
-                    >
-                      {o.label}
-                    </FilterPill>
-                  ))}
-                </div>
-              </div>
-
               {/* Price range */}
-              <div className="mb-6">
+              <div className="">
                 <Label className="mb-2.5 block text-[13.5px] font-semibold text-brand">
                   ${priceRange[0]} – ${priceRange[1]}/hr
                 </Label>
@@ -445,15 +413,6 @@ export function BrowseProfessionals() {
                   max={MAX_RATE}
                   step={5}
                 />
-              </div>
-
-              {/* Verified toggle */}
-              <div className="flex items-center justify-between gap-2">
-                <span className="flex min-w-0 items-center gap-1.5 text-[13.5px] font-medium text-brand">
-                  <ShieldCheck className="size-4 shrink-0 text-muted-ink" />
-                  <span className="truncate">Verified only</span>
-                </span>
-                <Switch checked={verifiedOnly} onCheckedChange={setVerifiedOnly} />
               </div>
             </div>
           </div>
@@ -492,12 +451,29 @@ export function BrowseProfessionals() {
             // up flush with the right edge, same as the Sort control above.
             <div className="grid grid-cols-[repeat(auto-fill,260px)] items-start gap-5 self-start">
               {filtered.map((p) => (
-                <ProCard key={p.name} view={proCardView(p)} />
+                <ProCard
+                  key={p.name}
+                  view={proCardView(p)}
+                  onBook={(slot) => {
+                    setBooking({ view: proCardView(p), slot });
+                    setBookingOpen(true);
+                  }}
+                />
               ))}
             </div>
           )}
         </div>
       </div>
+
+      <Dialog open={bookingOpen} onOpenChange={setBookingOpen}>
+        {booking && (
+          <BookingModal
+            key={`${booking.view.title} ${booking.slot?.key ?? "calendar"}`}
+            view={booking.view}
+            initialSlot={booking.slot}
+          />
+        )}
+      </Dialog>
     </section>
   );
 }

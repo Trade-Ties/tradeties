@@ -4,7 +4,8 @@ import Link from "next/link";
 import { SiteHeader } from "@/components/marketing/SiteHeader";
 import { SiteFooter } from "@/components/marketing/SiteFooter";
 import { HeroSearch } from "@/components/marketing/HeroSearch";
-import { AvailabilityRail } from "@/components/marketing/AvailabilityRail";
+import { AvailabilityRailFallback } from "@/components/marketing/AvailabilityRail";
+import { OpenSlots } from "@/components/marketing/OpenSlots";
 import { FreeSoonBadge, FreeSoonBadgeFallback } from "@/components/marketing/FreeSoonBadge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -107,8 +108,10 @@ export default function MarketplaceLandingPage() {
       */}
       <HeroSearch />
 
-      {/* Availability rail */}
-      <AvailabilityRail />
+      {/* Availability rail — searched near the visitor's remembered ZIP, so it suspends on its own. */}
+      <Suspense fallback={<AvailabilityRailFallback />}>
+        <OpenSlots />
+      </Suspense>
 
       {/* How it works */}
       <section id="how" className="py-[88px]">

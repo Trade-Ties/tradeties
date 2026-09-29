@@ -1,16 +1,19 @@
 import Link from "next/link";
-import { format, isSameDay } from "date-fns";
-import { ArrowRight, BadgeCheck } from "lucide-react";
+import { addDays, format, isSameDay } from "date-fns";
+import { ArrowRight, BadgeCheck, MapPin } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { PreviewCard, PreviewCardContent, PreviewCardTrigger } from "@/components/ui/preview-card";
 import { cn } from "@/lib/utils";
-import type { Pro } from "@/components/marketing/pros-data";
+import { CALENDAR_DAYS, scheduleFor, type Pro, type ProSlot } from "@/components/marketing/pros-data";
 import { ProfilePreviewCard } from "./ProfilePreviewCard";
 
 const today = new Date(new Date().setHours(0, 0, 0, 0));
+
+/** Two columns of three: as many as a card holds without the times turning into a list. */
+const SLOTS_SHOWN = 6;
 
 /**
  * What the card draws, independent of where it came from.
@@ -34,6 +37,12 @@ export interface ProCardSlot {
   key: string;
   label: string;
   /**
+   * The weekday alone, "Wed" — or empty for a time today, which says so by its colour instead.
+   * Drawn in a column of its own beside `timeLabel`, so the days and the times of a card each
+   * line up rather than a centred "Wed 9:00 AM" sitting a character off "Sat 10:15 AM".
+   */
+  dayLabel: string;
+  /**
    * The full, spelled-out date and time, for the slot link's accessible name — "Thursday,
    * September 24" / "2:15 PM" rather than the button's compact "2:15 PM" (today) or "Thu 2:15 PM"
    * (other days), which read the same on every card of the grid. Split in two so a reader can
@@ -50,6 +59,18 @@ export interface ProCardSlot {
   href?: string;
 }
 
+/** One column of the booking dialogue's calendar — a day, and whatever times it has open. */
+export interface ProCardDay {
+  key: string;
+  /** "Wed", or "Today". */
+  weekday: string;
+  /** "30" */
+  dayOfMonth: string;
+  /** "Sep 30", for the range above the columns. */
+  shortDate: string;
+  slots: ProCardSlot[];
+}
+
 export interface ProCardView {
   initials: string;
   color: string;
@@ -57,10 +78,6 @@ export interface ProCardView {
   title: string;
   subtitle: string;
   trade?: string;
-  /** Absent for a real result — there are no reviews in this marketplace to average. */
-  rating?: number;
-  /** Absent for a real result — no completed-job counter exists. */
-  jobs?: number;
   /**
    * Already worded. The sample listings quote a decimal; a real distance is measured between two
    * postal-code centres and is honest to about a mile, so it says "3 miles" or "under a mile" and
@@ -79,6 +96,16 @@ export interface ProCardView {
   services?: string[];
   slots: ProCardSlot[];
   /**
+   * Every day ahead, empty ones included, for the booking dialogue's calendar. Only the sample
+   * listings have one: a real result's "all times" is its own page.
+   */
+  calendar?: ProCardDay[];
+  /**
+   * What the booking popup needs to send a real request, for a card that stands for a real
+   * business. Absent for the sample listings, whose popup is a demo that sends nothing.
+   */
+  booking?: { slug: string; serviceId?: string };
+  /**
    * The business's own page, for a card that stands for a real one.
    *
    * Absent for the sample listings, which stand for nobody and have no page to open. A card
@@ -90,29 +117,43 @@ export interface ProCardView {
 
 /** The sample listings, in the shape above. */
 export function proCardView(pro: Pro): ProCardView {
+  const schedule = scheduleFor(pro);
   return {
     initials: pro.initials,
     color: pro.color,
     title: pro.name,
     subtitle: pro.business,
     trade: pro.trade,
-    rating: pro.rating,
-    jobs: pro.jobs,
     distance: `${pro.miles} mi`,
     rateFrom: String(pro.rateFrom),
-    badges: pro.verified ? ["Licensed", "Identity verified"] : ["Licensed"],
+    badges: ["Licensed"],
     location: pro.location,
     website: pro.website,
     services: pro.services,
-    slots: pro.slots.map((slot) => ({
-      key: slot.date.toISOString() + slot.time,
-      // The day is on `date` and the time of day is on `time`; only a slot on another day needs
-      // to say which one.
-      label: isSameDay(slot.date, today) ? slot.time : `${format(slot.date, "EEE")} ${slot.time}`,
-      dateLabel: format(slot.date, "EEEE, MMMM d"),
-      timeLabel: slot.time,
-      today: isSameDay(slot.date, today),
-    })),
+    slots: schedule.slice(0, SLOTS_SHOWN).map(sampleSlot),
+    calendar: Array.from({ length: CALENDAR_DAYS }, (_, offset) => {
+      const date = addDays(today, offset);
+      return {
+        key: date.toISOString(),
+        weekday: offset === 0 ? "Today" : format(date, "EEE"),
+        dayOfMonth: format(date, "d"),
+        shortDate: format(date, "MMM d"),
+        slots: schedule.filter((slot) => isSameDay(slot.date, date)).map(sampleSlot),
+      };
+    }),
+  };
+}
+
+function sampleSlot(slot: ProSlot): ProCardSlot {
+  return {
+    key: slot.date.toISOString() + slot.time,
+    // The day is on `date` and the time of day is on `time`; only a slot on another day needs
+    // to say which one.
+    label: isSameDay(slot.date, today) ? slot.time : `${format(slot.date, "EEE")} ${slot.time}`,
+    dayLabel: isSameDay(slot.date, today) ? "" : format(slot.date, "EEE"),
+    dateLabel: format(slot.date, "EEEE, MMMM d"),
+    timeLabel: slot.time,
+    today: isSameDay(slot.date, today),
   };
 }
 
@@ -121,9 +162,9 @@ export function proCardView(pro: Pro): ProCardView {
 // sizing (fixed-width + snap for the rail, full-width for the grid) without touching the card's
 // own visual styling.
 //
-// `onBook` makes the times buttons that book them, and a click anywhere else on the card book its
-// first time. Only the homepage rail passes it: its cards are samples, and the dialogue it opens is
-// a demo that sends nothing.
+// `onBook` makes the times buttons that open the booking dialogue on them, and a click anywhere
+// else on the card opens it with no time chosen yet, on its calendar. Without it a real card's
+// times link to the business's page instead, as on the search results.
 export function ProCard({
   view,
   className,
@@ -131,26 +172,14 @@ export function ProCard({
 }: {
   view: ProCardView;
   className?: string;
-  onBook?: (slot: ProCardSlot) => void;
+  onBook?: (slot?: ProCardSlot) => void;
 }) {
-  const firstSlot = view.slots[0];
-  const bookFromCard =
-    onBook && firstSlot
-      ? (e: React.MouseEvent<HTMLDivElement>) => {
-          // React bubbles clicks out of portals, so the hover preview would count as the card.
-          if (e.currentTarget.contains(e.target as Node)) onBook(firstSlot);
-        }
-      : undefined;
-
-  const facts = [
-    view.rating === undefined ? null : (
-      <span key="rating">
-        ★ <strong className="font-semibold text-brand">{view.rating.toFixed(1)}</strong>
-      </span>
-    ),
-    view.jobs === undefined ? null : <span key="jobs">{view.jobs} jobs</span>,
-    <span key="distance">{view.distance}</span>,
-  ].filter((fact) => fact !== null);
+  const bookFromCard = onBook
+    ? (e: React.MouseEvent<HTMLDivElement>) => {
+        // React bubbles clicks out of portals, so the hover preview would count as the card.
+        if (e.currentTarget.contains(e.target as Node)) onBook();
+      }
+    : undefined;
 
   return (
     <Card
@@ -207,26 +236,37 @@ export function ProCard({
         </Badge>
       )}
 
-      {/* Separators between whatever facts exist, never around a gap where one does not. */}
-      <div className="flex items-center gap-2.5 text-[13.5px] text-muted-ink">
-        {facts.map((fact, index) => (
-          <span key={index} className="contents">
-            {index > 0 && <span className="text-[#CBD6E2]">•</span>}
-            {fact}
+      {/*
+        Where they are and how far. Only the first part of the place — "Capitol Hill", not "Capitol
+        Hill, Denver, CO" — so it fits beside the distance; the hover preview has it in full. A real
+        result's town is already the line under its name, so it is not said twice here.
+      */}
+      <div className="flex min-w-0 items-center gap-1.5 text-[13.5px] text-muted-ink">
+        <MapPin className="size-3.5 shrink-0 text-faint" aria-hidden="true" />
+        {view.location && view.location !== view.subtitle && (
+          <>
+            <span className="truncate">{view.location.split(",")[0]}</span>
+            <span className="text-[#CBD6E2]">•</span>
+          </>
+        )}
+        <span className="shrink-0">{view.distance} away</span>
+      </div>
+
+      {/* Drawn even with no badge, so the line under it and everything below sit where they do on every other card. */}
+      <div className="mb-3.5 mt-2 flex items-center gap-3 border-b border-line pb-3.5 text-[12px] font-medium text-muted-ink">
+        {view.badges.length === 0 && (
+          <span aria-hidden="true" className="invisible inline-flex items-center gap-1">
+            <BadgeCheck className="size-3.5" />
+            Licensed
+          </span>
+        )}
+        {view.badges.map((badge) => (
+          <span key={badge} className="inline-flex items-center gap-1">
+            <BadgeCheck className="size-3.5 text-go" />
+            {badge}
           </span>
         ))}
       </div>
-
-      {view.badges.length > 0 && (
-        <div className="mb-3.5 mt-2 flex items-center gap-3 border-b border-line pb-3.5 text-[12px] font-medium text-muted-ink">
-          {view.badges.map((badge) => (
-            <span key={badge} className="inline-flex items-center gap-1">
-              <BadgeCheck className="size-3.5 text-go" />
-              {badge}
-            </span>
-          ))}
-        </div>
-      )}
 
       <p className="mb-2 text-xs font-semibold text-faint">
         {view.rateFrom !== undefined && (
@@ -237,20 +277,20 @@ export function ProCard({
         {view.slots.length === 0 ? "No openings listed" : "Next available"}
       </p>
       {/*
-        flex-col, not flex-wrap: with wrap, whether a row held one button or
-        two depended on how wide that particular pro's time labels happened
-        to be ("Tue 10:30 AM" vs "3:00 PM"), so slot 1/2/3 landed at
-        different heights on different cards. flex-col forces one slot per
-        row unconditionally, so slot 1 is always row 1 across every card.
-        min-h reserves a full 3-row card (the max any pro lists — sliced
-        below as a safety cap) even when a pro only has 1 or 2, so every
-        card ends the same height either way.
+        A fixed two-column grid rather than flex-wrap: with wrap, how many times
+        shared a row depended on how wide that pro's labels happened to be
+        ("Tue 10:30 AM" vs "3:00 PM"), so slot 3 landed in a different place on
+        every card. Two columns, filled left to right, put slot N in the same
+        spot on every card of the grid. min-h reserves all three rows even for a
+        pro with fewer times, so every card ends at the same height.
       */}
-      <div className="mt-auto flex min-h-[116px] flex-col gap-1.5">
-        {view.slots.slice(0, 3).map((slot) => {
+      <div className="mt-auto grid min-h-[116px] grid-cols-2 content-start gap-1.5">
+        {view.slots.slice(0, SLOTS_SHOWN).map((slot) => {
+          // Tighter than a full-width row: two to a line leaves about 110px each, which
+          // "Fri 10:30 AM" in the mono face fills. The word "Book" is in the accessible name.
           const slotClassName = slot.today
-            ? "h-auto rounded-[10px] border-[#BFEBD8] bg-go-bg px-2.5 py-2 font-mono text-[12.5px] font-medium text-[#07734F] hover:border-go hover:bg-go hover:text-white"
-            : "h-auto rounded-[10px] border-line bg-white px-2.5 py-2 font-mono text-[12.5px] font-medium text-brand hover:border-brand hover:bg-brand hover:text-white";
+            ? "h-auto min-w-0 rounded-[10px] border-[#BFEBD8] bg-go-bg px-1.5 py-2 font-mono text-[12px] font-medium text-[#07734F] hover:border-go hover:bg-go hover:text-white"
+            : "h-auto min-w-0 rounded-[10px] border-line bg-white px-1.5 py-2 font-mono text-[12px] font-medium text-brand hover:border-brand hover:bg-brand hover:text-white";
 
           if (onBook) {
             return (
@@ -265,8 +305,7 @@ export function ProCard({
                 }}
                 className={slotClassName}
               >
-                {`Book ${slot.label}`}
-                <ArrowRight className="ml-0.5 size-3 opacity-0 transition-opacity duration-150 group-hover/button:opacity-100" />
+                <SlotText slot={slot} />
               </Button>
             );
           }
@@ -274,7 +313,7 @@ export function ProCard({
           if (!slot.href) {
             return (
               <Button key={slot.key} type="button" variant="outline" disabled className={slotClassName}>
-                {slot.label}
+                <SlotText slot={slot} />
               </Button>
             );
           }
@@ -290,27 +329,66 @@ export function ProCard({
               aria-label={`${slot.dateLabel}, ${slot.timeLabel} with ${view.title}`}
               className={cn(buttonVariants({ variant: "outline" }), "relative z-10 no-underline", slotClassName)}
             >
-              {slot.label}
+              <SlotText slot={slot} />
             </Link>
           );
         })}
       </div>
 
       {/*
-        The card's own action, under the openings because the times are what somebody scans the
-        grid for. Its ::after stretches over the whole card, so a click anywhere that is not a
-        time or the name lands here — one link rather than a click handler on the card, which
-        keeps a middle click and "open in new tab" working.
+        The way to every time, not only the six that fit. For a real business that is its page,
+        whose calendar lists them all once a service is picked. The link's ::after stretches over
+        the whole card, so a click anywhere that is not a time or the name lands here — one link
+        rather than a click handler on the card, which keeps a middle click and "open in new tab"
+        working. A sample listing has no page, so its booking dialogue, which lists every time it
+        holds, stands in.
       */}
-      {view.href && (
+      {view.href && !onBook ? (
         <Link
           href={view.href}
           className="mt-3 inline-flex items-center gap-1 text-[13px] font-semibold text-brand-500 no-underline after:absolute after:inset-0 after:rounded-3xl"
         >
-          Services and rates
+          View all available times
           <ArrowRight className="size-3.5" aria-hidden="true" />
         </Link>
+      ) : (
+        onBook && (
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onBook();
+            }}
+            className="mt-3 inline-flex w-fit items-center gap-1 text-[13px] font-semibold text-brand-500 hover:underline"
+          >
+            View all available times
+            <ArrowRight className="size-3.5" aria-hidden="true" />
+          </button>
+        )
       )}
     </Card>
+  );
+}
+
+/**
+ * A time as two columns: the weekday, left-aligned in the width of three letters, and the time,
+ * right-aligned in the width of "10:15 AM". In the monospaced face that lines every day up with
+ * every other day and every time with every other time, across the whole card.
+ *
+ * A time today has no weekday, so it takes both columns and sits centred in them, rather than
+ * hanging right beside an empty gap.
+ */
+function SlotText({ slot }: { slot: ProCardSlot }) {
+  return (
+    <span className="inline-grid grid-cols-[3ch_8ch] gap-x-[1ch]">
+      {slot.dayLabel ? (
+        <>
+          <span className="text-left">{slot.dayLabel}</span>
+          <span className="text-right">{slot.timeLabel}</span>
+        </>
+      ) : (
+        <span className="col-span-2 text-center">{slot.timeLabel}</span>
+      )}
+    </span>
   );
 }

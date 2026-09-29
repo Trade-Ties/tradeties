@@ -294,7 +294,7 @@ class BusinessSearchTests {
 	 * The fixture works Mondays, nine to five, and its rules ask for a day of notice — so what
 	 * comes back is Monday mornings, never today, and always in order.
 	 *
-	 * <p>Asserted as properties rather than as three timestamps. The suite runs on whichever day
+	 * <p>Asserted as properties rather than as six timestamps. The suite runs on whichever day
 	 * it runs on, and a list of literal instants would be a test that only passes on Tuesdays.
 	 */
 	@Test
@@ -308,7 +308,7 @@ class BusinessSearchTests {
 		assertEquals(MOUNTAIN.getId(), found.get("timeZone"));
 
 		List<String> slots = slotsOf(found);
-		assertEquals(3, slots.size(), "the search offers three start times per result");
+		assertEquals(6, slots.size(), "the search offers six start times per result — two columns of three");
 
 		Instant previous = null;
 		for (String slot : slots) {

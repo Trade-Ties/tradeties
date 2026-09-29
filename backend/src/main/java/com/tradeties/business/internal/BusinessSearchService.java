@@ -52,10 +52,11 @@ public class BusinessSearchService {
 	private static final List<UUID> NOTHING_TO_NARROW_BY = List.of(new UUID(0, 0));
 
 	/**
-	 * How many start times each result carries. Three, because three is what a result card shows —
-	 * a fourth would be walked out of somebody's calendar for nobody to read.
+	 * How many start times each result carries. Six, because six is what a result card shows — two
+	 * columns of three — and a seventh would be walked out of somebody's calendar for nobody to read.
+	 * The card links to the business's page for the rest.
 	 */
-	private static final int SLOTS_PER_RESULT = 3;
+	private static final int SLOTS_PER_RESULT = 6;
 
 	/** Stands in for the picked job when none was. Never read — the flag beside it is false. */
 	private static final UUID NOTHING_PICKED = new UUID(0, 0);

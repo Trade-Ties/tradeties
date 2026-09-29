@@ -1,7 +1,7 @@
 "use client";
 
-import { useId, useState } from "react";
-import { Calendar, Check } from "lucide-react";
+import { useEffect, useId, useRef, useState } from "react";
+import { ArrowRight, Calendar, Check, ChevronLeft, ChevronRight } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -15,8 +15,11 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Textarea } from "@/components/ui/textarea";
+import { sendRequest } from "@/app/(marketplace)/[slug]/book/actions";
 import { cn } from "@/lib/utils";
-import type { ProCardSlot, ProCardView } from "./ProCard";
+import { loadOpenings, loadServices, type PopupService } from "./booking-popup-actions";
+import { opening } from "./JobSearchResults";
+import type { ProCardDay, ProCardSlot, ProCardView } from "./ProCard";
 
 // Filters keystrokes rather than only checking the result afterward — the earlier version
 // relied on the native `pattern`/`maxLength` attributes reaching the underlying <input>
@@ -24,8 +27,9 @@ import type { ProCardSlot, ProCardView } from "./ProCard";
 // <Field.Root>. Owning validation directly, independent of that, is what actually stops
 // someone from typing letters into a phone number rather than just flagging it after the fact.
 const PHONE_DISALLOWED = /[^0-9+()\-\s]/g;
-const PHONE_MAX = 20;
-const PHONE_PATTERN = /^[0-9()+\-\s]{7,20}$/;
+// 16 is what a booking request stores.
+const PHONE_MAX = 16;
+const PHONE_PATTERN = /^[0-9()+\-\s]{7,16}$/;
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const EMAIL_MAX = 254;
 const ZIP_PATTERN = /^\d{5}$/;
@@ -71,19 +75,68 @@ function validate(values: FormValues): FormErrors {
 }
 
 /**
- * The booking dialogue on the sample listings of the homepage rail, opened from one of a card's
- * times or from the card itself, which starts on its first time.
+ * The booking dialogue behind a card's times. Opened from one of them, it starts on that time with
+ * the six nearest beside it and a way into the full calendar. Opened from the card itself or its
+ * "View all available times", it starts on that calendar with nothing chosen, and the fields to
+ * book appear under it once a time is picked.
  *
- * A demo, and only ever shown on businesses that do not exist: nothing is sent. It simulates the
- * round trip (a short delay, then a confirmation) rather than posting to /api/v1/jobs, which only
- * takes a slot of a real business's chosen service — the booking page under /[slug]/book is where
- * that happens.
+ * For a real business (`view.booking`) it sends a real request, the same one the booking page
+ * sends. A request names a service, so the dialogue asks for one when the business has several,
+ * and reads that service's own open times: a start that suits a short job may not suit a long one.
+ * For the sample listings it is a demo — a short delay, then a confirmation, and nothing is sent.
  */
-export function BookingModal({ view, initialSlot }: { view: ProCardView; initialSlot: ProCardSlot }) {
+export function BookingModal({ view, initialSlot }: { view: ProCardView; initialSlot?: ProCardSlot }) {
   const [slot, setSlot] = useState(initialSlot);
+  const [showCalendar, setShowCalendar] = useState(!initialSlot);
+  const chosenRef = useRef<HTMLDivElement>(null);
   const [status, setStatus] = useState<"form" | "sending" | "sent">("form");
   const [values, setValues] = useState<FormValues>(EMPTY_FORM);
   const [errors, setErrors] = useState<FormErrors>({});
+  const [contact, setContact] = useState<"" | "phone" | "email">("");
+  const [failure, setFailure] = useState<string | null>(null);
+
+  // A real business only: its services, the one chosen, and that service's open times.
+  const slug = view.booking?.slug;
+  const [services, setServices] = useState<PopupService[] | null>(null);
+  const [serviceId, setServiceId] = useState(view.booking?.serviceId ?? "");
+  const [openings, setOpenings] = useState<{ serviceId: string; slots: ProCardSlot[]; calendar: ProCardDay[] } | null>(
+    null
+  );
+
+  useEffect(() => {
+    if (!slug) return;
+    let live = true;
+    loadServices(slug).then((found) => {
+      if (!live) return;
+      setServices(found ?? []);
+      // The search's own pick when it made one; otherwise the first service stands in until changed.
+      if (found && found.length > 0) setServiceId((current) => current || found[0].id);
+    });
+    return () => {
+      live = false;
+    };
+  }, [slug]);
+
+  useEffect(() => {
+    if (!slug || !serviceId) return;
+    let live = true;
+    loadOpenings(slug, serviceId).then((found) => {
+      if (!live || !found) return;
+      setOpenings({
+        serviceId,
+        slots: found.slots.map((at) => opening(at, found.timeZone)),
+        calendar: calendarOf(found.slots, found.timeZone),
+      });
+    });
+    return () => {
+      live = false;
+    };
+  }, [slug, serviceId]);
+
+  // Until a real business's times for the chosen service arrive, the card's own stand in.
+  const current = slug && openings?.serviceId === serviceId ? openings : null;
+  const nearSlots = current ? current.slots.slice(0, 6) : view.slots;
+  const days = slug ? current?.calendar : view.calendar;
 
   function set<K extends keyof FormValues>(key: K, value: string) {
     setValues((prev) => ({ ...prev, [key]: value }));
@@ -104,21 +157,59 @@ export function BookingModal({ view, initialSlot }: { view: ProCardView; initial
     setErrors((prev) => ({ ...prev, [key]: validate(values)[key] }));
   }
 
-  function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
+  function choose(next: ProCardSlot) {
+    // The first pick brings the fields in below the calendar; take the reader down to them.
+    if (!slot) {
+      requestAnimationFrame(() => chosenRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }));
+    }
+    setSlot(next);
+  }
+
+  async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     const nextErrors = validate(values);
     if (Object.keys(nextErrors).length > 0) {
       setErrors(nextErrors);
       return;
     }
+    if (!slug) {
+      setStatus("sending");
+      window.setTimeout(() => setStatus("sent"), 700);
+      return;
+    }
+    if (!slot || !serviceId) {
+      setFailure("Choose a service and a time first.");
+      return;
+    }
+
+    setFailure(null);
     setStatus("sending");
-    window.setTimeout(() => setStatus("sent"), 700);
+    const answer = await sendRequest({
+      slug,
+      serviceId,
+      startsAt: slot.key,
+      customerName: values.name.trim(),
+      customerEmail: values.email.trim(),
+      customerPhone: values.phone.trim(),
+      ...(contact ? { preferredContact: contact === "phone" ? "PHONE" : "EMAIL" } : {}),
+      description: values.notes.trim(),
+      street1: `${values.number.trim()} ${values.street.trim()}`,
+      city: values.city.trim(),
+      state: values.state.trim(),
+      postalCode: values.zip.trim(),
+    });
+    if (answer.ok) {
+      setStatus("sent");
+    } else {
+      setStatus("form");
+      setFailure(answer.message);
+    }
   }
 
   return (
-    <DialogContent>
-      {status === "sent" ? (
-        <RequestSent view={view} slot={slot} />
+    <DialogContent className={cn(showCalendar && "sm:max-w-xl")}>
+      {status === "sent" && slot ? (
+        <RequestSent view={view} slot={slot} real={!!slug} />
       ) : (
         <>
           <DialogHeader>
@@ -126,32 +217,73 @@ export function BookingModal({ view, initialSlot }: { view: ProCardView; initial
             <DialogDescription>{view.subtitle}</DialogDescription>
           </DialogHeader>
 
-          <div className="mb-5 flex items-center gap-3 rounded-2xl border border-brand-100 bg-brand-50 px-4 py-3.5 text-[15px] font-semibold text-brand shadow-sm">
-            <Calendar className="size-4.5 shrink-0 text-brand-500" />
-            {slot.dateLabel} at {slot.timeLabel}
-          </div>
-
-          {view.slots.length > 1 && (
-            <div role="group" aria-label="Other times" className="-mt-3 mb-5 flex flex-wrap gap-1.5">
-              {view.slots.slice(0, 3).map((other) => (
-                <Button
-                  key={other.key}
-                  type="button"
-                  variant="outline"
-                  aria-pressed={other.key === slot.key}
-                  onClick={() => setSlot(other)}
-                  className={cn(
-                    "h-auto rounded-[10px] border-line bg-white px-2.5 py-1.5 font-mono text-[12.5px] font-medium text-brand hover:border-brand hover:bg-brand hover:text-white",
-                    other.key === slot.key && "border-brand bg-brand text-white"
-                  )}
-                >
-                  {other.label}
-                </Button>
-              ))}
+          {slug && services && services.length > 1 && (
+            <div className="mb-5 flex flex-col gap-1.5">
+              <Label htmlFor="booking-service" className="text-xs font-semibold text-muted-ink">
+                Service
+              </Label>
+              <select
+                id="booking-service"
+                value={serviceId}
+                onChange={(e) => setServiceId(e.target.value)}
+                className={cn(fieldClassName, "w-full border text-foreground outline-none focus-visible:ring-2")}
+              >
+                {services.map((service) => (
+                  <option key={service.id} value={service.id}>
+                    {service.name}
+                  </option>
+                ))}
+              </select>
             </div>
           )}
+          {slug && services?.length === 0 && (
+            <p className="mb-5 rounded-2xl border border-dashed border-line px-4 py-3.5 text-center text-sm text-muted-ink">
+              {view.title} can&apos;t be booked online right now.
+            </p>
+          )}
 
-          <form onSubmit={handleSubmit} noValidate className="flex flex-col gap-4">
+          {!showCalendar && slot ? (
+            <>
+              <div className="mb-5 flex items-center gap-3 rounded-2xl border border-brand-100 bg-brand-50 px-4 py-3.5 text-[15px] font-semibold text-brand shadow-sm">
+                <Calendar className="size-4.5 shrink-0 text-brand-500" />
+                {slot.dateLabel} at {slot.timeLabel}
+              </div>
+              {nearSlots.length > 1 && <TimePicker slots={nearSlots} chosen={slot} onChoose={setSlot} />}
+              {(slug || view.calendar) && (
+                <button
+                  type="button"
+                  onClick={() => setShowCalendar(true)}
+                  className="-mt-3 mb-6 inline-flex w-fit items-center gap-1 text-[13px] font-semibold text-brand-500 hover:underline"
+                >
+                  View all available times
+                  <ArrowRight className="size-3.5" aria-hidden="true" />
+                </button>
+              )}
+            </>
+          ) : (
+            days ? (
+              <SlotCalendar key={serviceId} days={days} chosen={slot} onChoose={choose} />
+            ) : (
+              <p className="py-6 text-center text-sm text-muted-ink">Loading open times…</p>
+            )
+          )}
+
+          {!showCalendar ? null : slot ? (
+            <div
+              ref={chosenRef}
+              className="mt-6 mb-5 flex scroll-mt-4 items-center gap-3 rounded-2xl border border-brand-100 bg-brand-50 px-4 py-3.5 text-[15px] font-semibold text-brand shadow-sm"
+            >
+              <Calendar className="size-4.5 shrink-0 text-brand-500" />
+              {slot.dateLabel} at {slot.timeLabel}
+            </div>
+          ) : (
+            <p className="mt-5 rounded-2xl border border-dashed border-line px-4 py-3.5 text-center text-sm text-muted-ink">
+              Pick a time above to book it.
+            </p>
+          )}
+
+          {/* Kept mounted while hidden, so what was typed survives choosing another time. */}
+          <form onSubmit={handleSubmit} noValidate className={cn("flex flex-col gap-4", !slot && "hidden")}>
             <TextField
               id="booking-name"
               label="Full name"
@@ -272,11 +404,21 @@ export function BookingModal({ view, initialSlot }: { view: ProCardView; initial
 
             <div className="flex flex-col gap-1.5">
               <Label className="text-xs font-semibold text-muted-ink">Preferred contact method (optional)</Label>
-              <RadioGroup className="grid-cols-2 gap-2">
+              <RadioGroup
+                value={contact}
+                onValueChange={(value) => setContact(value as "phone" | "email")}
+                className="grid-cols-2 gap-2"
+              >
                 <ContactOption value="phone" label="Phone" />
                 <ContactOption value="email" label="Email" />
               </RadioGroup>
             </div>
+
+            {failure && (
+              <p role="alert" className="rounded-xl bg-destructive/10 px-3.5 py-2.5 text-sm text-destructive">
+                {failure}
+              </p>
+            )}
 
             <Button
               type="submit"
@@ -372,7 +514,7 @@ function ContactOption({ value, label }: { value: string; label: string }) {
   );
 }
 
-function RequestSent({ view, slot }: { view: ProCardView; slot: ProCardSlot }) {
+function RequestSent({ view, slot, real }: { view: ProCardView; slot: ProCardSlot; real: boolean }) {
   return (
     <div className="flex flex-col items-center py-2 text-center">
       <div className="mb-4 grid size-14 place-items-center rounded-full bg-go-bg">
@@ -386,9 +528,239 @@ function RequestSent({ view, slot }: { view: ProCardView; slot: ProCardSlot }) {
         </span>{" "}
         slot shortly — you&apos;ll hear back by phone or email.
       </p>
+      {real && (
+        <p className="mt-2 max-w-[26rem] text-sm text-muted-ink">
+          We&apos;ve emailed you a link to follow your request and write to {view.title}.
+        </p>
+      )}
       <DialogClose render={<Button className="mt-6 h-10 rounded-full px-8 text-sm font-semibold" />}>
         Done
       </DialogClose>
     </div>
   );
+}
+
+/**
+ * The card's own times, a row of equal chips per day under the day's name — so the eye reads down
+ * the days and across the hours, rather than along one wrapped line where a day changes somewhere
+ * in the middle.
+ *
+ * The chosen time is outlined rather than filled: the summary above already states it in bold,
+ * and a solid block here would compete with it for the same attention.
+ */
+function TimePicker({
+  slots,
+  chosen,
+  onChoose,
+}: {
+  slots: ProCardSlot[];
+  chosen: ProCardSlot;
+  onChoose: (slot: ProCardSlot) => void;
+}) {
+  // In the order given, which is soonest first; a day is a run of slots sharing a date.
+  const days: { heading: string; slots: ProCardSlot[] }[] = [];
+  for (const slot of slots) {
+    const heading = slot.today ? "Today" : slot.dateLabel;
+    const last = days[days.length - 1];
+    if (last && last.heading === heading) last.slots.push(slot);
+    else days.push({ heading, slots: [slot] });
+  }
+
+  // One tab stop, on the chosen time; the arrow keys move between times, as in any radio group.
+  function onKeyDown(event: React.KeyboardEvent<HTMLDivElement>) {
+    const step = { ArrowRight: 1, ArrowDown: 1, ArrowLeft: -1, ArrowUp: -1 }[event.key];
+    if (!step) return;
+    event.preventDefault();
+    const at = slots.findIndex((slot) => slot.key === chosen.key);
+    const next = slots[(at + step + slots.length) % slots.length];
+    onChoose(next);
+    event.currentTarget.querySelector<HTMLButtonElement>(`[data-key="${next.key}"]`)?.focus();
+  }
+
+  return (
+    <div role="radiogroup" aria-label="Choose a time" onKeyDown={onKeyDown} className="-mt-2 mb-6 flex flex-col gap-3">
+      {days.map((day) => (
+        <div key={day.heading}>
+          <p className="m-0 mb-1.5 text-[12px] font-semibold text-muted-ink">{day.heading}</p>
+          <div className="grid grid-cols-3 gap-1.5 sm:grid-cols-4">
+            {day.slots.map((option) => {
+              const selected = option.key === chosen.key;
+              return (
+                <button
+                  key={option.key}
+                  type="button"
+                  role="radio"
+                  aria-checked={selected}
+                  tabIndex={selected ? 0 : -1}
+                  data-key={option.key}
+                  onClick={() => onChoose(option)}
+                  className={cn(
+                    "rounded-xl border px-2 py-2 text-center text-[13px] tabular-nums transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none",
+                    selected
+                      ? "border-brand bg-brand-50 font-semibold text-brand ring-1 ring-brand"
+                      : "border-line bg-white font-medium text-foreground hover:border-brand-100 hover:bg-brand-50/60"
+                  )}
+                >
+                  {option.timeLabel}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/** Five days side by side, as many as fit the dialogue with a time's full width under each. */
+const DAYS_PER_PAGE = 5;
+
+/** The starts a column shows before "+ more". */
+const TIMES_PER_DAY = 6;
+
+/**
+ * The listing's calendar: a page of days as columns, each with its open times stacked under it, and
+ * arrows to the next days. It opens on the page holding the chosen time, or on the first one.
+ *
+ * The chosen time is outlined rather than filled, so it does not outweigh the summary of it that
+ * appears below.
+ */
+function SlotCalendar({
+  days,
+  chosen,
+  onChoose,
+}: {
+  days: ProCardDay[];
+  chosen?: ProCardSlot;
+  onChoose: (slot: ProCardSlot) => void;
+}) {
+  const pages = Math.max(1, Math.ceil(days.length / DAYS_PER_PAGE));
+  const [page, setPage] = useState(() => {
+    const at = days.findIndex((day) => day.slots.some((slot) => slot.key === chosen?.key));
+    return at < 0 ? 0 : Math.floor(at / DAYS_PER_PAGE);
+  });
+  // A day on a half-hour grid holds sixteen starts; six a column keeps the page to a glance, and
+  // "+ more" opens every column at once so the days stay level. Open from the start when the
+  // chosen time is one of those that would be folded away.
+  const [expanded, setExpanded] = useState(() =>
+    days.some((day) => day.slots.findIndex((slot) => slot.key === chosen?.key) >= TIMES_PER_DAY)
+  );
+  const shown = days.slice(page * DAYS_PER_PAGE, (page + 1) * DAYS_PER_PAGE);
+  if (shown.length === 0) return null;
+  const folds = shown.some((day) => day.slots.length > TIMES_PER_DAY);
+
+  return (
+    <div>
+      <div className="mb-3 flex items-center justify-between">
+        <p className="m-0 text-sm font-semibold text-brand">
+          {shown[0].shortDate} – {shown[shown.length - 1].shortDate}
+        </p>
+        <div className="flex gap-1">
+          <Button
+            type="button"
+            variant="outline"
+            size="icon-sm"
+            aria-label="Earlier days"
+            disabled={page === 0}
+            onClick={() => setPage(page - 1)}
+            className="rounded-full"
+          >
+            <ChevronLeft className="size-4" />
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            size="icon-sm"
+            aria-label="Later days"
+            disabled={page === pages - 1}
+            onClick={() => setPage(page + 1)}
+            className="rounded-full"
+          >
+            <ChevronRight className="size-4" />
+          </Button>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-5 gap-1.5 sm:gap-2">
+        {shown.map((day) => (
+          <div key={day.key} className="flex min-w-0 flex-col gap-1.5">
+            <div className="mb-1 rounded-xl bg-brand-50 py-2 text-center">
+              <p className="m-0 text-[11px] font-semibold tracking-wide text-muted-ink uppercase">{day.weekday}</p>
+              <p className="m-0 text-[17px] leading-tight font-bold text-brand">{day.dayOfMonth}</p>
+            </div>
+            {day.slots.length === 0 ? (
+              <p className="m-0 py-2 text-center text-[12px] text-faint">—</p>
+            ) : (
+              (expanded ? day.slots : day.slots.slice(0, TIMES_PER_DAY)).map((option) => {
+                const selected = option.key === chosen?.key;
+                return (
+                  <button
+                    key={option.key}
+                    type="button"
+                    aria-pressed={selected}
+                    aria-label={`${option.dateLabel}, ${option.timeLabel}`}
+                    onClick={() => onChoose(option)}
+                    className={cn(
+                      "rounded-lg border px-0.5 py-1.5 text-center text-[11.5px] whitespace-nowrap tabular-nums transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none sm:text-[13px]",
+                      selected
+                        ? "border-brand bg-brand-50 font-semibold text-brand ring-1 ring-brand"
+                        : "border-line bg-white font-medium text-foreground hover:border-brand-100 hover:bg-brand-50/60"
+                    )}
+                  >
+                    {option.timeLabel}
+                  </button>
+                );
+              })
+            )}
+            {!expanded && day.slots.length > TIMES_PER_DAY && (
+              <button
+                type="button"
+                onClick={() => setExpanded(true)}
+                className="rounded-lg py-1.5 text-center text-[11.5px] font-semibold text-brand-500 hover:bg-brand-50 sm:text-[12.5px]"
+              >
+                + {day.slots.length - TIMES_PER_DAY} more
+              </button>
+            )}
+          </div>
+        ))}
+      </div>
+
+      {expanded && folds && (
+        <button
+          type="button"
+          onClick={() => setExpanded(false)}
+          className="mx-auto mt-3 block text-[12.5px] font-semibold text-brand-500 hover:underline"
+        >
+          Show fewer times
+        </button>
+      )}
+    </div>
+  );
+}
+
+/**
+ * A fortnight of days from today on the business's own calendar, each with the starts that fall on
+ * it — the same columns the sample listings' calendar draws, built from real instants. The days are
+ * the business's, not the reader's: a start at 11 PM in Denver is on Denver's Tuesday.
+ */
+function calendarOf(instants: string[], timeZone: string): ProCardDay[] {
+  const dayKey = (at: Date) =>
+    new Intl.DateTimeFormat("en-CA", { timeZone, year: "numeric", month: "2-digit", day: "2-digit" }).format(at);
+  const [year, month, day] = dayKey(new Date()).split("-").map(Number);
+
+  return Array.from({ length: 15 }, (_, offset) => {
+    // Noon UTC on that calendar day, printed in UTC, names the day without any zone shifting it.
+    const noon = new Date(Date.UTC(year, month - 1, day + offset, 12));
+    const key = noon.toISOString().slice(0, 10);
+    const print = (options: Intl.DateTimeFormatOptions) =>
+      new Intl.DateTimeFormat("en-US", { timeZone: "UTC", ...options }).format(noon);
+
+    return {
+      key,
+      weekday: offset === 0 ? "Today" : print({ weekday: "short" }),
+      dayOfMonth: print({ day: "numeric" }),
+      shortDate: print({ month: "short", day: "numeric" }),
+      slots: instants.filter((at) => dayKey(new Date(at)) === key).map((at) => opening(at, timeZone)),
+    };
+  });
 }

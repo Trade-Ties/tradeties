@@ -2732,7 +2732,7 @@ components:
         nextSlots:
           type: array
           description: |
-            The soonest start times this business is free, earliest first, at most three.
+            The soonest start times this business is free, earliest first, at most six.
 
             Computed from the working week, the booking rules and any declared absence —
             never stored, so it cannot go stale. An empty list is an ordinary answer: a
@@ -2749,7 +2749,7 @@ components:
             Sent as instants, to be read against `timeZone` rather than against the
             reader's own. Nine in the morning is nine where the tradesperson works, and
             that is the number both sides of a booking have to agree on.
-          maxItems: 3
+          maxItems: 6
           items:
             type: string
             format: date-time
