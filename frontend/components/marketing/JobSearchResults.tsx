@@ -472,6 +472,17 @@ function viewOf(result: SearchResult): ProCardView {
   if (result.licensed) badges.push("Licensed");
   if (result.licenseVerified) badges.push("Licence verified");
 
+  // The business's own service for the picked job, when it lists one, so its page opens with that
+  // service chosen. The openings on the card were measured by it too, which is what lets a time
+  // picked here still be on offer there.
+  const page = (at?: string) => {
+    const query = new URLSearchParams();
+    if (result.serviceId) query.set("service", result.serviceId);
+    if (at) query.set("at", at);
+
+    return query.size === 0 ? proPath(result.slug) : `${proPath(result.slug)}?${query}`;
+  };
+
   return {
     initials: initialsOf(result.displayName),
     color: colorOf(result.slug),
@@ -482,8 +493,11 @@ function viewOf(result: SearchResult): ProCardView {
     rateFrom: result.hourlyRate ? amount(result.hourlyRate) : undefined,
     badges,
     location: `${result.city}, ${result.state}`,
-    slots: (result.nextSlots ?? []).map((slot) => opening(slot, result.timeZone)),
-    href: proPath(result.slug),
+    slots: (result.nextSlots ?? []).map((slot) => ({
+      ...opening(slot, result.timeZone),
+      href: page(slot),
+    })),
+    href: page(),
   };
 }
 
@@ -507,9 +521,9 @@ function opening(instant: string, timeZone: string): ProCardSlot {
     hour: "numeric",
     minute: "2-digit",
   }).format(at);
-  // Spelled out, for the booking modal — unused today since these cards render
-  // bookable: false, but computed the same zone-aware way as `label` rather than
-  // left to fall back on something that would silently assume the reader's zone.
+  // Spelled out, for the slot link's accessible name — computed the same zone-aware way as
+  // `label` rather than left to fall back on something that would silently assume the reader's
+  // zone.
   const dateLabel = new Intl.DateTimeFormat("en-US", {
     timeZone,
     weekday: "long",

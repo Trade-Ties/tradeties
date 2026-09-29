@@ -3,7 +3,6 @@ package com.tradeties.availability.internal;
 import java.time.DayOfWeek;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
-import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.EnumMap;
@@ -20,6 +19,7 @@ import com.tradeties.availability.BookedSpan;
 import com.tradeties.availability.BookingRules;
 import com.tradeties.availability.HoursBlock;
 import com.tradeties.business.NextAvailability;
+import com.tradeties.business.NextAvailability.Asked;
 
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
@@ -52,7 +52,7 @@ class NextAvailabilityAdapter implements NextAvailability {
 
 	@Override
 	@Transactional(readOnly = true)
-	public Map<UUID, List<Instant>> nextSlots(Map<UUID, ZoneId> businesses, int perBusiness) {
+	public Map<UUID, List<Instant>> nextSlots(Map<UUID, Asked> businesses, int perBusiness) {
 		if (businesses.isEmpty()) {
 			return Map.of();
 		}
@@ -68,7 +68,7 @@ class NextAvailabilityAdapter implements NextAvailability {
 		Map<UUID, List<BookedSpan>> booked = accepted.endingAfter(ids, now);
 
 		Map<UUID, List<Instant>> slots = new HashMap<>();
-		businesses.forEach((businessId, zone) -> {
+		businesses.forEach((businessId, asked) -> {
 			Map<DayOfWeek, List<HoursBlock>> week = weeks.get(businessId);
 
 			// No rows at all is onboarding step 7 not reached, which is a different statement from
@@ -83,8 +83,9 @@ class NextAvailabilityAdapter implements NextAvailability {
 						// as the profile's calendar makes, and it has to be the same or a customer
 						// clicking through finds a different list on the other side.
 						unavailable(away.get(businessId), booked.get(businessId), theirs),
-						zone,
+						asked.zone(),
 						now,
+						asked.appointmentMinutes(),
 						perBusiness));
 			}
 		});

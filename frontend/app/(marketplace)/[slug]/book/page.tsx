@@ -5,26 +5,12 @@ import Link from "next/link";
 import { SiteHeader } from "@/components/marketing/SiteHeader";
 import { SiteFooter } from "@/components/marketing/SiteFooter";
 import { BookingForm } from "@/components/marketing/BookingForm";
-import { dayLabel, dayOf, spanLabel } from "@/components/marketing/availability";
+import { dayLabel, dayOf, instantOf, spanLabel } from "@/components/marketing/availability";
 import { getBusiness } from "@/lib/api/marketplace";
 import { proPath } from "@/lib/routes";
 
 function firstValue(value: string | string[] | undefined): string {
   return (Array.isArray(value) ? value[0] : value) ?? "";
-}
-
-/**
- * Nothing here decides whether the slot is still free, and it must not try. The server checks
- * that when the request is sent, against the walk that offered it — a second check here would be
- * a second answer to the same question, taken a moment earlier and no more true for it.
- */
-function instantOrNull(value: string): string | null {
-  if (value === "") {
-    return null;
-  }
-
-  const at = new Date(value);
-  return Number.isNaN(at.getTime()) ? null : at.toISOString();
 }
 
 /**
@@ -62,7 +48,10 @@ export default async function BookPage({
 
   const profile = result.data;
   const service = profile.services.find((offered) => offered.id === firstValue(query.service));
-  const startsAt = instantOrNull(firstValue(query.at));
+  // Nothing here decides whether the slot is still free, and it must not try. The server checks
+  // that when the request is sent, against the walk that offered it — a second check here would
+  // be a second answer to the same question, taken a moment earlier and no more true for it.
+  const startsAt = instantOf(firstValue(query.at));
 
   // Arriving without a service or without a time is not an error, it is an unfinished step —
   // reached by a bookmark, or by an address somebody trimmed. The calendar is where both are

@@ -96,6 +96,24 @@ class FreeSlotsTests {
 	}
 
 	/**
+	 * With a service in hand the openings are that service's, so a start taken off a search result
+	 * is one its calendar offers too. Ninety minutes from nine runs into an absence at ten, which
+	 * the grid alone does not reach.
+	 */
+	@Test
+	void measuresByTheServiceWhenThereIsOne() {
+		Map<DayOfWeek, List<HoursBlock>> week = week(DayOfWeek.MONDAY, block(9, 0, 17, 0));
+		List<FreeSlots.Absence> away = List.of(
+				new FreeSlots.Absence(denver(2026, 3, 2, 10, 0), denver(2026, 3, 2, 10, 30)));
+		Instant now = denver(2026, 3, 2, 0, 0);
+
+		assertEquals(List.of(LocalTime.of(9, 0), LocalTime.of(9, 30)),
+				localTimes(upcoming(week, IMMEDIATE, away, now, 2)));
+		assertEquals(List.of(LocalTime.of(10, 30), LocalTime.of(11, 0)),
+				localTimes(FreeSlots.upcoming(week, IMMEDIATE, away, DENVER, now, 90, 2)));
+	}
+
+	/**
 	 * A block too short to hold a second grid start holds the first one anyway: twenty minutes
 	 * from nine offers 09:00, and 09:30 is past the end of it.
 	 *
@@ -281,7 +299,7 @@ class FreeSlotsTests {
 			Instant now,
 			int wanted) {
 
-		return FreeSlots.upcoming(week, rules, absences, DENVER, now, wanted);
+		return FreeSlots.upcoming(week, rules, absences, DENVER, now, null, wanted);
 	}
 
 	private static List<Instant> within(Map<DayOfWeek, List<HoursBlock>> week,

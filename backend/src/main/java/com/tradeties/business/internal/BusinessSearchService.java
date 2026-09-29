@@ -160,13 +160,14 @@ public class BusinessSearchService {
 		Map<UUID, List<Instant>> slots = availability.nextSlots(
 				rows.stream().collect(Collectors.toMap(
 						BusinessSearchRepository.SearchRow::getId,
-						row -> ZoneId.of(row.getTimeZone()))),
+						row -> new NextAvailability.Asked(
+								ZoneId.of(row.getTimeZone()), row.getServiceMinutes()))),
 				SLOTS_PER_RESULT);
 
 		List<BusinessSearchResult> results = rows.stream()
 				.map(row -> new BusinessSearchResult(row.getSlug(), row.getDisplayName(), row.getCity(),
 						row.getState(), row.getPrimaryTrade(), row.getDistanceMiles(), row.getTimeZone(),
-						row.getHourlyRate(), row.getOffersThisJob(), row.getLicensed(),
+						row.getHourlyRate(), row.getOffersThisJob(), row.getServiceId(), row.getLicensed(),
 						row.getLicenseVerified(), slots.getOrDefault(row.getId(), List.of())))
 				.toList();
 

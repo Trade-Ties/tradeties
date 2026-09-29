@@ -292,6 +292,7 @@ class MarketplaceController implements MarketplaceApi {
 				// Passed through including its absence: null means no job was picked, and turning
 				// that into false would answer a question nobody asked.
 				.offersThisJob(result.offersThisJob())
+				.serviceId(result.serviceId())
 				.licensed(result.licensed())
 				.licenseVerified(result.licenseVerified())
 				.nextSlots(result.nextSlots().stream().map(slot -> slot.atOffset(ZoneOffset.UTC)).toList());

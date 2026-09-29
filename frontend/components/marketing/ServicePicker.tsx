@@ -23,6 +23,7 @@ export function ServicePicker({
   pricing,
   picked,
   month,
+  at,
 }: {
   slug: string;
   services: PublicService[];
@@ -34,12 +35,18 @@ export function ServicePicker({
    * when it was absent, or a link shared today would show a stale month tomorrow.
    */
   month: string | null;
+  /**
+   * A time picked off a search result, kept across a change of service for the same reason as
+   * the month. Whether it is free for the service now chosen is the calendar's to say.
+   */
+  at: string | null;
 }) {
   const router = useRouter();
 
   const pick = (service: PublicService) => {
     const params = new URLSearchParams({ service: service.id });
     if (month) params.set("month", month);
+    if (at) params.set("at", at);
 
     router.push(`${proPath(slug)}?${params}`);
   };

@@ -7,7 +7,7 @@ import { SiteHeader } from "@/components/marketing/SiteHeader";
 import { SiteFooter } from "@/components/marketing/SiteFooter";
 import { BusinessProfile } from "@/components/marketing/BusinessProfile";
 import { ServiceCalendar } from "@/components/marketing/ServiceCalendar";
-import { isMonth, monthIn, monthWindow } from "@/components/marketing/availability";
+import { instantOf, isMonth, monthIn, monthWindow } from "@/components/marketing/availability";
 import { getAvailability, getBusiness, type PublicService } from "@/lib/api/marketplace";
 
 function firstValue(value: string | string[] | undefined): string {
@@ -29,6 +29,10 @@ function firstValue(value: string | string[] | undefined): string {
  * <p>Which service and which month the calendar shows are read out of the query, not out of a
  * client that fetched them: a request is for exactly one service, so the whole question fits in
  * an address that can be shared and reloaded.
+ *
+ * <p>`at` is a time already picked, by a click on a search result's openings. It opens the month
+ * it falls in, with that time chosen, and is carried across a change of service — the one
+ * question a card could not answer when the search named no job.
  */
 export default async function ProfilePage({
   params,
@@ -64,14 +68,23 @@ export default async function ProfilePage({
   // a 400 at the backend, and it can only arrive from a stale link — which deserves the page
   // without a calendar, not a round trip spent on being refused.
   const asked = firstValue(query.service);
-  const service = profile.services.find((offered) => offered.id === asked) ?? null;
+  const at = instantOf(firstValue(query.at));
+
+  // A time with no service is a card clicked for a business the search had no job for. With one
+  // service on the menu there is nothing left to ask.
+  const service =
+    profile.services.find((offered) => offered.id === asked) ??
+    (at && profile.services.length === 1 ? profile.services[0] : null);
 
   const wanted = firstValue(query.month);
   const month = isMonth(wanted) ? wanted : null;
 
   // Today where the tradesperson works, never where the reader is. Read once here and handed
-  // down as a prop, so there is no second clock in the browser to disagree with this one.
-  const showing = month ?? monthIn(profile.timeZone, new Date());
+  // down as a prop, so there is no second clock in the browser to disagree with this one. A
+  // picked time outranks the month: it can only be chosen in the month it falls in.
+  const showing = at
+    ? monthIn(profile.timeZone, new Date(at))
+    : (month ?? monthIn(profile.timeZone, new Date()));
 
   return (
     <>
@@ -80,13 +93,14 @@ export default async function ProfilePage({
         profile={profile}
         picked={service?.id ?? null}
         month={month}
+        at={at}
         calendar={
           service && (
-            // Keyed so a different service or month is a fresh calendar: the chosen time lives in
-            // that subtree, and carrying it across would leave an hour selected that belongs to a
-            // month nobody is looking at any more.
-            <Suspense key={`${service.id}-${showing}`} fallback={<Reading />}>
-              <Diary slug={slug} service={service} month={showing} />
+            // Keyed so a different service, month or picked time is a fresh calendar: the chosen
+            // time lives in that subtree, and carrying it across would leave an hour selected
+            // that belongs to a month nobody is looking at any more.
+            <Suspense key={`${service.id}-${showing}-${at ?? ""}`} fallback={<Reading />}>
+              <Diary slug={slug} service={service} month={showing} at={at} />
             </Suspense>
           )
         }
@@ -106,10 +120,12 @@ async function Diary({
   slug,
   service,
   month,
+  at,
 }: {
   slug: string;
   service: PublicService;
   month: string;
+  at: string | null;
 }) {
   const { from, to } = monthWindow(month);
   const result = await getAvailability(slug, service.id, from, to);
@@ -131,6 +147,7 @@ async function Diary({
       serviceId={service.id}
       serviceName={service.name}
       month={month}
+      at={at}
       availability={result.data}
     />
   );

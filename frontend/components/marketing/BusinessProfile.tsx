@@ -3,6 +3,7 @@ import { ArrowLeft, BadgeCheck, Globe, MapPin } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { ServicePicker } from "@/components/marketing/ServicePicker";
+import { dayLabel, dayOf, timeLabel } from "@/components/marketing/availability";
 import { amount, colorOf, duration, initialsOf, money } from "@/components/marketing/business-format";
 import type { PublicBusinessProfile } from "@/lib/api/marketplace";
 
@@ -23,6 +24,7 @@ export function BusinessProfile({
   profile,
   picked,
   month,
+  at,
   calendar,
 }: {
   profile: PublicBusinessProfile;
@@ -30,6 +32,8 @@ export function BusinessProfile({
   picked: string | null;
   /** The month the URL carries, or null when it carries none. */
   month: string | null;
+  /** The time the URL carries, already read as an instant, or null. */
+  at: string | null;
   calendar: React.ReactNode;
 }) {
   const services = profile.services ?? [];
@@ -130,13 +134,14 @@ export function BusinessProfile({
           </p>
         )}
 
-        <Section title={picked ? "What they do" : "What they do — pick one to see their diary"}>
+        <Section title={picked ? "What they do" : `What they do — ${ask(at, profile.timeZone)}`}>
           <ServicePicker
             slug={profile.slug}
             services={services}
             pricing={profile.pricing}
             picked={picked}
             month={month}
+            at={at}
           />
         </Section>
 
@@ -181,6 +186,13 @@ export function BusinessProfile({
       </div>
     </section>
   );
+}
+
+/** What the service list is waiting on — and, when a time came with the link, which time it is for. */
+function ask(at: string | null, timeZone: string): string {
+  return at
+    ? `pick one to book ${dayLabel(dayOf(at, timeZone))}, ${timeLabel(at, timeZone)}`
+    : "pick one to see their diary";
 }
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
