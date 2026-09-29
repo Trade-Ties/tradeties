@@ -444,9 +444,18 @@ BEGIN
     -- in a catalog_code or an entry removed from the catalogue without the seed
     -- being told. Both are silent -- the row still saves, it is simply invisible
     -- to a catalogue search -- so the seed refuses to finish instead.
-    IF EXISTS (SELECT 1 FROM business_service WHERE catalog_id IS NULL) THEN
+    --
+    -- Only the seed's OWN rows. A service somebody typed into the wizard with no
+    -- catalogue entry is legitimate -- "Add something else" exists for it -- and
+    -- checking the whole table made this seed refuse to run on any database where
+    -- a tradesperson had ever done that.
+    IF EXISTS (SELECT 1 FROM business_service
+               WHERE catalog_id IS NULL
+                 AND business_id IN (SELECT md5('tradeties.seed.business:' || slug)::uuid FROM seed_service)) THEN
         RAISE EXCEPTION 'Seed services with no catalogue entry: %',
-            (SELECT string_agg(DISTINCT name, ', ') FROM business_service WHERE catalog_id IS NULL);
+            (SELECT string_agg(DISTINCT name, ', ') FROM business_service
+             WHERE catalog_id IS NULL
+               AND business_id IN (SELECT md5('tradeties.seed.business:' || slug)::uuid FROM seed_service));
     END IF;
 
     -- verified_at is a statement about this exact row: change the state, the
