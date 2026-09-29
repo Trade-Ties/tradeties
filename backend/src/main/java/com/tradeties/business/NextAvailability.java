@@ -23,14 +23,26 @@ import java.util.UUID;
 public interface NextAvailability {
 
 	/**
-	 * @param businesses which businesses to answer for, each with the zone its working hours are
-	 *        read against. All of them at once because the caller is a page of search results:
-	 *        one round of queries for the page, not one per row
+	 * What is asked of one business.
+	 *
+	 * @param zone what its working hours are read against
+	 * @param appointmentMinutes how long the job runs, when the customer picked one this business
+	 *        lists, or null when there is no job to measure by. Given, the openings are the ones
+	 *        that service's own calendar offers, so a time taken off a result card is still on
+	 *        offer on the other side of the click
+	 */
+	record Asked(ZoneId zone, Integer appointmentMinutes) {
+	}
+
+	/**
+	 * @param businesses which businesses to answer for, and what is asked of each. All of them at
+	 *        once because the caller is a page of search results: one round of queries for the
+	 *        page, not one per row
 	 * @param perBusiness how many start times to look for. Walking further down the calendar for
 	 *        slots nobody displays costs the search and buys nothing
 	 * @return start times, soonest first. Short or absent for a business whose week is closed,
 	 *         whose calendar was never configured, or that is away until past the horizon. A
 	 *         missing key and an empty list say the same thing, and no caller need tell them apart
 	 */
-	Map<UUID, List<Instant>> nextSlots(Map<UUID, ZoneId> businesses, int perBusiness);
+	Map<UUID, List<Instant>> nextSlots(Map<UUID, Asked> businesses, int perBusiness);
 }

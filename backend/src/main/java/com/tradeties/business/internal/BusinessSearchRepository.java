@@ -71,6 +71,12 @@ interface BusinessSearchRepository extends Repository<BusinessProfile, UUID> {
 	 * does with availability. With no job picked every row answers null, which orders identically
 	 * to how it did before this column existed.
 	 *
+	 * <p>The lateral join is the same lookup, answered with the row rather than a yes: the
+	 * business's own service for the picked job, first in the order its profile lists them, so a
+	 * booking can name it and the next openings can be measured by its length. {@code LIMIT 1} is
+	 * what keeps it a join that adds columns — nothing stops a business listing one job twice, and
+	 * two matches must not become two results.
+	 *
 	 * <p>Ordered by distance, then slug — after the picked job, when there is one. The second is
 	 * not decoration, and paging is what made it load-bearing: two businesses at the same
 	 * centroid — the common case, since most points are ZIP centroids — would otherwise swap
@@ -112,18 +118,26 @@ interface BusinessSearchRepository extends Repository<BusinessProfile, UUID> {
 			           ST_SetSRID(ST_MakePoint(b.longitude, b.latitude), 4326)::geography,
 			           ST_SetSRID(ST_MakePoint(:longitude, :latitude), 4326)::geography
 			       ) / 1609.344      AS distanceMiles,
-			       CASE WHEN :haveService THEN EXISTS (
-			           SELECT 1 FROM business_service bs
-			           WHERE bs.business_id = b.id
-			             AND bs.catalog_id = :catalogId
-			             AND bs.active
-			             AND bs.deleted_at IS NULL)
-			       END               AS offersThisJob
+			       CASE WHEN :haveService THEN js.id IS NOT NULL
+			       END               AS offersThisJob,
+			       js.id             AS serviceId,
+			       js.estimated_duration_minutes
+			                         AS serviceMinutes
 			FROM business_profile b
 			LEFT JOIN business_trade bt
 			       ON bt.business_id = b.id AND bt.is_primary AND bt.deleted_at IS NULL
 			LEFT JOIN trade t ON t.id = bt.trade_id
 			LEFT JOIN business_pricing pr ON pr.business_id = b.id
+			LEFT JOIN LATERAL (
+			       SELECT bs.id, bs.estimated_duration_minutes
+			       FROM business_service bs
+			       WHERE :haveService
+			         AND bs.business_id = b.id
+			         AND bs.catalog_id = :catalogId
+			         AND bs.active
+			         AND bs.deleted_at IS NULL
+			       ORDER BY bs.sort_order ASC, bs.created_at ASC
+			       LIMIT 1) js ON TRUE
 			WHERE b.status = 'PUBLISHED'
 			  AND ST_Covers(
 			          b.service_area,
@@ -166,9 +180,9 @@ interface BusinessSearchRepository extends Repository<BusinessProfile, UUID> {
 	 * ever become a filter, it belongs here too — and {@code BusinessSearchPagingTests} is what
 	 * would notice, because it walks every page and compares the total against what it collected.
 	 *
-	 * <p><strong>Why the joins are missing.</strong> {@code findServing} joins trade and pricing to
-	 * add columns, and both are {@code LEFT} — a left join cannot change which rows match, so
-	 * counting without them counts the same set. Should one ever become an inner join, or gain an
+	 * <p><strong>Why the joins are missing.</strong> {@code findServing} joins trade, pricing and
+	 * the picked job's service to add columns, and all three are {@code LEFT} — a left join cannot
+	 * change which rows match, so counting without them counts the same set. Should one ever become an inner join, or gain an
 	 * {@code ON} condition that filters rather than describes, it belongs here too.
 	 */
 	@Query(value = """
@@ -242,6 +256,12 @@ interface BusinessSearchRepository extends Repository<BusinessProfile, UUID> {
 
 		/** Null when no job was picked, and that is not the same as false. */
 		Boolean getOffersThisJob();
+
+		/** The business's own service for the picked job; null wherever that flag is not true. */
+		UUID getServiceId();
+
+		/** That service's length, null with it. */
+		Integer getServiceMinutes();
 
 		boolean getLicensed();
 

@@ -2432,6 +2432,18 @@ components:
 
             Results are ordered so that every `true` precedes every `false`, then by
             distance as usual, so a client can draw one divider and needs no second request.
+        serviceId:
+          type: string
+          format: uuid
+          description: |
+            The business's own service for the job sent as `service` — the `id` of one of
+            its `PublicService` entries, and what a booking of that job names. **Present
+            exactly when `offersThisJob` is true.** A business listing the job twice
+            answers with the one its profile lists first.
+
+            Present, `nextSlots` are measured by that service's length rather than by the
+            business's grid, so every one of them is a start the service's own
+            availability offers too.
         licensed:
           type: boolean
           description: |
@@ -2468,6 +2480,10 @@ components:
             never stored, so it cannot go stale. An empty list is an ordinary answer: a
             business closed all week, one that has not set its calendar up, or one whose
             next opening is past its own booking horizon.
+
+            In the length of `serviceId` when it is present; otherwise one grid step
+            stands in for a job nobody has named, and a longer service may find one of
+            these starts taken.
 
             **Not a hold.** Nothing is reserved by appearing here, and the list is a
             moment old by the time it is drawn.

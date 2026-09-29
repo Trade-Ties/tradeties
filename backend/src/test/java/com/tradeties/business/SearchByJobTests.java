@@ -1,11 +1,18 @@
 package com.tradeties.business;
 
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import java.time.Duration;
+import java.time.Instant;
+import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
 import java.util.List;
+import java.util.UUID;
 
 import com.jayway.jsonpath.JsonPath;
 import com.tradeties.BusinessFixtures;
@@ -18,7 +25,9 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 import org.springframework.test.web.servlet.request.RequestPostProcessor;
 
 /**
@@ -39,8 +48,21 @@ class SearchByJobTests {
 	/** The catalogue job these tests pick, and the one the report that started this named. */
 	private static final String TOILET = "PLUMBER_TOILET_REPLACE";
 
+	private static final String RENAME = """
+			UPDATE business_profile SET display_name = ? WHERE slug = ?""";
+
+	/** Inserted rather than posted: there is no endpoint that writes time off yet. */
+	private static final String INSERT_TIME_OFF = """
+			INSERT INTO availability_time_off (id, business_id, starts_at, ends_at, created_by_user_id,
+				created_at, updated_at, version)
+			SELECT ?, b.id, ?, ?, b.owner_user_id, now(), now(), 0
+			FROM business_profile b WHERE b.slug = ?""";
+
 	@Autowired
 	MockMvc mockMvc;
+
+	@Autowired
+	JdbcTemplate jdbcTemplate;
 
 	/**
 	 * A picked job is a choice, not a reading, so nothing is guessed from the prose beside it.
@@ -73,6 +95,47 @@ class SearchByJobTests {
 
 		List<Boolean> flags = JsonPath.read(body, "$.results[*].offersThisJob");
 		assertEveryTrueBeforeEveryFalse(flags);
+	}
+
+	/**
+	 * The business that lists the job names the service it is listed under, which is what a
+	 * booking from the result card names. The one that does not list it has nothing to name.
+	 */
+	@Test
+	void whoListsTheJobNamesItsServiceForIt() throws Exception {
+		String listed = publishPlumber("user_job_names", "job-names", TOILET);
+		publishPlumber("user_job_nameless", "job-nameless", null);
+
+		mockMvc.perform(search().param("service", TOILET))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath(at("job-names") + ".serviceId").value(Matchers.contains(listed)))
+				.andExpect(jsonPath(at("job-nameless") + ".serviceId").value(Matchers.empty()));
+	}
+
+	/**
+	 * The openings of a listed job are its service's, so a start taken off the card is one the
+	 * service's calendar offers too. Time off from half an hour after the first opening leaves the
+	 * grid's thirty minutes from it free and the service's sixty not.
+	 *
+	 * <p>Narrowed by a name nobody else carries, so the business is on the first page whatever the
+	 * rest of the suite has published in Denver.
+	 */
+	@Test
+	void theOpeningsOfAListedJobAreMeasuredByItsService() throws Exception {
+		publishPlumber("user_job_length", "job-length", TOILET);
+		jdbcTemplate.update(RENAME, "Wexbridge Plumbing", "job-length");
+
+		String first = slotsOf(search().param("name", "Wexbridge")).getFirst();
+		Instant start = OffsetDateTime.parse(first).toInstant();
+		jdbcTemplate.update(INSERT_TIME_OFF, UUID.randomUUID(),
+				start.plus(Duration.ofMinutes(30)).atOffset(ZoneOffset.UTC),
+				start.plus(Duration.ofMinutes(60)).atOffset(ZoneOffset.UTC),
+				"job-length");
+
+		assertTrue(slotsOf(search().param("name", "Wexbridge")).contains(first),
+				"without a job the grid stands in for the length, and thirty minutes still fit");
+		assertFalse(slotsOf(search().param("name", "Wexbridge").param("service", TOILET)).contains(first),
+				"the listed service runs an hour from " + first + ", into the time off");
 	}
 
 	/**
@@ -127,8 +190,18 @@ class SearchByJobTests {
 				.andExpect(status().isBadRequest());
 	}
 
-	private org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder search() {
+	private MockHttpServletRequestBuilder search() {
 		return get("/api/v1/businesses").param("zip", DENVER);
+	}
+
+	/** The openings of the one result a search narrowed to. */
+	private List<String> slotsOf(MockHttpServletRequestBuilder search) throws Exception {
+		String body = mockMvc.perform(search)
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.results.length()").value(1))
+				.andReturn().getResponse().getContentAsString();
+
+		return JsonPath.read(body, "$.results[0].nextSlots");
 	}
 
 	private static String at(String slug) {
@@ -153,27 +226,34 @@ class SearchByJobTests {
 	 *
 	 * <p>The link is written through the API the picker uses, which is the point of the previous
 	 * slice: a service carries the job it answers from the moment it is created.
+	 *
+	 * @return the id of the service listing the job, or null when none was asked for
 	 */
-	private void publishPlumber(String subject, String slug, String jobCode) throws Exception {
+	private String publishPlumber(String subject, String slug, String jobCode) throws Exception {
 		RequestPostProcessor token = BusinessFixtures.publishableBusinessFor(mockMvc, subject, slug);
+		String listed = null;
 
 		if (jobCode != null) {
 			String jobs = mockMvc.perform(get("/api/v1/service-jobs"))
 					.andReturn().getResponse().getContentAsString();
 			String filter = "$[?(@.code=='" + jobCode + "')].";
 
-			mockMvc.perform(post("/api/v1/me/business/services").with(token)
+			String created = mockMvc.perform(post("/api/v1/me/business/services").with(token)
 							.contentType(MediaType.APPLICATION_JSON)
 							.content(BusinessFixtures.serviceJson(
 									"\"catalogId\": \"" + first(jobs, filter + "id") + "\",",
 									first(jobs, filter + "label"), first(jobs, filter + "tradeId"),
 									"QUOTE_ONLY", null)))
-					.andExpect(status().isCreated());
+					.andExpect(status().isCreated())
+					.andReturn().getResponse().getContentAsString();
+			listed = JsonPath.read(created, "$.id");
 		}
 
 		mockMvc.perform(BusinessFixtures.moveRequest(mockMvc, token, slug, DENVER))
 				.andExpect(status().isOk());
 		mockMvc.perform(post("/api/v1/me/business/publish").with(token)).andExpect(status().isOk());
+
+		return listed;
 	}
 
 	/** A filter expression answers an array, even where exactly one row can match. */

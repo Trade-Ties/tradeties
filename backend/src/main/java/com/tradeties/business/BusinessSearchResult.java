@@ -3,6 +3,7 @@ package com.tradeties.business;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.List;
+import java.util.UUID;
 
 /**
  * One tradesperson a search turned up.
@@ -27,6 +28,9 @@ import java.util.List;
  *                      three entries for businesses that do thirty kinds of work, so false covers
  *                      the plumber who can fix a toilet and never wrote it down. Which is why it
  *                      sorts the results and does not filter them
+ * @param serviceId the business's own service for the picked job, which a booking of it names.
+ *                  Present exactly when {@code offersThisJob} is true, and {@code nextSlots} are
+ *                  then measured by its length
  * @param licensed whether an unexpired licence is on file. False covers "no licence needed in
  *                 this trade and state" as well as "not entered", so it is worth a badge when
  *                 true and worth silence when false
@@ -46,6 +50,7 @@ public record BusinessSearchResult(
 		String timeZone,
 		BigDecimal hourlyRate,
 		Boolean offersThisJob,
+		UUID serviceId,
 		boolean licensed,
 		boolean licenseVerified,
 		List<Instant> nextSlots) {
