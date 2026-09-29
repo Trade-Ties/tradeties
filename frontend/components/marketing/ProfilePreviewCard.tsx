@@ -1,4 +1,4 @@
-import { BadgeCheck, Globe, MapPin } from "lucide-react";
+import { BadgeCheck, Globe, MapPin, Navigation } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import type { ProCardView } from "./ProCard";
@@ -10,16 +10,6 @@ import type { ProCardView } from "./ProCard";
  * domain pointing somewhere real would be worse than not linking it at all.
  */
 export function ProfilePreviewCard({ view }: { view: ProCardView }) {
-  const facts = [
-    view.rating === undefined ? null : (
-      <span key="rating">
-        ★ <strong className="font-semibold text-brand">{view.rating.toFixed(1)}</strong>
-      </span>
-    ),
-    view.jobs === undefined ? null : <span key="jobs">{view.jobs} jobs</span>,
-    <span key="distance">{view.distance}</span>,
-  ].filter((fact) => fact !== null);
-
   return (
     <div className="flex flex-col gap-4">
       <div className="flex items-center gap-3.5">
@@ -48,23 +38,19 @@ export function ProfilePreviewCard({ view }: { view: ProCardView }) {
         </div>
       )}
 
-      {view.location && (
-        <div className="flex items-center gap-1.5 text-[13px] text-muted-ink">
-          <MapPin className="size-3.5 shrink-0 text-faint" />
-          {view.location}
+      {/* Place and distance on lines of their own, so a long place wraps without splitting "4.2 mi away". */}
+      <div className="flex flex-col gap-1.5 text-[13px] text-muted-ink">
+        {view.location && (
+          <div className="flex items-start gap-1.5">
+            <MapPin className="mt-0.5 size-3.5 shrink-0 text-faint" />
+            {view.location}
+          </div>
+        )}
+        <div className="flex items-center gap-1.5">
+          <Navigation className="size-3.5 shrink-0 text-faint" />
+          {view.distance} away
         </div>
-      )}
-
-      {facts.length > 0 && (
-        <div className="flex items-center gap-2.5 text-sm text-muted-ink">
-          {facts.map((fact, index) => (
-            <span key={index} className="contents">
-              {index > 0 && <span className="text-[#CBD6E2]">•</span>}
-              {fact}
-            </span>
-          ))}
-        </div>
-      )}
+      </div>
 
       {view.services && view.services.length > 0 && (
         <div className="flex flex-col gap-1.5">

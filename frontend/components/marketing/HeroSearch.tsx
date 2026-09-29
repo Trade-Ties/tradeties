@@ -12,6 +12,7 @@ import { Label } from "@/components/ui/label";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { DEFAULT_JOB_SUGGESTIONS } from "@/components/marketing/job-suggestions";
 import { JOB_INPUT_CLASS, JobSuggestBox } from "@/components/marketing/JobSuggestBox";
+import { rememberZip } from "@/lib/zip-memory";
 
 // Computed at render time (client-only component) so this always reflects the
 // visitor's own local date rather than a hardcoded or server-clock value.
@@ -67,6 +68,7 @@ export function HeroSearch() {
   const search = (event: React.FormEvent) => {
     event.preventDefault();
     if (zip.length !== 5) return;
+    rememberZip(zip);
 
     const params = new URLSearchParams({ zip });
     if (job.trim()) params.set("job", job.trim());
