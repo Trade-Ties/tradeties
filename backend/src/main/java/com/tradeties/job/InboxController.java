@@ -16,12 +16,17 @@ import com.tradeties.generated.api.InboxApi;
 import com.tradeties.generated.model.AppointmentChange;
 import com.tradeties.generated.model.AppointmentInput;
 import com.tradeties.generated.model.BusinessJobRequest;
+import com.tradeties.generated.model.Conversation;
+import com.tradeties.generated.model.ConversationSummary;
 import com.tradeties.generated.model.JobRequestDecline;
 import com.tradeties.generated.model.JobRequestStatus;
+import com.tradeties.generated.model.Message;
+import com.tradeties.generated.model.MessageInput;
 import com.tradeties.generated.model.Party;
 import com.tradeties.identity.CurrentMarketplaceUser;
 import com.tradeties.identity.MarketplaceUser;
 import com.tradeties.job.internal.AppointmentService;
+import com.tradeties.job.internal.ConversationService;
 import com.tradeties.job.internal.InboxService;
 
 import org.springframework.http.HttpStatus;
@@ -30,7 +35,7 @@ import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.server.ResponseStatusException;
 
 /**
- * The tradesperson's side of the requests customers send.
+ * The tradesperson's side of the requests customers send, and of the conversation about each.
  *
  * <p>Apart from {@link JobController} although both belong to this module, because the two halves
  * have opposite security: that one takes no token by design, and nothing here may be reached
@@ -50,17 +55,68 @@ class InboxController implements InboxApi {
 	private final Businesses businesses;
 	private final InboxService inbox;
 	private final AppointmentService appointments;
+	private final ConversationService conversations;
 
 	InboxController(CurrentMarketplaceUser currentMarketplaceUser,
 			Businesses businesses,
 			InboxService inbox,
-			AppointmentService appointments) {
+			AppointmentService appointments,
+			ConversationService conversations) {
 
 		this.currentMarketplaceUser = currentMarketplaceUser;
 		this.businesses = businesses;
 		this.inbox = inbox;
 		this.appointments = appointments;
+		this.conversations = conversations;
 	}
+
+	// ------------------------------------------------------------------ the conversation per request
+
+	@Override
+	public ResponseEntity<List<ConversationSummary>> listMyConversations() {
+		return ResponseEntity.ok(conversations.inboxForOwner(ownerId()).stream()
+				.map(entry -> new ConversationSummary()
+						.requestId(entry.requestId())
+						.customerName(entry.customerName())
+						.request(Wire.summary(entry.request()))
+						.lastMessage(Wire.message(entry.lastMessage()))
+						.unreadCount(entry.unreadCount()))
+				.toList());
+	}
+
+	@Override
+	public ResponseEntity<Conversation> getMyConversation(UUID requestId) {
+		ConversationDetail detail = conversations.conversationForOwner(ownerId(), requestId);
+
+		return ResponseEntity.ok(new Conversation()
+				.request(Wire.summary(detail.request()))
+				.customerName(detail.customerName())
+				.customerEmail(detail.customerEmail())
+				.customerPhone(detail.customerPhone())
+				.description(detail.description())
+				.address(Wire.address(detail.address()))
+				.requestedAt(Wire.utc(detail.requestedAt()))
+				.messages(detail.messages().stream().map(Wire::message).toList()));
+	}
+
+	@Override
+	public ResponseEntity<Message> sendMyMessage(UUID requestId, MessageInput messageInput) {
+		return ResponseEntity.status(HttpStatus.CREATED)
+				.body(Wire.message(conversations.replyAsOwner(ownerId(), requestId, messageInput.getBody())));
+	}
+
+	@Override
+	public ResponseEntity<Void> markMyConversationRead(UUID requestId) {
+		conversations.markReadByOwner(ownerId(), requestId);
+		return ResponseEntity.noContent().build();
+	}
+
+	/** The caller's own user id — the conversations resolve the business from it themselves. */
+	private UUID ownerId() {
+		return currentMarketplaceUser.requireTradesperson().id();
+	}
+
+	// ------------------------------------------------------------------ the requests and appointments
 
 	@Override
 	public ResponseEntity<BusinessJobRequest> bookAppointment(AppointmentInput input) {

@@ -67,8 +67,10 @@ tags:
     description: |
       The tradesperson's side of those same requests: reading them, taking them,
       turning them down — and booking a customer in directly, for a time agreed
-      another way. Every operation resolves the business from the access token,
-      exactly as `business` does.
+      another way — and the conversation about each one, listed newest activity
+      first. Every operation resolves the business from the access token, exactly
+      as `business` does; a request id in the path that is not the caller's is a
+      404, not a 403, so the answer says nothing about somebody else's requests.
 
       Apart from `job` because the two halves have opposite security. That one
       takes no token by design; nothing here may be reached without one, and a
@@ -765,6 +767,205 @@ paths:
                 $ref: "#/components/schemas/CreatedJob"
         "400":
           $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/jobs/by-token:
+    get:
+      tags: [job]
+      operationId: getJobByToken
+      security: []
+      summary: What a customer sent, read back with their access token.
+      description: |
+        The customer's page, and the other half of the token `createJob` hands out.
+        A customer has no account, so this token is how they come back — from the
+        link in their confirmation email — to see what they asked for and where it
+        stands.
+
+        **The token travels in a header, never in the path.** A path is written into
+        access logs, proxy logs and browser history on the way through; a header is
+        not. The page the customer opens carries it in its own address, and hands it
+        on here without repeating it.
+
+        **An unknown token and an expired one are one answer.** Both are `404`.
+        Telling them apart would confirm that a guessed value had once been real.
+
+        The answer is the job and every request on it, each with the terms that were
+        frozen when it was sent. Nothing a tradesperson wrote is here yet; messages
+        join this page when they exist.
+      parameters:
+        - name: X-Job-Token
+          in: header
+          required: true
+          description: The access token from `CreatedJob.accessToken`, exactly as issued.
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 100
+      responses:
+        "200":
+          description: The job and its requests.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CustomerJob"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/jobs/by-token/requests/{requestId}/messages:
+    post:
+      tags: [job]
+      operationId: sendCustomerMessage
+      security: []
+      summary: A customer writes to the business their request went to.
+      description: |
+        The customer's side of the conversation, from the page their link opens.
+        The same token as `getJobByToken`, in the same header; the request has to
+        belong to the job that token opens, or the answer is `404` — a token for one
+        job reaches no other job's conversation.
+
+        The business is told by email that a message arrived.
+      parameters:
+        - name: X-Job-Token
+          in: header
+          required: true
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 100
+        - name: requestId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MessageInput"
+      responses:
+        "201":
+          description: The message, as stored.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Message"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/me/conversations:
+    get:
+      tags: [inbox]
+      operationId: listMyConversations
+      summary: Every conversation with a customer, latest activity first.
+      description: |
+        One per request sent to the caller's business, whatever its status — a
+        declined request can still have something left to say. Each carries its
+        latest line and how many of the customer's messages are unread, which is all
+        a list needs; the thread itself is `getMyConversation`.
+
+        The request's own description counts as its first line, so a conversation
+        with no messages yet still has something to preview.
+      responses:
+        "200":
+          description: The conversations.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ConversationSummary"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/me/conversations/{requestId}:
+    get:
+      tags: [inbox]
+      operationId: getMyConversation
+      summary: One conversation, with the request it is about.
+      parameters:
+        - name: requestId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: The request, the customer, and every message in order.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Conversation"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/me/conversations/{requestId}/messages:
+    post:
+      tags: [inbox]
+      operationId: sendMyMessage
+      summary: Reply to the customer.
+      description: |
+        Stored, and sent to the customer by email with a fresh link back to their
+        request. The link is new for every email: the one from their confirmation
+        cannot be written again, because only its digest is kept.
+      parameters:
+        - name: requestId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MessageInput"
+      responses:
+        "201":
+          description: The message, as stored.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Message"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/me/conversations/{requestId}/read:
+    post:
+      tags: [inbox]
+      operationId: markMyConversationRead
+      summary: Everything the customer wrote so far has been seen.
+      description: |
+        A POST rather than a side effect of reading, so opening a conversation to
+        glance at it and marking it read stay two decisions the client makes.
+      parameters:
+        - name: requestId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "204":
+          description: Marked.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
         "404":
           $ref: "#/components/responses/NotFound"
 
@@ -2908,6 +3109,153 @@ components:
           format: date-time
         request:
           $ref: "#/components/schemas/JobRequestSummary"
+
+    CustomerJob:
+      type: object
+      description: |
+        A job as its customer sees it: what they told us, where, and every request
+        they sent about it. Their own details only — nothing here belongs to anybody
+        who does not already hold the token.
+      required:
+        - jobId
+        - customerName
+        - customerEmail
+        - description
+        - address
+        - accessTokenExpiresAt
+        - requests
+      properties:
+        jobId:
+          type: string
+          format: uuid
+        customerName:
+          type: string
+        customerEmail:
+          type: string
+        customerPhone:
+          type: string
+          description: Absent when they gave none.
+        description:
+          type: string
+          description: What they need done, in their own words.
+        address:
+          $ref: "#/components/schemas/Address"
+        accessTokenExpiresAt:
+          type: string
+          format: date-time
+          description: |
+            When this page stops opening. Said on the page, so a customer is not
+            surprised by a link that worked last month.
+        requests:
+          type: array
+          description: Newest first, each with its conversation.
+          items:
+            $ref: "#/components/schemas/CustomerRequest"
+
+    CustomerRequest:
+      type: object
+      description: One request as its customer sees it, and the conversation about it.
+      required: [request, messages]
+      properties:
+        request:
+          $ref: "#/components/schemas/JobRequestSummary"
+        messages:
+          type: array
+          description: Oldest first.
+          items:
+            $ref: "#/components/schemas/Message"
+
+    Message:
+      type: object
+      required: [id, author, body, sentAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        author:
+          $ref: "#/components/schemas/MessageAuthor"
+        body:
+          type: string
+        sentAt:
+          type: string
+          format: date-time
+
+    MessageAuthor:
+      type: string
+      description: |
+        Which side wrote it. The business rather than a person: the customer is
+        talking to the business they chose, whoever on its side answers.
+      enum:
+        - BUSINESS
+        - CUSTOMER
+
+    MessageInput:
+      type: object
+      required: [body]
+      properties:
+        body:
+          type: string
+          minLength: 1
+          maxLength: 5000
+
+    ConversationSummary:
+      type: object
+      description: One line of the inbox.
+      required: [requestId, customerName, request, lastMessage, unreadCount]
+      properties:
+        requestId:
+          type: string
+          format: uuid
+        customerName:
+          type: string
+        request:
+          $ref: "#/components/schemas/JobRequestSummary"
+        lastMessage:
+          $ref: "#/components/schemas/Message"
+          description: |
+            The newest line — the customer's description when nobody has written
+            since, with the request's id as its id and the request's time as its
+            time.
+        unreadCount:
+          type: integer
+          format: int32
+
+    Conversation:
+      type: object
+      description: |
+        Everything the tradesperson needs to answer: the request, who sent it, what
+        they wrote, and every message since.
+      required:
+        - request
+        - customerName
+        - customerEmail
+        - description
+        - address
+        - requestedAt
+        - messages
+      properties:
+        request:
+          $ref: "#/components/schemas/JobRequestSummary"
+        customerName:
+          type: string
+        customerEmail:
+          type: string
+        customerPhone:
+          type: string
+        description:
+          type: string
+          description: What the customer wrote when they sent the request.
+        address:
+          $ref: "#/components/schemas/Address"
+        requestedAt:
+          type: string
+          format: date-time
+          description: When the request was sent, the moment the description was written.
+        messages:
+          type: array
+          description: Oldest first.
+          items:
+            $ref: "#/components/schemas/Message"
 
     JobRequestSummary:
       type: object

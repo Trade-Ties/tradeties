@@ -15,6 +15,12 @@ interface JobRequestRepository extends JpaRepository<JobRequestRow, UUID> {
 	/** Whether any request at all names this service — see {@link RequestedServices}. */
 	boolean existsByServiceId(UUID serviceId);
 
+	/** Every request sent about one job, the newest first. */
+	List<JobRequestRow> findByJobIdOrderByCreatedAtDesc(UUID jobId);
+
+	/** Every request sent to one business — the rows its inbox is made of. */
+	List<JobRequestRow> findByBusinessId(UUID businessId);
+
 	/**
 	 * What {@code availability} subtracts from a business's week, for several businesses at once.
 	 *

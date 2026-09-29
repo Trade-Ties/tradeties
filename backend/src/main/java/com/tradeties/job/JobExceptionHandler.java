@@ -52,7 +52,31 @@ class JobExceptionHandler {
 		return problem;
 	}
 
-	@ExceptionHandler(ServiceNotOfferedException.class)
+	@ExceptionHandler(NoSuchJobException.class)
+	ProblemDetail handleNoSuchJob(NoSuchJobException exception) {
+		ProblemDetail problem = ProblemDetail.forStatus(HttpStatus.NOT_FOUND);
+		problem.setTitle("No such request");
+		problem.setDetail(exception.getMessage());
+		return problem;
+	}
+
+	@ExceptionHandler(NoSuchConversationException.class)
+	ProblemDetail handleNoSuchConversation(NoSuchConversationException exception) {
+		ProblemDetail problem = ProblemDetail.forStatus(HttpStatus.NOT_FOUND);
+		problem.setTitle("No such conversation");
+		problem.setDetail(exception.getMessage());
+		return problem;
+	}
+
+	@ExceptionHandler(EmptyMessageException.class)
+	ProblemDetail handleEmptyMessage(EmptyMessageException exception) {
+		ProblemDetail problem = ProblemDetail.forStatus(HttpStatus.BAD_REQUEST);
+		problem.setTitle("Empty message");
+		problem.setDetail(exception.getMessage());
+		return problem;
+	}
+
+		@ExceptionHandler(ServiceNotOfferedException.class)
 	ProblemDetail handleServiceNotOffered(ServiceNotOfferedException exception) {
 		ProblemDetail problem = ProblemDetail.forStatus(HttpStatus.BAD_REQUEST);
 		problem.setType(INVALID_SELECTION);

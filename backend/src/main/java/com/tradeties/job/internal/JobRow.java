@@ -5,6 +5,7 @@ import java.time.Instant;
 import java.util.UUID;
 
 import com.tradeties.business.GeoPoint;
+import com.tradeties.business.PostalAddress;
 import com.tradeties.job.AppointmentDetails;
 import com.tradeties.job.BookingParty;
 import com.tradeties.job.ContactMethod;
@@ -228,6 +229,10 @@ class JobRow {
 
 	String description() {
 		return description;
+	}
+
+	PostalAddress address() {
+		return new PostalAddress(street1, street2, city, state, postalCode);
 	}
 
 	String street1() {

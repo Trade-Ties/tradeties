@@ -1,15 +1,18 @@
 package com.tradeties.job;
 
-import java.time.Instant;
-import java.time.OffsetDateTime;
-import java.time.ZoneOffset;
+import java.util.UUID;
 
 import com.tradeties.business.PostalAddress;
 import com.tradeties.generated.api.JobApi;
 import com.tradeties.generated.model.CreatedJob;
+import com.tradeties.generated.model.CustomerJob;
+import com.tradeties.generated.model.CustomerRequest;
 import com.tradeties.generated.model.JobInput;
 import com.tradeties.generated.model.JobRequestStatus;
 import com.tradeties.generated.model.JobRequestSummary;
+import com.tradeties.generated.model.Message;
+import com.tradeties.generated.model.MessageInput;
+import com.tradeties.job.internal.ConversationService;
 import com.tradeties.job.internal.JobService;
 
 import org.springframework.http.HttpStatus;
@@ -26,14 +29,46 @@ import org.springframework.web.bind.annotation.RestController;
 class JobController implements JobApi {
 
 	private final JobService jobs;
+	private final ConversationService conversations;
 
-	JobController(JobService jobs) {
+	JobController(JobService jobs, ConversationService conversations) {
 		this.jobs = jobs;
+		this.conversations = conversations;
 	}
 
 	@Override
 	public ResponseEntity<CreatedJob> createJob(JobInput input) {
 		return ResponseEntity.status(HttpStatus.CREATED).body(toWire(jobs.place(toDomain(input))));
+	}
+
+	/**
+	 * The token arrives in a header and goes no further than the lookup: it is not echoed back, not
+	 * logged, and not part of the path, where every proxy on the way would have written it down.
+	 */
+	@Override
+	public ResponseEntity<CustomerJob> getJobByToken(String xJobToken) {
+		JobForCustomer job = conversations.jobForCustomer(xJobToken).orElseThrow(NoSuchJobException::new);
+
+		return ResponseEntity.ok(new CustomerJob()
+				.jobId(job.jobId())
+				.customerName(job.customerName())
+				.customerEmail(job.customerEmail())
+				.customerPhone(job.customerPhone())
+				.description(job.description())
+				.address(Wire.address(job.address()))
+				.accessTokenExpiresAt(Wire.utc(job.accessTokenExpiresAt()))
+				.requests(job.requests().stream()
+						.map(thread -> new CustomerRequest()
+								.request(Wire.summary(thread.request()))
+								.messages(thread.messages().stream().map(Wire::message).toList()))
+						.toList()));
+	}
+
+	/** The customer's side of the conversation, with the same token in the same header. */
+	@Override
+	public ResponseEntity<Message> sendCustomerMessage(String xJobToken, UUID requestId, MessageInput messageInput) {
+		return ResponseEntity.status(HttpStatus.CREATED)
+				.body(Wire.message(conversations.replyAsCustomer(xJobToken, requestId, messageInput.getBody())));
 	}
 
 	private static NewJob toDomain(JobInput input) {
@@ -66,7 +101,7 @@ class JobController implements JobApi {
 		return new CreatedJob()
 				.jobId(placed.jobId())
 				.accessToken(placed.accessToken())
-				.accessTokenExpiresAt(utc(placed.accessTokenExpiresAt()))
+				.accessTokenExpiresAt(Wire.utc(placed.accessTokenExpiresAt()))
 				.request(summary(placed));
 	}
 
@@ -79,20 +114,11 @@ class JobController implements JobApi {
 				.businessName(placed.businessName())
 				.serviceName(placed.serviceName())
 				.estimatedDurationMinutes(placed.estimatedDurationMinutes())
-				.startsAt(utc(placed.startsAt()))
-				.endsAt(utc(placed.endsAt()))
+				.startsAt(Wire.utc(placed.startsAt()))
+				.endsAt(Wire.utc(placed.endsAt()))
 				.timeZone(placed.timeZone())
 				.currency(placed.currency())
 				.cancellationFee(placed.cancellationFee().toPlainString())
 				.cancellationNoticeHours(placed.cancellationNoticeHours());
-	}
-
-	/**
-	 * Instants go out at UTC rather than at the business's offset. The zone the reader needs is a
-	 * field of its own, and an offset baked into the timestamp is the second copy of it that can
-	 * disagree — over a daylight saving switch it would.
-	 */
-	private static OffsetDateTime utc(Instant instant) {
-		return instant.atOffset(ZoneOffset.UTC);
 	}
 }

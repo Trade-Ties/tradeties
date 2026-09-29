@@ -45,7 +45,7 @@ public class JobService {
 	private final JobRequestRepository requests;
 	private final RequestHistory history;
 	private final MailOutbox mail;
-	private final String requestUrl;
+	private final String publicUrl;
 
 	JobService(BookableServices bookable,
 			SiteLocations locations,
@@ -63,7 +63,7 @@ public class JobService {
 		this.requests = requests;
 		this.history = history;
 		this.mail = mail;
-		this.requestUrl = publicUrl.replaceAll("/+$", "") + "/request";
+		this.publicUrl = publicUrl.replaceAll("/+$", "");
 	}
 
 	/**
@@ -106,7 +106,7 @@ public class JobService {
 		// Here, inside the transaction and while the clear token is still in hand — the one place
 		// it ever is. The confirmation commits with the request or not at all, and it is sent
 		// afterwards by the mail module, so a mail server being down cannot fail a booking.
-		mail.enqueue(RequestConfirmation.compose(submitted, placed, requestUrl));
+		mail.enqueue(RequestConfirmation.compose(submitted, placed, publicUrl));
 
 		return placed;
 	}
