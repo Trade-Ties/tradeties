@@ -1,14 +1,26 @@
 package com.tradeties.availability;
 
 import java.time.DayOfWeek;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
+import java.time.format.DateTimeParseException;
+import java.time.format.ResolverStyle;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 import com.tradeties.availability.internal.CalendarService;
+import com.tradeties.availability.internal.TimeOffService;
 import com.tradeties.generated.api.AvailabilityApi;
 import com.tradeties.generated.model.BookingPolicy;
 import com.tradeties.generated.model.BookingPolicyInput;
 import com.tradeties.generated.model.TimeBlock;
+import com.tradeties.generated.model.TimeOff;
+import com.tradeties.generated.model.TimeOffInput;
+import com.tradeties.generated.model.TimeOffResolution;
+import com.tradeties.generated.model.TimeOffUpdate;
 import com.tradeties.generated.model.WorkingDay;
 import com.tradeties.generated.model.WorkingHours;
 import com.tradeties.identity.CurrentMarketplaceUser;
@@ -27,12 +39,63 @@ import org.springframework.web.server.ResponseStatusException;
 @RestController
 class AvailabilityController implements AvailabilityApi {
 
+	/**
+	 * The contract's `LocalDateTime`: minutes, never seconds, and no offset. Strict, or a 31st of
+	 * February would quietly become the 28th.
+	 */
+	private static final DateTimeFormatter WALL_CLOCK = DateTimeFormatter.ofPattern("uuuu-MM-dd'T'HH:mm")
+			.withResolverStyle(ResolverStyle.STRICT);
+
 	private final CurrentMarketplaceUser currentMarketplaceUser;
 	private final CalendarService calendarService;
+	private final TimeOffService timeOff;
 
-	AvailabilityController(CurrentMarketplaceUser currentMarketplaceUser, CalendarService calendarService) {
+	AvailabilityController(CurrentMarketplaceUser currentMarketplaceUser,
+			CalendarService calendarService,
+			TimeOffService timeOff) {
+
 		this.currentMarketplaceUser = currentMarketplaceUser;
 		this.calendarService = calendarService;
+		this.timeOff = timeOff;
+	}
+
+	@Override
+	public ResponseEntity<List<TimeOff>> listMyTimeOff() {
+		List<TimeOffEntry> entries = timeOff.findUpcomingByOwner(currentUserId())
+				.orElseThrow(AvailabilityController::noProfileYet);
+
+		return ResponseEntity.ok(entries.stream().map(AvailabilityController::toWire).toList());
+	}
+
+	@Override
+	public ResponseEntity<TimeOff> addMyTimeOff(TimeOffInput input) {
+		TimeOffEntry stored = timeOff.addForOwner(requireTradesperson().id(),
+						draft(input.getAllDay(), input.getFirstDay(), input.getLastDay(),
+								input.getStartsAt(), input.getEndsAt(), input.getNote()),
+						answers(input.getResolutions(), input.getDeclineReason()))
+				.orElseThrow(AvailabilityController::noProfileYet);
+
+		return ResponseEntity.status(HttpStatus.CREATED).body(toWire(stored));
+	}
+
+	@Override
+	public ResponseEntity<TimeOff> replaceMyTimeOff(UUID timeOffId, TimeOffUpdate update) {
+		TimeOffEntry stored = timeOff.replaceForOwner(requireTradesperson().id(), timeOffId, update.getVersion(),
+						draft(update.getAllDay(), update.getFirstDay(), update.getLastDay(),
+								update.getStartsAt(), update.getEndsAt(), update.getNote()),
+						answers(update.getResolutions(), update.getDeclineReason()))
+				.orElseThrow(AvailabilityController::noSuchTimeOff);
+
+		return ResponseEntity.ok(toWire(stored));
+	}
+
+	@Override
+	public ResponseEntity<Void> removeMyTimeOff(UUID timeOffId) {
+		if (!timeOff.removeForOwner(requireTradesperson().id(), timeOffId)) {
+			throw noSuchTimeOff();
+		}
+
+		return ResponseEntity.noContent().build();
 	}
 
 	@Override
@@ -82,6 +145,57 @@ class AvailabilityController implements AvailabilityApi {
 	private static ResponseStatusException noProfileYet() {
 		return new ResponseStatusException(HttpStatus.NOT_FOUND,
 				"No business profile for this account yet, so there is no calendar either");
+	}
+
+	private static ResponseStatusException noSuchTimeOff() {
+		return new ResponseStatusException(HttpStatus.NOT_FOUND, "No such time off in this calendar");
+	}
+
+	private static TimeOffDraft draft(Boolean allDay, LocalDate firstDay, LocalDate lastDay,
+			String startsAt, String endsAt, String note) {
+
+		return new TimeOffDraft(Boolean.TRUE.equals(allDay), firstDay, lastDay,
+				wallClock(startsAt), wallClock(endsAt), note);
+	}
+
+	private static LocalDateTime wallClock(String value) {
+		if (value == null) {
+			return null;
+		}
+
+		try {
+			return LocalDateTime.parse(value, WALL_CLOCK);
+		} catch (DateTimeParseException notOnTheCalendar) {
+			throw new InvalidTimeOffException(value + " is not a time on the calendar.");
+		}
+	}
+
+	private static TimeOffAnswers answers(List<TimeOffResolution> resolutions, String declineReason) {
+		Map<UUID, TimeOffAnswers.Resolution> byRequest = resolutions == null
+				? Map.of()
+				: resolutions.stream().collect(Collectors.toMap(
+						TimeOffResolution::getRequestId,
+						resolution -> TimeOffAnswers.Resolution.valueOf(resolution.getAction().getValue()),
+						(first, second) -> second));
+
+		return new TimeOffAnswers(byRequest, declineReason);
+	}
+
+	private static TimeOff toWire(TimeOffEntry entry) {
+		TimeOff wire = new TimeOff()
+				.id(entry.id())
+				.allDay(entry.allDay())
+				.timeZone(entry.timeZone())
+				.note(entry.note())
+				.version(entry.version());
+
+		if (entry.allDay()) {
+			wire.firstDay(entry.firstDay()).lastDay(entry.lastDay());
+		} else {
+			wire.startsAt(entry.startsAt().format(WALL_CLOCK)).endsAt(entry.endsAt().format(WALL_CLOCK));
+		}
+
+		return wire;
 	}
 
 	private static WorkingHours toWire(WorkingWeek week) {

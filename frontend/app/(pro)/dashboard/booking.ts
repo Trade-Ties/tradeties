@@ -1,7 +1,30 @@
 import { addMinutes, format } from "date-fns";
 
+import { toE164 } from "@/components/profile/phone";
+import type { Service } from "@/lib/api/business";
+import type {
+  AppointmentChange,
+  AppointmentConflict,
+  AppointmentInput,
+  AppointmentResolution,
+} from "@/lib/api/inbox";
+
 import { appointmentStart } from "./calendarFile";
 import { addressLine, knownCustomers, type DemoAppointment, type DemoMessage, type KnownCustomer } from "./demo-data";
+
+/** One of the business's own active services, as the booking form offers it. */
+export interface ServiceOption {
+  id: string;
+  name: string;
+  durationMinutes: number;
+}
+
+/** Only active ones: the server refuses to book an inactive service. */
+export function serviceOptionsOf(services: Service[] | null | undefined): ServiceOption[] {
+  return (services ?? [])
+    .filter((service) => service.active)
+    .map((service) => ({ id: service.id, name: service.name, durationMinutes: service.estimatedDurationMinutes }));
+}
 
 /**
  * An appointment the tradesperson books themselves, and what should happen around it — the
@@ -16,7 +39,18 @@ export interface NewBooking {
   notify: boolean;
   /** A request this takes the place of — agreed on another day or time, often by phone. */
   replacesId?: string;
+  /** The span on the business's clock, `YYYY-MM-DDTHH:mm` — see `wallClock.ts`. */
+  startsAt: string;
+  endsAt: string;
+  /** What happens to the accepted appointments in the way, once the server has named them. */
+  resolutions?: AppointmentResolution[];
 }
+
+/** Where a booking got to: done, appointments in the way to put to the tradesperson, or a refusal. */
+export type BookResult =
+  | { kind: "saved" }
+  | { kind: "conflicts"; conflicts: AppointmentConflict[] }
+  | { kind: "refused"; message: string };
 
 /**
  * What the form opens with when it is started from somebody: their request ("Book a different
@@ -25,6 +59,7 @@ export interface NewBooking {
 export interface BookingPrefill {
   customer: KnownCustomer;
   service?: string;
+  serviceId?: string;
   notes?: string;
   replaces?: DemoAppointment;
 }
@@ -34,8 +69,47 @@ export function prefillFrom(request: DemoAppointment): BookingPrefill {
   return {
     customer: { name: request.customerName, phone: request.phone, email: request.email, address: request.address },
     service: request.service,
+    serviceId: request.serviceId,
     notes: request.notes,
     replaces: request.status === "pending" ? request : undefined,
+  };
+}
+
+/** Left out rather than sent empty: an empty postal code or phone fails the contract's pattern. */
+const given = (value: string) => (value.trim() === "" ? undefined : value.trim());
+
+function customerFields(booking: NewBooking) {
+  const { appointment } = booking;
+
+  return {
+    customerName: appointment.customerName,
+    customerPhone: given(toE164(appointment.phone)),
+    customerEmail: given(appointment.email),
+    street1: given([appointment.address.number, appointment.address.street].filter(Boolean).join(" ")),
+    city: given(appointment.address.city),
+    state: given(appointment.address.state),
+    postalCode: given(appointment.address.zip),
+    notes: given(appointment.notes),
+  };
+}
+
+export function appointmentBody(booking: NewBooking): AppointmentInput {
+  return {
+    serviceId: booking.appointment.serviceId!,
+    startsAt: booking.startsAt,
+    endsAt: booking.endsAt,
+    replacesRequestId: booking.replacesId,
+    resolutions: booking.resolutions,
+    ...customerFields(booking),
+  };
+}
+
+export function changeBody(booking: NewBooking): AppointmentChange {
+  return {
+    startsAt: booking.startsAt,
+    endsAt: booking.endsAt,
+    resolutions: booking.resolutions,
+    ...customerFields(booking),
   };
 }
 

@@ -44,6 +44,11 @@ class JobController implements JobApi {
 				input.getCustomerName(),
 				input.getCustomerEmail(),
 				input.getCustomerPhone(),
+				// Absent stays absent. The generated enum has no "not said" value, so null is
+				// what carries it, and a default here would invent a preference.
+				input.getPreferredContact() == null
+						? null
+						: ContactMethod.valueOf(input.getPreferredContact().getValue()),
 				input.getDescription(),
 				new PostalAddress(
 						input.getStreet1(),
@@ -68,7 +73,7 @@ class JobController implements JobApi {
 	private static JobRequestSummary summary(PlacedJob placed) {
 		return new JobRequestSummary()
 				.id(placed.requestId())
-				// Nothing can accept one yet, so a fresh request has only the one status.
+				// A customer's request always arrives pending; only the business answers it.
 				.status(JobRequestStatus.PENDING)
 				.businessSlug(placed.businessSlug())
 				.businessName(placed.businessName())

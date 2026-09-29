@@ -1,5 +1,6 @@
 package com.tradeties.business;
 
+import java.time.ZoneId;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -20,4 +21,12 @@ public interface Businesses {
 	 *         answer — a tradesperson who has not finished onboarding step 2 has no business.
 	 */
 	Optional<UUID> findIdByOwner(UUID ownerUserId);
+
+	/**
+	 * The zone the owner's business keeps its hours in, which is the clock every time it enters
+	 * is read on.
+	 *
+	 * @return empty if they have no business yet
+	 */
+	Optional<ZoneId> findTimeZoneByOwner(UUID ownerUserId);
 }

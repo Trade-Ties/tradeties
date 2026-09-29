@@ -18,6 +18,7 @@ export function AppointmentRow({
   onSelect,
   selected,
   showDate,
+  away,
 }: {
   appointment: DemoAppointment;
   onConfirm: (id: string) => void;
@@ -26,6 +27,8 @@ export function AppointmentRow({
   selected?: boolean;
   /** For a list that spans several days, where the time alone does not say when. */
   showDate?: boolean;
+  /** Time off covers it: a pending request then cannot be accepted until the time off is shortened. */
+  away?: boolean;
 }) {
   const pending = appointment.status === "pending";
 
@@ -70,6 +73,11 @@ export function AppointmentRow({
           >
             {pending ? "Requested" : "Confirmed"}
           </span>
+          {away && (
+            <span className="shrink-0 rounded-full bg-slate-200/70 px-2 py-0.5 text-[11px] font-semibold text-muted-ink">
+              In your time off
+            </span>
+          )}
         </div>
         <p className="truncate text-xs text-muted-ink">{appointment.service}</p>
       </div>

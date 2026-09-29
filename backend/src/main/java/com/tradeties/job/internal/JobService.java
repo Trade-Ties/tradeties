@@ -43,6 +43,7 @@ public class JobService {
 	private final OpenSlots openSlots;
 	private final JobRepository jobs;
 	private final JobRequestRepository requests;
+	private final RequestHistory history;
 	private final MailOutbox mail;
 	private final String requestUrl;
 
@@ -51,6 +52,7 @@ public class JobService {
 			OpenSlots openSlots,
 			JobRepository jobs,
 			JobRequestRepository requests,
+			RequestHistory history,
 			MailOutbox mail,
 			@Value("${tradeties.public-url}") String publicUrl) {
 
@@ -59,6 +61,7 @@ public class JobService {
 		this.openSlots = openSlots;
 		this.jobs = jobs;
 		this.requests = requests;
+		this.history = history;
 		this.mail = mail;
 		this.requestUrl = publicUrl.replaceAll("/+$", "") + "/request";
 	}
@@ -82,6 +85,7 @@ public class JobService {
 				AccessTokens.digest(token), Instant.now().plus(AccessTokens.LIFETIME)));
 
 		JobRequestRow request = requests.save(new JobRequestRow(job.id(), submitted.startsAt(), offered));
+		history.record(request, null, Actor.CUSTOMER, null);
 
 		PlacedJob placed = new PlacedJob(
 				job.id(),

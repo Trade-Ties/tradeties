@@ -1,27 +1,46 @@
 import Link from "next/link";
+import { format, isSameDay } from "date-fns";
 import { Bell, CalendarClock, Clock3, LogOut, Palmtree, Sliders, User as UserIcon } from "lucide-react";
 
 import { signOutFromPortal } from "../actions";
+import type { StoredTimeOff } from "../blocks";
 import { ComingSoonTag } from "../ComingSoon";
-import { DEMO_TIME_OFF } from "../demo-data";
 import { timeOffRange } from "../TimeOffBanner";
+import { localDay, localMoment } from "../wallClock";
 import { WeekHours } from "./WeekHours";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { fetchMyBookingPolicy, fetchMyWorkingHours } from "@/lib/api/business";
+import { fetchMyTimeOff } from "@/lib/api/calendar";
 import { portalSession, portalToken } from "@/lib/portal/session";
 import { CALENDAR_TIME_OFF_PATH, WIZARD_PATH, wizardPathAt } from "@/lib/routes";
+
+/**
+ * "Mon, Oct 12 – Fri, Oct 16", or "Tue, Oct 13 · 1:00 PM – 3:30 PM". Built and formatted in the
+ * same place, so the wall clock the server answered with is the one shown.
+ */
+function whenAway(block: StoredTimeOff): string {
+  if (block.allDay) {
+    return timeOffRange({ id: block.id, from: localDay(block.firstDay!), to: localDay(block.lastDay!) });
+  }
+
+  const start = localMoment(block.startsAt!);
+  const end = localMoment(block.endsAt!);
+
+  return `${format(start, "EEE, MMM d · h:mm a")} – ${format(end, isSameDay(start, end) ? "h:mm a" : "EEE, MMM d · h:mm a")}`;
+}
 
 export default async function SettingsPage() {
   const { user } = await portalSession();
   const token = await portalToken();
 
-  const [workingHours, bookingPolicy] = await Promise.all([
+  const [workingHours, bookingPolicy, blocked] = await Promise.all([
     fetchMyWorkingHours(token),
     fetchMyBookingPolicy(token),
+    fetchMyTimeOff(token),
   ]);
 
-  // Demo data, like the calendar's: the backend stores time off, but nothing can write it yet.
-  const upcomingTimeOff = DEMO_TIME_OFF.filter((off) => off.to >= new Date(new Date().setHours(0, 0, 0, 0)));
+  // Only what is not over yet — which is what the server answers with.
+  const upcomingTimeOff = blocked.ok ? blocked.data : [];
 
   return (
     <div className="mx-auto w-full max-w-7xl px-8 py-10">
@@ -94,10 +113,10 @@ export default async function SettingsPage() {
           <CardContent className="px-5 pb-5">
             {upcomingTimeOff.length > 0 ? (
               <ul className="flex flex-col gap-2">
-                {upcomingTimeOff.map((off) => (
-                  <li key={off.id} className="flex items-center justify-between border-b border-line py-1.5 text-sm last:border-0">
-                    <span className="font-medium">{timeOffRange(off)}</span>
-                    <span className="text-muted-ink">{off.note ?? "Away"}</span>
+                {upcomingTimeOff.map((block) => (
+                  <li key={block.id} className="flex items-center justify-between gap-3 border-b border-line py-1.5 text-sm last:border-0">
+                    <span className="font-medium">{whenAway(block)}</span>
+                    <span className="truncate text-muted-ink">{block.note ?? (block.allDay ? "Away" : "Blocked")}</span>
                   </li>
                 ))}
               </ul>

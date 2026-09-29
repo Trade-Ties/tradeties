@@ -15,6 +15,7 @@ import {
   withConfirmation,
   type BookingPrefill,
   type NewBooking,
+  type ServiceOption,
 } from "../booking";
 import { Conversation, withReply } from "../Conversation";
 import { NewEntryDialog } from "../NewEntryDialog";
@@ -26,12 +27,14 @@ export type InboxFilter = "all" | "unread";
 export function InboxView({
   messages: initial,
   appointments: initialAppointments,
+  services,
   initialFilter = "all",
   initialConversationId,
 }: {
   messages: DemoMessage[];
   /** For naming the booking request a conversation is about. */
   appointments: DemoAppointment[];
+  services: ServiceOption[];
   initialFilter?: InboxFilter;
   /** A conversation a link asked to open, e.g. from the dashboard's side panel. */
   initialConversationId?: string;
@@ -110,11 +113,13 @@ export function InboxView({
         onOpenChange={(open) => setBooking((b) => ({ ...b, open }))}
         day={new Date(new Date().setHours(0, 0, 0, 0))}
         customers={knownCustomers(appointments)}
+        services={services}
         prefill={booking.prefill}
-        // Opened from a conversation it is always an appointment, which the form knows from the
-        // prefill; the entry side is never reached.
-        onAddEntry={() => {}}
-        onAddAppointment={addAppointment}
+        // The conversations are still sample data, so a booking made from one stays on this page.
+        onBook={async (booked) => {
+          addAppointment(booked);
+          return { kind: "saved" };
+        }}
       />
 
       {/* Two columns, and a third for the booking while it is open — the width is there, and the

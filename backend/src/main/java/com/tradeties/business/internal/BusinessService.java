@@ -1,5 +1,6 @@
 package com.tradeties.business.internal;
 
+import java.time.ZoneId;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
@@ -61,6 +62,12 @@ public class BusinessService implements Businesses, OnboardingProgress {
 	@Transactional(readOnly = true)
 	public Optional<UUID> findIdByOwner(UUID ownerUserId) {
 		return repository.findByOwnerUserId(ownerUserId).map(BusinessProfile::id);
+	}
+
+	@Override
+	@Transactional(readOnly = true)
+	public Optional<ZoneId> findTimeZoneByOwner(UUID ownerUserId) {
+		return repository.findByOwnerUserId(ownerUserId).map(profile -> ZoneId.of(profile.timeZone()));
 	}
 
 	/**

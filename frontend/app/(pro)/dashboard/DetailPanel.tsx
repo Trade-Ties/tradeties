@@ -21,6 +21,8 @@ export function DetailPanel({
   onReply,
   onRebook,
   onBook,
+  onChange,
+  onRemove,
   appointments = [],
   className = "lg:w-[360px]",
 }: {
@@ -34,6 +36,10 @@ export function DetailPanel({
   onRebook?: (appointment: DemoAppointment) => void;
   /** Opens the booking form on a conversation's customer. */
   onBook?: (conversation: DemoMessage) => void;
+  /** Opens the form on a confirmed appointment, to move it or correct it. */
+  onChange?: (appointment: DemoAppointment) => void;
+  /** Takes a confirmed appointment out of the calendar, as cancelled by the business. */
+  onRemove?: (id: string) => Promise<void>;
   /** For naming the booking request a conversation is about. */
   appointments?: DemoAppointment[];
   /** Width at the breakpoints; the dashboard docks it beside the grid, the calendar in a column. */
@@ -58,10 +64,13 @@ export function DetailPanel({
 
         {selection.type === "appointment" ? (
           <AppointmentDetail
+            key={selection.item.id}
             appointment={selection.item}
             onConfirm={onConfirm}
             onDecline={onDecline}
             onRebook={onRebook}
+            onChange={onChange}
+            onRemove={onRemove}
           />
         ) : (
           <MessageDetail
