@@ -59,7 +59,7 @@ interface JobRequestRepository extends JpaRepository<JobRequestRow, UUID> {
 	/**
 	 * Moves the overlap check to the end of the current transaction, for one that rearranges
 	 * several appointments: a swap overlaps between its two updates. Only for a caller that has
-	 * checked the end state itself — see V28.
+	 * checked the end state itself — see V29.
 	 */
 	@Modifying
 	@Query(value = "SET CONSTRAINTS job_request_no_overlapping_appointments DEFERRED", nativeQuery = true)
