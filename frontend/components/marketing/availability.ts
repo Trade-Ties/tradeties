@@ -37,6 +37,20 @@ function partsOf(instant: Date, timeZone: string): (type: string) => string {
   return (type) => parts.find((part) => part.type === type)!.value;
 }
 
+/**
+ * An instant read out of the address, or null for one that is missing or unreadable — a link
+ * somebody trimmed is an unfinished step, not an error. Normalised, so the one moment arriving in
+ * two spellings is one string.
+ */
+export function instantOf(value: string): string | null {
+  if (value === "") {
+    return null;
+  }
+
+  const at = new Date(value);
+  return Number.isNaN(at.getTime()) ? null : at.toISOString();
+}
+
 /** Which calendar day an instant falls on, for the business rather than for the reader. */
 export function dayOf(instant: string, timeZone: string): string {
   const at = partsOf(new Date(instant), timeZone);

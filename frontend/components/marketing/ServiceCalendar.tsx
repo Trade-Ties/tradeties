@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ChevronLeft, ChevronRight } from "lucide-react";
@@ -30,7 +30,8 @@ const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
  *
  * <p>The month is in the URL and paging it is a navigation, for the reason the service is: the
  * page is readable from its address alone. The chosen **time** deliberately is not — it is
- * fleeting, and the next slice makes it a field of a form rather than a place you can link to.
+ * fleeting, and the booking page is where it becomes a place you can link to. The one exception
+ * is the way in: a time picked on a search result arrives as `at` and starts out chosen here.
  *
  * <p><strong>Nothing drawn here is held.</strong> These are the starts that were free when the
  * page was rendered; the same slot stays on offer to everybody else until the tradesperson
@@ -41,12 +42,15 @@ export function ServiceCalendar({
   serviceId,
   serviceName,
   month,
+  at,
   availability,
 }: {
   slug: string;
   serviceId: string;
   serviceName: string;
   month: string;
+  /** A time picked before this calendar was drawn, or null. */
+  at: string | null;
   availability: BusinessAvailability;
 }) {
   const router = useRouter();
@@ -54,14 +58,31 @@ export function ServiceCalendar({
   const { timeZone, appointmentMinutes, from, to, slots, slotsCapped } = availability;
   const days = byDay(slots ?? [], timeZone);
 
+  // Compared as moments, because the address and the backend spell the same one differently.
+  // Missing from the list is a time taken since the card was drawn, or one this service is too
+  // long for — either way it is not offered, and saying so beats quietly choosing another.
+  const preset =
+    at === null ? null : ((slots ?? []).find((slot) => Date.parse(slot) === Date.parse(at)) ?? null);
+
   // A window that closed before it opened, which the contract answers rather than refuses. It has
   // two causes and they are not the same news: a month wholly past the booking horizon, reachable
   // by editing the address, and a notice so long it outruns the horizon — no bookable day at all.
   const closed = to < from;
   const beyond = closed && monthWindow(month).from > to;
 
-  const [pickedDay, setPickedDay] = useState<string | null>(() => days.keys().next().value ?? null);
-  const [pickedTime, setPickedTime] = useState<string | null>(null);
+  const [pickedDay, setPickedDay] = useState<string | null>(() =>
+    preset ? dayOf(preset, timeZone) : (days.keys().next().value ?? null),
+  );
+  const [pickedTime, setPickedTime] = useState<string | null>(preset);
+
+  // Somebody who picked a time on a search result came here to send it, and the confirmation is
+  // below the whole service list.
+  const confirmation = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (preset) {
+      confirmation.current?.scrollIntoView({ block: "center" });
+    }
+  }, [preset]);
 
   const goTo = (target: string) => {
     router.push(`${proPath(slug)}?${new URLSearchParams({ service: serviceId, month: target })}`);
@@ -97,6 +118,13 @@ export function ServiceCalendar({
           </Page>
         </div>
       </div>
+
+      {at && !preset && !closed && (
+        <p className="mb-5 rounded-2xl border border-line bg-canvas px-4 py-3 text-[13.5px] text-muted-ink">
+          {dayLabel(dayOf(at, timeZone))}, {timeLabel(at, timeZone)} is not free for {serviceName}.
+          Pick another time below.
+        </p>
+      )}
 
       {closed ? (
         <p className="rounded-2xl border border-dashed border-line bg-canvas px-5 py-10 text-center text-[14.5px] text-muted-ink">
@@ -195,7 +223,7 @@ export function ServiceCalendar({
               </div>
 
               {pickedTime && (
-                <div className="mt-5 rounded-2xl bg-canvas p-5">
+                <div ref={confirmation} className="mt-5 rounded-2xl bg-canvas p-5">
                   <p className="m-0 text-[14.5px] font-semibold text-brand">
                     {dayLabel(dayOf(pickedTime, timeZone))} ·{" "}
                     {spanLabel(pickedTime, appointmentMinutes, timeZone)}
