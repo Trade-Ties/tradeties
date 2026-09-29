@@ -27,14 +27,17 @@ import org.springframework.transaction.annotation.Transactional;
 class BookableServicesAdapter implements BookableServices {
 
 	private final BusinessSearchRepository businesses;
+	private final BusinessProfileRepository profiles;
 	private final ServiceOfferingRepository services;
 	private final BusinessPricingRepository pricing;
 
 	BookableServicesAdapter(BusinessSearchRepository businesses,
+			BusinessProfileRepository profiles,
 			ServiceOfferingRepository services,
 			BusinessPricingRepository pricing) {
 
 		this.businesses = businesses;
+		this.profiles = profiles;
 		this.services = services;
 		this.pricing = pricing;
 	}
@@ -51,7 +54,18 @@ class BookableServicesAdapter implements BookableServices {
 		return businesses.findPublishedBySlug(slug).flatMap(business -> services
 				.findByIdAndBusinessId(serviceId, business.id())
 				.filter(ServiceOffering::isActive)
-				.map(offering -> assemble(business, offering)));
+				.map(offering -> assemble(business, offering, publishedTerms(business))));
+	}
+
+	@Override
+	@Transactional(readOnly = true)
+	public Optional<BookableService> findOwn(UUID businessId, UUID serviceId) {
+		return profiles.findById(businessId).flatMap(business -> services
+				.findByIdAndBusinessId(serviceId, business.id())
+				.filter(ServiceOffering::isActive)
+				.flatMap(offering -> pricing.findById(business.id())
+						.map(BusinessPricing::toTerms)
+						.map(terms -> assemble(business, offering, terms))));
 	}
 
 	/**
@@ -59,14 +73,16 @@ class BookableServicesAdapter implements BookableServices {
 	 * condition, and its reason is this one: a request snapshots the cancellation fee as it is
 	 * sent, so a business with no terms has nothing that could be asked of it.
 	 */
-	private BookableService assemble(BusinessProfile business, ServiceOffering offering) {
-		BusinessDetails details = business.toDetails();
-		ServiceDetails service = offering.toDetails();
-
-		PricingTerms terms = pricing.findById(business.id())
+	private PricingTerms publishedTerms(BusinessProfile business) {
+		return pricing.findById(business.id())
 				.map(BusinessPricing::toTerms)
 				.orElseThrow(() -> new IllegalStateException(
 						"Published business " + business.id() + " has no pricing terms"));
+	}
+
+	private BookableService assemble(BusinessProfile business, ServiceOffering offering, PricingTerms terms) {
+		BusinessDetails details = business.toDetails();
+		ServiceDetails service = offering.toDetails();
 
 		return new BookableService(
 				business.id(),

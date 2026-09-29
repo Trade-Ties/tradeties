@@ -9,11 +9,13 @@ import java.util.List;
 import java.util.UUID;
 
 import com.tradeties.business.internal.BusinessSearchService;
+import com.tradeties.business.internal.MarketplaceSummaryService;
 import com.tradeties.business.internal.PublicAvailabilityService;
 import com.tradeties.business.internal.PublicProfileService;
 import com.tradeties.business.internal.ServiceSuggestionService;
 import com.tradeties.generated.api.MarketplaceApi;
 import com.tradeties.generated.model.BusinessAvailability;
+import com.tradeties.generated.model.MarketplaceSummary;
 import com.tradeties.generated.model.PublicBusinessProfile;
 import com.tradeties.generated.model.PublicLicense;
 import com.tradeties.generated.model.PublicPricing;
@@ -45,6 +47,9 @@ import org.springframework.web.server.ResponseStatusException;
  * {@code offeredNearby}, and it is a yes or a no about a postal code rather than about a
  * business: it names none, counts none, and asking it repeatedly cannot narrow to one, because
  * the answer stops moving the moment a single tradesperson qualifies.
+ *
+ * <p>The marketplace summary takes no parameter at all, so it cannot be narrowed to anybody: one
+ * count across every published business, the same for every caller.
  */
 @RestController
 class MarketplaceController implements MarketplaceApi {
@@ -53,13 +58,16 @@ class MarketplaceController implements MarketplaceApi {
 	private final PublicProfileService profiles;
 	private final PublicAvailabilityService availability;
 	private final ServiceSuggestionService suggestions;
+	private final MarketplaceSummaryService summary;
 
 	MarketplaceController(BusinessSearchService search, PublicProfileService profiles,
-			PublicAvailabilityService availability, ServiceSuggestionService suggestions) {
+			PublicAvailabilityService availability, ServiceSuggestionService suggestions,
+			MarketplaceSummaryService summary) {
 		this.search = search;
 		this.profiles = profiles;
 		this.availability = availability;
 		this.suggestions = suggestions;
+		this.summary = summary;
 	}
 
 	/**
@@ -136,6 +144,15 @@ class MarketplaceController implements MarketplaceApi {
 		return ResponseEntity.ok(availability.find(slug, serviceId, from, to)
 				.map(MarketplaceController::toWire)
 				.orElseThrow(MarketplaceController::noSuchProfile));
+	}
+
+	@Override
+	public ResponseEntity<MarketplaceSummary> getMarketplaceSummary() {
+		MarketplaceSummaryService.Summary counted = summary.summary();
+
+		return ResponseEntity.ok(new MarketplaceSummary()
+				.freeWithinWindow(counted.freeWithinWindow())
+				.windowHours((int) counted.window().toHours()));
 	}
 
 	private static ResponseStatusException noSuchProfile() {
@@ -292,6 +309,7 @@ class MarketplaceController implements MarketplaceApi {
 				// Passed through including its absence: null means no job was picked, and turning
 				// that into false would answer a question nobody asked.
 				.offersThisJob(result.offersThisJob())
+				.serviceId(result.serviceId())
 				.licensed(result.licensed())
 				.licenseVerified(result.licenseVerified())
 				.nextSlots(result.nextSlots().stream().map(slot -> slot.atOffset(ZoneOffset.UTC)).toList());

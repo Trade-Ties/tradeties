@@ -1,5 +1,5 @@
 import { format, isSameDay } from "date-fns";
-import { Palmtree, Trash2 } from "lucide-react";
+import { Palmtree, Pencil, Trash2 } from "lucide-react";
 
 import type { TimeOff } from "./demo-data";
 
@@ -14,7 +14,15 @@ export function timeOffRange(off: TimeOff): string {
  * Heads a day that falls in time off. Above whatever is still on it rather than instead of it:
  * a job booked before the vacation was entered is still booked, and has to stay in sight.
  */
-export function TimeOffBanner({ off, onRemove }: { off: TimeOff; onRemove?: (id: string) => void }) {
+export function TimeOffBanner({
+  off,
+  onEdit,
+  onRemove,
+}: {
+  off: TimeOff;
+  onEdit?: (id: string) => void;
+  onRemove?: (id: string) => void;
+}) {
   return (
     <div className="flex items-center gap-3 rounded-2xl border border-dashed border-line bg-slate-50 px-3.5 py-3">
       <span className="grid size-8 shrink-0 place-items-center rounded-xl bg-slate-200/70">
@@ -24,6 +32,16 @@ export function TimeOffBanner({ off, onRemove }: { off: TimeOff; onRemove?: (id:
         <p className="text-sm font-semibold text-foreground">Time off{off.note && ` · ${off.note}`}</p>
         <p className="text-xs text-muted-ink">{timeOffRange(off)} · not bookable</p>
       </div>
+      {onEdit && (
+        <button
+          type="button"
+          onClick={() => onEdit(off.id)}
+          aria-label={`Change time off, ${timeOffRange(off)}`}
+          className="grid size-8 shrink-0 place-items-center rounded-full text-faint hover:bg-brand-50 hover:text-brand-500"
+        >
+          <Pencil className="size-4" />
+        </button>
+      )}
       {onRemove && (
         <button
           type="button"

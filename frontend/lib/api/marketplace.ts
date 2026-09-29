@@ -11,6 +11,18 @@ export type PublicBusinessProfile = components["schemas"]["PublicBusinessProfile
 export type PublicService = components["schemas"]["PublicService"];
 export type BusinessAvailability = components["schemas"]["BusinessAvailability"];
 export type ServiceSuggestion = components["schemas"]["ServiceSuggestion"];
+export type MarketplaceSummary = components["schemas"]["MarketplaceSummary"];
+
+/**
+ * Counts across the whole marketplace, for the landing page's headline.
+ *
+ * The backend reuses one answer for up to a minute, so this may be called on every visit.
+ */
+export function getMarketplaceSummary(): Promise<ApiResult<MarketplaceSummary>> {
+  return attempt("GET /api/v1/marketplace-summary", () =>
+    publicApiClient().GET("/api/v1/marketplace-summary"),
+  );
+}
 
 /**
  * Jobs from the catalogue that begin like what the customer has typed.

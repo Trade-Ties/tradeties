@@ -6,6 +6,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import java.time.LocalDate;
+import java.time.ZoneId;
 import java.util.UUID;
 
 import com.tradeties.BusinessFixtures;
@@ -36,6 +37,9 @@ import org.springframework.test.web.servlet.request.RequestPostProcessor;
 @AutoConfigureMockMvc
 @Import(TestcontainersConfiguration.class)
 class PublicProfileTests {
+
+	/** The zone every fixture here publishes into, and the one the service reads dates against. */
+	private static final ZoneId DENVER = ZoneId.of("America/Denver");
 
 	private static final String INSERT_LICENCE = """
 			INSERT INTO business_license (id, business_id, state, license_number, expires_on,
@@ -189,12 +193,17 @@ class PublicProfileTests {
 	/**
 	 * An expired licence is not a weaker claim than a current one — it is not a claim. Shown, it
 	 * would read as a badge, which is the one thing this data cannot support.
+	 *
+	 * <p>Yesterday is measured on the business's clock, because that is the clock the service
+	 * reads. Taken from the machine's instead, this failed every night between midnight in central
+	 * Europe and morning in Denver: the fixture wrote an expiry of "today" as Denver still saw it,
+	 * and a licence expiring today has not expired.
 	 */
 	@Test
 	void anExpiredLicenceIsNotShownAtAll() throws Exception {
 		publish("user_pub_expired", "pub-expired");
 		jdbcTemplate.update(INSERT_LICENCE, UUID.randomUUID(), "pub-expired", "PL-OLD",
-				java.sql.Date.valueOf(LocalDate.now().minusDays(1)));
+				java.sql.Date.valueOf(LocalDate.now(DENVER).minusDays(1)));
 
 		mockMvc.perform(get("/api/v1/businesses/pub-expired"))
 				.andExpect(status().isOk())

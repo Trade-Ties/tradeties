@@ -3,7 +3,7 @@ import { format, isSameDay } from "date-fns";
 import { ArrowRight, BadgeCheck } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { PreviewCard, PreviewCardContent, PreviewCardTrigger } from "@/components/ui/preview-card";
 import { cn } from "@/lib/utils";
@@ -34,15 +34,20 @@ export interface ProCardSlot {
   key: string;
   label: string;
   /**
-   * The full, spelled-out date and time for the booking modal, which has room a card's slot
-   * button doesn't — "Thursday, September 24" / "2:15 PM" rather than the button's compact
-   * "2:15 PM" (today) or "Thu 2:15 PM" (other days). Split in two so the modal can join them
-   * with its own wording instead of parsing `label` back apart.
+   * The full, spelled-out date and time, for the slot link's accessible name — "Thursday,
+   * September 24" / "2:15 PM" rather than the button's compact "2:15 PM" (today) or "Thu 2:15 PM"
+   * (other days), which read the same on every card of the grid. Split in two so a reader can
+   * join them with its own wording instead of parsing `label` back apart.
    */
   dateLabel: string;
   timeLabel: string;
   /** Draws the slot in the "go" colour, for an opening the reader can still take today. */
   today: boolean;
+  /**
+   * The business's page with this time already chosen. Absent for the sample listings, whose
+   * times belong to nobody, and a slot without it is drawn as a time rather than a link.
+   */
+  href?: string;
 }
 
 export interface ProCardView {
@@ -115,7 +120,28 @@ export function proCardView(pro: Pro): ProCardView {
 // so the card's design only has to be maintained in one place. `className` lets each caller own
 // sizing (fixed-width + snap for the rail, full-width for the grid) without touching the card's
 // own visual styling.
-export function ProCard({ view, className }: { view: ProCardView; className?: string }) {
+//
+// `onBook` makes the times buttons that book them, and a click anywhere else on the card book its
+// first time. Only the homepage rail passes it: its cards are samples, and the dialogue it opens is
+// a demo that sends nothing.
+export function ProCard({
+  view,
+  className,
+  onBook,
+}: {
+  view: ProCardView;
+  className?: string;
+  onBook?: (slot: ProCardSlot) => void;
+}) {
+  const firstSlot = view.slots[0];
+  const bookFromCard =
+    onBook && firstSlot
+      ? (e: React.MouseEvent<HTMLDivElement>) => {
+          // React bubbles clicks out of portals, so the hover preview would count as the card.
+          if (e.currentTarget.contains(e.target as Node)) onBook(firstSlot);
+        }
+      : undefined;
+
   const facts = [
     view.rating === undefined ? null : (
       <span key="rating">
@@ -128,8 +154,10 @@ export function ProCard({ view, className }: { view: ProCardView; className?: st
 
   return (
     <Card
+      onClick={bookFromCard}
       className={cn(
-        "flex flex-col gap-0 rounded-3xl border border-line bg-white p-5 shadow-card ring-0 transition-all duration-200 hover:-translate-y-1 hover:border-brand-100 hover:shadow-lift",
+        "relative flex flex-col gap-0 rounded-3xl border border-line bg-white p-5 shadow-card ring-0 transition-all duration-200 hover:-translate-y-1 hover:border-brand-100 hover:shadow-lift",
+        bookFromCard && "cursor-pointer",
         className
       )}
     >
@@ -139,9 +167,23 @@ export function ProCard({ view, className }: { view: ProCardView; className?: st
         the trade badge and everything under it always starts at the same
         height across cards instead of shifting up for the shorter ones.
       */}
+      {/*
+        Above the card-wide link below, which would otherwise take the hover the preview opens on.
+        Being a link itself keeps a click on the name or the initials going where the rest of the
+        card goes.
+      */}
       <PreviewCard>
         <PreviewCardTrigger
-          render={<div className="mb-4 flex min-h-16 w-fit cursor-default items-center gap-3" />}
+          render={
+            view.href ? (
+              <Link
+                href={view.href}
+                className="relative z-10 mb-4 flex min-h-16 w-fit items-center gap-3 text-brand no-underline hover:text-brand-500"
+              />
+            ) : (
+              <div className={cn("mb-4 flex min-h-16 w-fit items-center gap-3", !bookFromCard && "cursor-default")} />
+            )
+          }
         >
           <div
             className="grid size-[46px] shrink-0 place-items-center rounded-full text-base font-bold tracking-[-0.02em] text-white"
@@ -150,15 +192,7 @@ export function ProCard({ view, className }: { view: ProCardView; className?: st
             {view.initials}
           </div>
           <div>
-            <p className="m-0 text-[16.5px] font-bold leading-tight tracking-[-0.02em]">
-              {view.href ? (
-                <Link href={view.href} className="text-brand no-underline hover:text-brand-500">
-                  {view.title}
-                </Link>
-              ) : (
-                view.title
-              )}
-            </p>
+            <p className="m-0 text-[16.5px] font-bold leading-tight tracking-[-0.02em]">{view.title}</p>
             <p className="m-0 text-[13.5px] text-muted-ink">{view.subtitle}</p>
           </div>
         </PreviewCardTrigger>
@@ -218,27 +252,60 @@ export function ProCard({ view, className }: { view: ProCardView; className?: st
             ? "h-auto rounded-[10px] border-[#BFEBD8] bg-go-bg px-2.5 py-2 font-mono text-[12.5px] font-medium text-[#07734F] hover:border-go hover:bg-go hover:text-white"
             : "h-auto rounded-[10px] border-line bg-white px-2.5 py-2 font-mono text-[12.5px] font-medium text-brand hover:border-brand hover:bg-brand hover:text-white";
 
-          // A time and never a button. This card cannot start a booking: the openings it shows
-          // come from a grid rather than from a chosen service, so no slot here has a length yet
-          // — which is the one thing a request needs. Booking begins on the business's own page,
-          // where a service has been picked, and `href` below is the way there.
+          if (onBook) {
+            return (
+              <Button
+                key={slot.key}
+                type="button"
+                variant="outline"
+                aria-label={`Book ${slot.dateLabel}, ${slot.timeLabel} with ${view.title}`}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onBook(slot);
+                }}
+                className={slotClassName}
+              >
+                {`Book ${slot.label}`}
+                <ArrowRight className="ml-0.5 size-3 opacity-0 transition-opacity duration-150 group-hover/button:opacity-100" />
+              </Button>
+            );
+          }
+
+          if (!slot.href) {
+            return (
+              <Button key={slot.key} type="button" variant="outline" disabled className={slotClassName}>
+                {slot.label}
+              </Button>
+            );
+          }
+
+          // Not the booking itself: the business's page, with this time picked in its calendar.
+          // A request needs a service, and only that page can ask for one when the search named
+          // none.
+          // A plain link in the button's clothes, since `Button` would announce it as a button.
           return (
-            <Button key={slot.key} type="button" variant="outline" disabled className={slotClassName}>
+            <Link
+              key={slot.key}
+              href={slot.href}
+              aria-label={`${slot.dateLabel}, ${slot.timeLabel} with ${view.title}`}
+              className={cn(buttonVariants({ variant: "outline" }), "relative z-10 no-underline", slotClassName)}
+            >
               {slot.label}
-            </Button>
+            </Link>
           );
         })}
       </div>
 
       {/*
-        The card's actual action while nothing can accept a booking. It sits under the openings
-        rather than over them because the times are what somebody scans the grid for — and it is
-        a link and not a button, since it opens a page rather than doing something.
+        The card's own action, under the openings because the times are what somebody scans the
+        grid for. Its ::after stretches over the whole card, so a click anywhere that is not a
+        time or the name lands here — one link rather than a click handler on the card, which
+        keeps a middle click and "open in new tab" working.
       */}
       {view.href && (
         <Link
           href={view.href}
-          className="mt-3 inline-flex items-center gap-1 text-[13px] font-semibold text-brand-500 no-underline"
+          className="mt-3 inline-flex items-center gap-1 text-[13px] font-semibold text-brand-500 no-underline after:absolute after:inset-0 after:rounded-3xl"
         >
           Services and rates
           <ArrowRight className="size-3.5" aria-hidden="true" />

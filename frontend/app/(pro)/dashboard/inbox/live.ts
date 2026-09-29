@@ -23,13 +23,19 @@ export function threadOf(conversation: Conversation): DemoMessage {
     appointmentId: request.id,
     unread: false,
     thread: [
-      {
-        id: `${request.id}-request`,
-        from: "customer",
-        text: conversation.description,
-        sentAt: new Date(conversation.requestedAt),
-        kind: "request",
-      },
+      // An appointment the business booked itself may carry no description, and then there is no
+      // request to open the thread with.
+      ...(conversation.description
+        ? [
+            {
+              id: `${request.id}-request`,
+              from: "customer" as const,
+              text: conversation.description,
+              sentAt: new Date(conversation.requestedAt),
+              kind: "request" as const,
+            },
+          ]
+        : []),
       ...conversation.messages.map((message) => ({
         id: message.id,
         from: message.author === "BUSINESS" ? ("pro" as const) : ("customer" as const),
@@ -49,13 +55,14 @@ export function appointmentOf(conversation: Conversation): DemoAppointment {
     id: request.id,
     customerName: conversation.customerName,
     phone: conversation.customerPhone ?? "",
-    email: conversation.customerEmail,
+    email: conversation.customerEmail ?? "",
+    // Every part may be missing on an appointment the business booked itself; the views skip empties.
     address: {
-      street: [address.street1, address.street2].filter(Boolean).join(", "),
+      street: [address?.street1, address?.street2].filter(Boolean).join(", "),
       number: "",
-      city: address.city,
-      state: address.state,
-      zip: address.postalCode,
+      city: address?.city ?? "",
+      state: address?.state ?? "",
+      zip: address?.postalCode ?? "",
     },
     service: request.serviceName,
     notes: conversation.description,

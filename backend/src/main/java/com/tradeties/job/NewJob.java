@@ -15,6 +15,7 @@ import com.tradeties.business.PostalAddress;
  *
  * @param startsAt the instant they picked, unverified at this point. It is checked against the
  *        calendar before anything is written
+ * @param preferredContact null when they did not say, which is not the same as either answer
  */
 public record NewJob(
 		String slug,
@@ -23,6 +24,7 @@ public record NewJob(
 		String customerName,
 		String customerEmail,
 		String customerPhone,
+		ContactMethod preferredContact,
 		String description,
 		PostalAddress address) {
 }

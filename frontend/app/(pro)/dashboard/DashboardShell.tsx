@@ -8,22 +8,23 @@ import { DashboardCalendar } from "./DashboardCalendar";
 import { DashboardInbox } from "./DashboardInbox";
 import { withReply } from "./Conversation";
 import { BookedNotice } from "./BookedNotice";
+import type { StoredTimeOff } from "./blocks";
 import {
   prefillForConversation,
   prefillFrom,
   withConfirmation,
   type BookingPrefill,
+  type BookResult,
   type NewBooking,
+  type ServiceOption,
 } from "./booking";
+import { acceptRequest, declineRequest } from "./actions";
+import { DeclineDialog } from "./DeclineDialog";
 import { DetailPanel, type Selection } from "./DetailPanel";
-import {
-  knownCustomers,
-  type CalendarEntry,
-  type DemoAppointment,
-  type DemoMessage,
-  type TimeOff,
-} from "./demo-data";
-import { NewEntryDialog } from "./NewEntryDialog";
+import type { IncomingRequest } from "./requests";
+import { knownCustomers, type DemoAppointment, type DemoMessage } from "./demo-data";
+import { NewEntryDialog, type Editing } from "./NewEntryDialog";
+import { useCalendarWrites } from "./useCalendarWrites";
 
 /**
  * Owns the interactive state for the dashboard: appointment statuses,
@@ -33,58 +34,87 @@ import { NewEntryDialog } from "./NewEntryDialog";
  * is open without those parts needing any client state of their own.
  */
 export function DashboardShell({
-  appointments: initialAppointments,
-  entries: initialEntries,
-  timeOff: initialTimeOff,
+  requests,
+  blocks,
+  services,
   messages: initialMessages,
   children,
 }: {
-  appointments: DemoAppointment[];
-  entries: CalendarEntry[];
-  timeOff: TimeOff[];
+  requests: IncomingRequest[];
+  blocks: StoredTimeOff[];
+  services: ServiceOption[];
   messages: DemoMessage[];
   children: React.ReactNode;
 }) {
-  const [appointments, setAppointments] = useState(initialAppointments);
-  const [entries, setEntries] = useState(initialEntries);
-  const [timeOff, setTimeOff] = useState(initialTimeOff);
+  const writes = useCalendarWrites(requests, blocks);
+  const { appointments, setAppointments } = writes;
+
+  // What a refused answer left to say, and whether re-reading is the move.
+  const [refusal, setRefusal] = useState<{ message: string; gone: boolean } | null>(null);
+  const [declining, setDeclining] = useState<DemoAppointment | null>(null);
   const [messages, setMessages] = useState(initialMessages);
   const [selection, setSelection] = useState<Selection | null>(null);
 
-  // The booking form: whether it is open, who it is for when started from a request or a
-  // conversation, and a key bumped per opening so it starts afresh.
-  const [booking, setBooking] = useState<{ open: boolean; prefill?: BookingPrefill; key: number }>({
+  // The form: whether it is open, who it is for when started from a request or a conversation,
+  // what it changes when it was opened on something, and a key bumped per opening so it starts
+  // afresh.
+  const [form, setForm] = useState<{ open: boolean; prefill?: BookingPrefill; editing?: Editing; key: number }>({
     open: false,
     key: 0,
   });
   const [notice, setNotice] = useState<string | null>(null);
 
-  const openBooking = (prefill?: BookingPrefill) => setBooking((b) => ({ open: true, prefill, key: b.key + 1 }));
+  const openForm = (prefill?: BookingPrefill, editing?: Editing) =>
+    setForm((f) => ({ open: true, prefill, editing, key: f.key + 1 }));
 
   /**
-   * An appointment the tradesperson booked: into the calendar, over the request it replaces, and
-   * — when they chose to — confirmed to the customer in their conversation, which is what emails
-   * it to them. The open panel moves to what was just booked.
+   * An appointment the tradesperson booked or changed: into the calendar once the server has
+   * written it, over the request it replaces, and — when they chose to — confirmed to the customer
+   * in their conversation. The open panel moves to what was just booked.
    */
-  const addAppointment = ({ appointment, notify, replacesId }: NewBooking) => {
-    const booked: DemoAppointment = { ...appointment, id: `a${Date.now()}` };
-    setAppointments((prev) => [...prev.filter((a) => a.id !== replacesId), booked]);
+  const book = async (booking: NewBooking): Promise<BookResult> => {
+    const changing = form.editing?.kind === "appointment" ? form.editing.appointment.id : undefined;
+    const result = await writes.book(booking, changing);
 
-    if (notify) {
-      const conversations = withConfirmation(messages, booked.id, appointment);
+    if (result.kind !== "saved") return result;
+
+    if (!changing && booking.notify) {
+      const conversations = withConfirmation(messages, result.booked.id, booking.appointment);
       setMessages(conversations);
       setSelection({ type: "message", item: conversations[0] });
-      setNotice(`Booked — a confirmation is on its way to ${appointment.email}.`);
+      setNotice(`Booked — a confirmation is on its way to ${booking.appointment.email}.`);
     } else {
-      setSelection({ type: "appointment", item: booked });
-      setNotice("Booked.");
+      setSelection({ type: "appointment", item: result.booked });
+      setNotice(changing ? "Saved." : "Booked.");
     }
+    return { kind: "saved" };
   };
 
-  const addEntry = (entry: Omit<CalendarEntry, "id">) => setEntries((prev) => [...prev, { ...entry, id: `e${Date.now()}` }]);
-  const addTimeOff = (off: Omit<TimeOff, "id">) => setTimeOff((prev) => [...prev, { ...off, id: `t${Date.now()}` }]);
+  const removeBooked = async (id: string) => {
+    const message = await writes.removeAppointment(id);
 
-  const confirm = (id: string) => {
+    if (message !== null) {
+      setRefusal({ message, gone: false });
+      return;
+    }
+
+    setSelection((sel) => (sel?.type === "appointment" && sel.item.id === id ? null : sel));
+    setNotice("Removed from your calendar.");
+  };
+
+  /**
+   * Taking the job is the one action here that can be refused, and the refusal matters: the hour
+   * may have gone while this page sat open. Nothing moves on screen until the server says it was
+   * written, because a row that flipped to confirmed and then did not would be the worst of it.
+   */
+  const confirm = async (id: string) => {
+    const answer = await acceptRequest(id);
+
+    if (!answer.ok) {
+      setRefusal(answer);
+      return;
+    }
+
     setAppointments((prev) => prev.map((a) => (a.id === id ? { ...a, status: "confirmed" as const } : a)));
     setSelection((sel) =>
       sel?.type === "appointment" && sel.item.id === id
@@ -93,7 +123,26 @@ export function DashboardShell({
     );
   };
 
+  /**
+   * Turning a job down needs a reason, so the button opens the box rather than doing it. The row
+   * only leaves the list once the server has actually written the refusal.
+   */
   const decline = (id: string) => {
+    const request = appointments.find((a) => a.id === id);
+    if (request) {
+      setDeclining(request);
+    }
+  };
+
+  const sendDecline = async (id: string, reason: string) => {
+    const answer = await declineRequest(id, reason);
+
+    if (!answer.ok) {
+      setRefusal(answer);
+      return;
+    }
+
+    setDeclining(null);
     setAppointments((prev) => prev.filter((a) => a.id !== id));
     setSelection((sel) => (sel?.type === "appointment" && sel.item.id === id ? null : sel));
   };
@@ -126,17 +175,33 @@ export function DashboardShell({
 
       {notice && <BookedNotice onDismiss={() => setNotice(null)}>{notice}</BookedNotice>}
 
+      {refusal && (
+        <BookedNotice onDismiss={() => setRefusal(null)}>
+          {refusal.message}
+          {refusal.gone && " Reload to see what is still open."}
+        </BookedNotice>
+      )}
+
+      <DeclineDialog
+        key={declining?.id ?? "none"}
+        request={declining}
+        onOpenChange={(open) => !open && setDeclining(null)}
+        onDecline={sendDecline}
+      />
+
       <NewEntryDialog
-        key={booking.key}
-        open={booking.open}
-        onOpenChange={(open) => setBooking((b) => ({ ...b, open }))}
+        key={form.key}
+        open={form.open}
+        onOpenChange={(open) => setForm((f) => ({ ...f, open }))}
         day={new Date(new Date().setHours(0, 0, 0, 0))}
         customers={knownCustomers(appointments)}
-        prefill={booking.prefill}
-        appointments={appointments}
-        onAddEntry={addEntry}
-        onAddAppointment={addAppointment}
-        onAddTimeOff={addTimeOff}
+        services={services}
+        prefill={form.prefill}
+        editing={form.editing}
+        onBook={book}
+        onSaveTimeOff={(input) =>
+          writes.saveTimeOff(input, form.editing?.kind === "timeOff" ? form.editing.block : undefined)
+        }
       />
 
       <div className="flex items-start gap-4">
@@ -148,12 +213,12 @@ export function DashboardShell({
         >
           <DashboardCalendar
             appointments={appointments}
-            entries={entries}
-            timeOff={timeOff}
+            entries={writes.entries}
+            timeOff={writes.timeOff}
             onConfirm={confirm}
             onDecline={decline}
             onSelect={selectAppointment}
-            onNew={() => openBooking()}
+            onNew={() => openForm()}
             selectedId={selection?.type === "appointment" ? selection.item.id : undefined}
           />
           <DashboardInbox
@@ -170,8 +235,10 @@ export function DashboardShell({
             onConfirm={confirm}
             onDecline={decline}
             onReply={reply}
-            onRebook={(request) => openBooking(prefillFrom(request))}
-            onBook={(conversation) => openBooking(prefillForConversation(conversation, appointments))}
+            onRebook={(request) => openForm(prefillFrom(request))}
+            onBook={(conversation) => openForm(prefillForConversation(conversation, appointments))}
+            onChange={(appointment) => openForm(undefined, { kind: "appointment", appointment })}
+            onRemove={removeBooked}
             appointments={appointments}
           />
         )}

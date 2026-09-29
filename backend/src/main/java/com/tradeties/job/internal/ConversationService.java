@@ -120,7 +120,9 @@ public class ConversationService {
 				job.customerName(),
 				job.customerEmail(),
 				job.customerPhone(),
-				job.description(),
+				// Empty rather than absent for an appointment the business booked itself, which
+				// may have been entered with no description at all.
+				job.description() == null ? "" : job.description(),
 				job.address(),
 				request.createdAt(),
 				messages.findByJobRequestIdOrderByCreatedAtAsc(requestId).stream().map(Summaries::of).toList());
@@ -142,6 +144,12 @@ public class ConversationService {
 
 		JobMessageRow saved = messages.save(
 				new JobMessageRow(requestId, JobMessageRow.Author.BUSINESS, text, Instant.now()));
+
+		// An appointment the business booked itself may have no address to write to. The reply is
+		// kept either way — it is their record of what was said — and nobody is emailed.
+		if (job.customerEmail() == null || job.customerEmail().isBlank()) {
+			return Summaries.of(saved);
+		}
 
 		JobAccess.IssuedLink link = access.issue(job);
 		mail.enqueue(ConversationMail.toCustomer(
@@ -243,10 +251,18 @@ public class ConversationService {
 				.orElseThrow(NoSuchConversationException::new);
 	}
 
-	/** The customer's description, standing in as a conversation's first line. */
+	/**
+	 * The customer's description, standing in as a conversation's first line — or, for an
+	 * appointment the business booked itself and described with nothing, a line saying so.
+	 */
 	private static ConversationMessage opening(JobRequestRow request, JobRow job) {
-		return new ConversationMessage(request.id(), JobMessageRow.Author.CUSTOMER.name(), job.description(),
-				request.createdAt());
+		boolean described = job.description() != null && !job.description().isBlank();
+
+		return described
+				? new ConversationMessage(request.id(), JobMessageRow.Author.CUSTOMER.name(), job.description(),
+						request.createdAt())
+				: new ConversationMessage(request.id(), JobMessageRow.Author.BUSINESS.name(),
+						"You booked this appointment.", request.createdAt());
 	}
 
 	/** The request's page, as the booking form and the confirmation spell it. */

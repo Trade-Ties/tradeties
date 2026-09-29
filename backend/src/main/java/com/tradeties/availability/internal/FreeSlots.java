@@ -66,7 +66,8 @@ final class FreeSlots {
 	 *        holds cannot reach past the end of it
 	 * @param lengthMinutes how long the appointment runs, which is the chosen service's duration.
 	 *        Measured against declared time off and never against the end of a working block —
-	 *        see the class note. {@link #upcoming} passes the grid instead, and says there why
+	 *        see the class note. {@link #upcoming} passes the grid when no service has been
+	 *        chosen, and says there why
 	 * @param limit how many starts are worth walking for. A month of a quarter-hour grid is some
 	 *        two thousand of them, and no caller has a use for the tail
 	 */
@@ -151,15 +152,16 @@ final class FreeSlots {
 	}
 
 	/**
-	 * The first few openings, for a reader who has not chosen a service yet.
+	 * The first few openings, from now on.
 	 *
-	 * <p><strong>The grid stands in for the length, and that is the honest reading of an
-	 * unanswered question</strong> rather than a shortcut. Nothing here knows what the job is, so
-	 * there is no duration to cut by, and the grid is the only length the business has declared.
-	 * Since the block bound no longer reads the length, these starts part company with a chosen
-	 * service's only where declared time off is long enough to tell them apart — still reason
-	 * enough to show them as openings rather than as an offer.
+	 * <p><strong>Without a service, the grid stands in for the length, and that is the honest
+	 * reading of an unanswered question</strong> rather than a shortcut. Nothing then knows what
+	 * the job is, so there is no duration to cut by, and the grid is the only length the business
+	 * has declared. Since the block bound no longer reads the length, these starts part company
+	 * with a chosen service's only where time off or an accepted appointment is long enough to
+	 * tell them apart — which is why a caller that does know the service passes its length.
 	 *
+	 * @param lengthMinutes the service's duration, or null when none has been chosen
 	 * @return start times, soonest first, at most {@code wanted} of them
 	 */
 	static List<Instant> upcoming(Map<DayOfWeek, List<HoursBlock>> week,
@@ -167,10 +169,12 @@ final class FreeSlots {
 			List<Absence> absences,
 			ZoneId zone,
 			Instant now,
+			Integer lengthMinutes,
 			int wanted) {
 
-		return within(week, rules, absences, zone, now,
-				new Window(now, null, rules.slotGranularityMinutes(), wanted));
+		int length = lengthMinutes == null ? rules.slotGranularityMinutes() : lengthMinutes;
+
+		return within(week, rules, absences, zone, now, new Window(now, null, length, wanted));
 	}
 
 	/**

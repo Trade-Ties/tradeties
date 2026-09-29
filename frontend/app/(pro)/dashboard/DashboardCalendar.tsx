@@ -9,6 +9,7 @@ import { CALENDAR_PATH } from "@/lib/routes";
 import { cn } from "@/lib/utils";
 
 import { AppointmentRow } from "./AppointmentRow";
+import { awayDuring } from "./blocks";
 import { appointmentStart } from "./calendarFile";
 import { EntryRow } from "./EntryRow";
 import { CardHeaderLink } from "./CardHeaderLink";
@@ -146,6 +147,7 @@ export function DashboardCalendar({
                   onDecline={onDecline}
                   onSelect={onSelect}
                   selected={line.item.id === selectedId}
+                  away={awayDuring(line.item, timeOff, entries)}
                 />
               ) : (
                 <EntryRow key={line.item.id} entry={line.item} />

@@ -6,6 +6,7 @@ import java.time.temporal.ChronoUnit;
 import java.util.UUID;
 
 import com.tradeties.business.BookableService;
+import com.tradeties.job.BookingParty;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
@@ -30,9 +31,10 @@ import org.hibernate.type.SqlTypes;
  * cancellation fee tomorrow changes neither, which is the whole reason they are columns here
  * rather than a join away.
  *
- * <p>Only {@code PENDING} is reachable today. The other five states, and the columns that go with
- * them, are written by the inbox in the next slice — mapped here because the table has them and
- * {@code ddl-auto: validate} would otherwise be checking half a table.
+ * <p>A customer's request arrives {@code PENDING} and the business accepts or declines it; an
+ * appointment the business books itself is {@code ACCEPTED} from the start. Either kind, once
+ * accepted, can be moved or cancelled by the business. {@code withdrawn_at} and {@code completed_at} stay unmapped until something writes them —
+ * mapping a column nothing reads makes this look like the entity it is not.
  */
 @Entity
 @Table(name = "job_request")
@@ -60,6 +62,10 @@ class JobRequestRow {
 	@Enumerated(EnumType.STRING)
 	@Column(name = "status", nullable = false, length = 32)
 	private RequestStatus status;
+
+	@Enumerated(EnumType.STRING)
+	@Column(name = "booked_by", nullable = false, updatable = false, length = 16)
+	private BookingParty bookedBy;
 
 	@JdbcTypeCode(SqlTypes.CHAR)
 	@Column(name = "currency", nullable = false, updatable = false, length = 3)
@@ -92,6 +98,23 @@ class JobRequestRow {
 	@Column(name = "cancellation_notice_hours_snapshot", nullable = false, updatable = false)
 	private int cancellationNoticeHours;
 
+	/** Set with the status, never apart from it — the table's check constraints insist. */
+	@Column(name = "decided_at")
+	private Instant decidedAt;
+
+	@Column(name = "decline_reason", length = 500)
+	private String declineReason;
+
+	@Column(name = "cancelled_at")
+	private Instant cancelledAt;
+
+	@Enumerated(EnumType.STRING)
+	@Column(name = "cancelled_by", length = 16)
+	private BookingParty cancelledBy;
+
+	@Column(name = "cancellation_fee_charged")
+	private BigDecimal cancellationFeeCharged;
+
 	@Column(name = "created_at", nullable = false, updatable = false)
 	private Instant createdAt;
 
@@ -107,17 +130,33 @@ class JobRequestRow {
 	}
 
 	/**
-	 * The end is computed and never taken from the caller. It is what the overlap check between
-	 * accepted appointments is written against, so a client proposing it could propose one that
-	 * does not match the duration it was quoted.
+	 * A customer's request. The end is computed and never taken from the caller: it is what the
+	 * overlap check between accepted appointments is written against, so a customer proposing it
+	 * could propose one that does not match the duration they were quoted.
 	 */
 	JobRequestRow(UUID jobId, Instant startsAt, BookableService offered) {
+		this(jobId, startsAt, startsAt.plus(offered.estimatedDurationMinutes(), ChronoUnit.MINUTES), offered);
+		this.status = RequestStatus.PENDING;
+		this.bookedBy = BookingParty.CUSTOMER;
+	}
+
+	/** An appointment the business chose the time of itself, so the end is its choice too. */
+	static JobRequestRow bookedByBusiness(UUID jobId, Instant startsAt, Instant endsAt, BookableService offered,
+			Instant now) {
+
+		JobRequestRow row = new JobRequestRow(jobId, startsAt, endsAt, offered);
+		row.status = RequestStatus.ACCEPTED;
+		row.bookedBy = BookingParty.BUSINESS;
+		row.decidedAt = now;
+		return row;
+	}
+
+	private JobRequestRow(UUID jobId, Instant startsAt, Instant endsAt, BookableService offered) {
 		this.jobId = jobId;
 		this.businessId = offered.businessId();
 		this.serviceId = offered.serviceId();
 		this.startsAt = startsAt;
-		this.endsAt = startsAt.plus(offered.estimatedDurationMinutes(), ChronoUnit.MINUTES);
-		this.status = RequestStatus.PENDING;
+		this.endsAt = endsAt;
 
 		this.currency = offered.currency();
 		this.serviceName = offered.serviceName();
@@ -145,6 +184,14 @@ class JobRequestRow {
 
 	UUID id() {
 		return id;
+	}
+
+	UUID jobId() {
+		return jobId;
+	}
+
+	UUID businessId() {
+		return businessId;
 	}
 
 	RequestStatus status() {
@@ -179,15 +226,72 @@ class JobRequestRow {
 		return cancellationNoticeHours;
 	}
 
-	UUID businessId() {
-		return businessId;
+	BigDecimal servicePrice() {
+		return servicePrice;
 	}
 
-	UUID jobId() {
-		return jobId;
+	BigDecimal effectiveHourlyRate() {
+		return effectiveHourlyRate;
+	}
+
+	BigDecimal serviceCallFee() {
+		return serviceCallFee;
 	}
 
 	Instant createdAt() {
 		return createdAt;
+	}
+
+	Instant decidedAt() {
+		return decidedAt;
+	}
+
+	String declineReason() {
+		return declineReason;
+	}
+
+	UUID serviceId() {
+		return serviceId;
+	}
+
+	BookingParty bookedBy() {
+		return bookedBy;
+	}
+
+	boolean isPending() {
+		return status == RequestStatus.PENDING;
+	}
+
+	boolean isAccepted() {
+		return status == RequestStatus.ACCEPTED;
+	}
+
+	void reschedule(Instant startsAt, Instant endsAt) {
+		this.startsAt = startsAt;
+		this.endsAt = endsAt;
+	}
+
+	/** A cancellation by the business never costs the customer anything; the schema insists. */
+	void cancelByBusiness(Instant when) {
+		this.status = RequestStatus.CANCELLED;
+		this.cancelledAt = when;
+		this.cancelledBy = BookingParty.BUSINESS;
+		this.cancellationFeeCharged = BigDecimal.ZERO;
+	}
+
+	/**
+	 * Both stamps move together, which is what the table's own check constraints insist on: a
+	 * status and its timestamp are two renderings of one fact, and a row carrying only one of them
+	 * makes a report on turnaround times average over nulls.
+	 */
+	void accept(Instant when) {
+		this.status = RequestStatus.ACCEPTED;
+		this.decidedAt = when;
+	}
+
+	void decline(Instant when, String reason) {
+		this.status = RequestStatus.DECLINED;
+		this.decidedAt = when;
+		this.declineReason = reason;
 	}
 }
