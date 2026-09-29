@@ -1,15 +1,12 @@
 package com.tradeties.job;
 
-import java.time.DayOfWeek;
 import java.time.LocalDate;
 import java.time.ZoneId;
-import java.time.temporal.TemporalAdjusters;
 import java.util.Map;
-import java.util.UUID;
 
 import com.jayway.jsonpath.JsonPath;
-import com.tradeties.BusinessFixtures;
 import com.tradeties.TestcontainersConfiguration;
+import com.tradeties.job.JobFixtures.Booking;
 
 import org.junit.jupiter.api.Test;
 
@@ -20,7 +17,6 @@ import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.web.servlet.MockMvc;
-import org.springframework.test.web.servlet.request.RequestPostProcessor;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -43,8 +39,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @Import(TestcontainersConfiguration.class)
 class CreateJobTests {
 
-	private static final ZoneId DENVER = ZoneId.of("America/Denver");
-	private static final String COLORADO_SPRINGS = "80903";
+	private static final ZoneId DENVER = JobFixtures.DENVER;
 
 	@Autowired
 	MockMvc mockMvc;
@@ -179,7 +174,8 @@ class CreateJobTests {
 				.contains("1 Main St, Apt 4, Colorado Springs, CO 80903")
 				// Read on the business's clock and saying so.
 				.containsPattern("\\(M[SD]T\\)")
-				.contains("http://localhost:3000/request/" + token);
+				// The address the booking form shows too: one place, whichever way they come back.
+				.contains("http://localhost:3000/job-mail/requests/" + token);
 	}
 
 	/**
@@ -200,6 +196,61 @@ class CreateJobTests {
 		assertThat(jdbc.queryForObject("SELECT count(*) FROM mail_outbox", Integer.class)).isEqualTo(before);
 	}
 
+	/**
+	 * The way back, used: the token from the answer opens the job again, with the request and the
+	 * terms it was sent under, and the business as it is called now.
+	 */
+	@Test
+	void readsTheJobBackWithItsToken() throws Exception {
+		Booking booking = bookable("user_job_back", "job-back", 60);
+		String token = JsonPath.read(place(booking), "$.accessToken");
+
+		mockMvc.perform(get("/api/v1/jobs/by-token").header("X-Job-Token", token))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.customerName").value("Dana Reyes"))
+				.andExpect(jsonPath("$.customerEmail").value("dana@example.com"))
+				.andExpect(jsonPath("$.description").value("No hot water since Tuesday."))
+				.andExpect(jsonPath("$.address.city").value("Colorado Springs"))
+				.andExpect(jsonPath("$.requests.length()").value(1))
+				.andExpect(jsonPath("$.requests[0].request.status").value("PENDING"))
+				.andExpect(jsonPath("$.requests[0].request.businessSlug").value("job-back"))
+				.andExpect(jsonPath("$.requests[0].request.serviceName").value("Measured job"))
+				.andExpect(jsonPath("$.requests[0].request.timeZone").value("America/Denver"))
+				// The credential is read, never repeated back.
+				.andExpect(jsonPath("$.accessToken").doesNotExist());
+	}
+
+	/** A value nobody was ever given opens nothing. */
+	@Test
+	void findsNothingForATokenNeverIssued() throws Exception {
+		mockMvc.perform(get("/api/v1/jobs/by-token").header("X-Job-Token", "not-a-token-anybody-was-given"))
+				.andExpect(status().isNotFound());
+	}
+
+	/**
+	 * An expired token is answered exactly as one that never existed. Telling them apart would
+	 * confirm that a guessed value had once been real.
+	 */
+	@Test
+	void findsNothingForAnExpiredToken() throws Exception {
+		Booking booking = bookable("user_job_expired", "job-expired", 60);
+		String placed = place(booking);
+		String token = JsonPath.read(placed, "$.accessToken");
+
+		jdbc.update("UPDATE job SET access_token_expires_at = now() - interval '1 minute' WHERE id = ?::uuid",
+				(String) JsonPath.read(placed, "$.jobId"));
+
+		mockMvc.perform(get("/api/v1/jobs/by-token").header("X-Job-Token", token))
+				.andExpect(status().isNotFound());
+	}
+
+	/** Without the header there is no question to answer; the contract refuses it first. */
+	@Test
+	void refusesToLookUpWithoutAToken() throws Exception {
+		mockMvc.perform(get("/api/v1/jobs/by-token"))
+				.andExpect(status().isBadRequest());
+	}
+
 	/** A body the contract itself refuses never reaches the service. */
 	@Test
 	void refusesABodyWithoutTheCustomer() throws Exception {
@@ -215,68 +266,23 @@ class CreateJobTests {
 				.andExpect(status().isBadRequest());
 	}
 
+	private String place(Booking booking) throws Exception {
+		return JobFixtures.place(mockMvc, booking);
+	}
+
 	private String body(Booking booking, String startsAt) {
-		return body(booking.slug(), booking.serviceId(), startsAt);
+		return JobFixtures.body(booking.slug(), booking.serviceId(), startsAt);
 	}
 
 	private String body(String slug, String serviceId, String startsAt) {
-		return """
-				{"slug":"%s","serviceId":"%s","startsAt":"%s",
-				 "customerName":"Dana Reyes","customerEmail":"dana@example.com",
-				 "customerPhone":"+17195550142",
-				 "description":"No hot water since Tuesday.",
-				 "street1":"1 Main St","street2":"Apt 4","city":"Colorado Springs",
-				 "state":"CO","postalCode":"80903"}"""
-				.formatted(slug, serviceId, startsAt);
+		return JobFixtures.body(slug, serviceId, startsAt);
 	}
 
-	/**
-	 * A published business with one service, and the first start it actually offers for it.
-	 *
-	 * <p>Read from the availability operation rather than computed, so these tests break when the
-	 * calendar changes its mind about what is bookable instead of quietly testing a start nobody
-	 * would have been shown.
-	 */
 	private Booking bookable(String subject, String slug, int minutes) throws Exception {
-		RequestPostProcessor token = BusinessFixtures.publishableBusinessFor(mockMvc, subject, slug);
-
-		mockMvc.perform(BusinessFixtures.moveRequest(mockMvc, token, slug, COLORADO_SPRINGS))
-				.andExpect(status().isOk());
-
-		String created = mockMvc.perform(post("/api/v1/me/business/services").with(token)
-						.contentType(MediaType.APPLICATION_JSON)
-						.content("""
-								{"tradeId":"%s","name":"Measured job",
-								 "estimatedDurationMinutes":%d,"pricingMode":"QUOTE_ONLY"}"""
-								.formatted(BusinessFixtures.tradeId(mockMvc, "PLUMBER"), minutes)))
-				.andExpect(status().isCreated())
-				.andReturn().getResponse().getContentAsString();
-
-		mockMvc.perform(post("/api/v1/me/business/publish").with(token)).andExpect(status().isOk());
-
-		String serviceId = JsonPath.read(created, "$.id");
-		LocalDate monday = aMondaySoon();
-
-		String openings = mockMvc.perform(get("/api/v1/businesses/{slug}/availability", slug)
-						.param("serviceId", serviceId)
-						.param("from", monday.toString())
-						.param("to", monday.toString()))
-				.andExpect(status().isOk())
-				.andExpect(jsonPath("$.slots[0]").exists())
-				.andReturn().getResponse().getContentAsString();
-
-		return new Booking(slug, serviceId, JsonPath.read(openings, "$.slots[0]"));
+		return JobFixtures.bookable(mockMvc, subject, slug, minutes);
 	}
 
-	/** A Monday the notice cannot reach and the horizon still covers. */
 	private static LocalDate aMondaySoon() {
-		return LocalDate.now(DENVER).plusWeeks(1).with(TemporalAdjusters.next(DayOfWeek.MONDAY));
-	}
-
-	private record Booking(String slug, String serviceId, String firstStart) {
-
-		private Booking {
-			UUID.fromString(serviceId);
-		}
+		return JobFixtures.aMondaySoon();
 	}
 }

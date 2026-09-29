@@ -192,3 +192,53 @@ export function createJob(input: JobInput): Promise<ApiResult<CreatedJob>> {
     publicApiClient().POST("/api/v1/jobs", { body: input }),
   );
 }
+
+export type CustomerJob = components["schemas"]["CustomerJob"];
+export type JobRequestSummary = components["schemas"]["JobRequestSummary"];
+
+/**
+ * What a customer sent, read back with the access token from their link.
+ *
+ * The token goes in a header, never in the path — the API keeps it out of every log a path is
+ * written into. It still arrives here in the page's own address; that page is the one place it is
+ * allowed to be, and it goes no further than this call.
+ *
+ * A 404 is `null`: an unknown token and an expired one are the same answer on purpose, so there is
+ * nothing to tell apart and nothing worth logging. Anything else is a failure.
+ */
+export async function getJobByToken(token: string): Promise<ApiResult<CustomerJob | null>> {
+  const endpoint = "GET /api/v1/jobs/by-token";
+
+  const answered = await answer(endpoint, () =>
+    publicApiClient().GET("/api/v1/jobs/by-token", { params: { header: { "X-Job-Token": token } } }),
+  );
+
+  if (!answered.reached) {
+    return { ok: false, failure: answered.failure };
+  }
+
+  if (answered.response.status === 404) {
+    return { ok: true, data: null };
+  }
+
+  if (!answered.response.ok) {
+    return { ok: false, failure: failureOf(endpoint, answered.response, answered.error) };
+  }
+
+  return { ok: true, data: answered.data as CustomerJob };
+}
+
+export type Message = components["schemas"]["Message"];
+
+/**
+ * The customer writes to the business a request went to, with the token from their link in the
+ * same header as the read. A request that does not belong to that token's job is a 404.
+ */
+export function sendCustomerMessage(token: string, requestId: string, body: string): Promise<ApiResult<Message>> {
+  return attempt("POST /api/v1/jobs/by-token/requests/{requestId}/messages", () =>
+    publicApiClient().POST("/api/v1/jobs/by-token/requests/{requestId}/messages", {
+      params: { header: { "X-Job-Token": token }, path: { requestId } },
+      body: { body },
+    }),
+  );
+}

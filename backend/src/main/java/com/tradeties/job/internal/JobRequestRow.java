@@ -178,4 +178,16 @@ class JobRequestRow {
 	int cancellationNoticeHours() {
 		return cancellationNoticeHours;
 	}
+
+	UUID businessId() {
+		return businessId;
+	}
+
+	UUID jobId() {
+		return jobId;
+	}
+
+	Instant createdAt() {
+		return createdAt;
+	}
 }

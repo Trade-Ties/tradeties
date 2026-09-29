@@ -5,6 +5,7 @@ import java.time.Instant;
 import java.util.UUID;
 
 import com.tradeties.business.GeoPoint;
+import com.tradeties.business.PostalAddress;
 import com.tradeties.job.NewJob;
 
 import jakarta.persistence.Column;
@@ -151,5 +152,29 @@ class JobRow {
 
 	Instant accessTokenExpiresAt() {
 		return accessTokenExpiresAt;
+	}
+
+	String customerName() {
+		return customerName;
+	}
+
+	String customerEmail() {
+		return customerEmail;
+	}
+
+	String customerPhone() {
+		return customerPhone;
+	}
+
+	String description() {
+		return description;
+	}
+
+	String timeZone() {
+		return timeZone;
+	}
+
+		PostalAddress address() {
+		return new PostalAddress(street1, street2, city, state, postalCode);
 	}
 }

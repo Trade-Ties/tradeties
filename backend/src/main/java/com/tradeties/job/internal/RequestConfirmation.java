@@ -39,16 +39,18 @@ final class RequestConfirmation {
 	}
 
 	/**
-	 * @param requestUrl where the customer's own page is, with the token not yet on it
+	 * @param publicUrl where the site is, without a trailing slash. The request's page hangs off
+	 *        the business's own — {@code /{slug}/requests/{token}} — the address the booking form
+	 *        already shows the customer, so the email and the screen name one place
 	 */
-	static OutgoingMail compose(NewJob submitted, PlacedJob placed, String requestUrl) {
+	static OutgoingMail compose(NewJob submitted, PlacedJob placed, String publicUrl) {
 		ZoneId zone = ZoneId.of(placed.timeZone());
 		ZonedDateTime start = placed.startsAt().atZone(zone);
 		ZonedDateTime end = placed.endsAt().atZone(zone);
 
 		String when = "%s, %s – %s (%s)".formatted(
 				DAY.format(start), TIME.format(start), TIME.format(end), ZONE.format(start));
-		String link = requestUrl + "/" + placed.accessToken();
+		String link = publicUrl + "/" + placed.businessSlug() + "/requests/" + placed.accessToken();
 		String validUntil = DATE.format(placed.accessTokenExpiresAt().atZone(zone));
 
 		String body = """

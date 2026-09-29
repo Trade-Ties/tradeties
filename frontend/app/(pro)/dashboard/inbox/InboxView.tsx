@@ -1,249 +1,197 @@
 "use client";
 
-import { useState } from "react";
-import { CalendarPlus, Mail, X } from "lucide-react";
+import { useState, useTransition } from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { AlertCircle, Mail, X } from "lucide-react";
 
-import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import type { Conversation as ConversationData, ConversationSummary } from "@/lib/api/inbox";
+import { INBOX_CONVERSATION_PARAM, INBOX_FILTER_PARAM } from "@/lib/routes";
 import { cn } from "@/lib/utils";
 
 import { AppointmentDetail } from "../AppointmentDetail";
-import { BookedNotice } from "../BookedNotice";
-import {
-  prefillForConversation,
-  prefillFrom,
-  withConfirmation,
-  type BookingPrefill,
-  type NewBooking,
-} from "../booking";
-import { Conversation, withReply } from "../Conversation";
-import { NewEntryDialog } from "../NewEntryDialog";
-import { knownCustomers, latestMessage, type DemoAppointment, type DemoMessage } from "../demo-data";
+import { Conversation } from "../Conversation";
 import { listTime } from "../messageTime";
+import { replyToCustomer } from "./actions";
+import { appointmentOf, rowOf, threadOf } from "./live";
 
 export type InboxFilter = "all" | "unread";
 
+/**
+ * The inbox, on real conversations.
+ *
+ * The page reads everything on the server — the list, and the open conversation, marked read as
+ * it is opened — so this component holds no copy of either. Picking a conversation changes the
+ * address and the server answers; sending goes through a server action and the page reads again.
+ * What lives here is only what is about the screen: the filter, and whether the booking column is
+ * open.
+ *
+ * Confirming and declining a request are not offered here yet: they are the booking's decisions,
+ * and they arrive with it.
+ */
 export function InboxView({
-  messages: initial,
-  appointments: initialAppointments,
+  conversations,
+  open,
   initialFilter = "all",
-  initialConversationId,
 }: {
-  messages: DemoMessage[];
-  /** For naming the booking request a conversation is about. */
-  appointments: DemoAppointment[];
+  conversations: ConversationSummary[];
+  /** The conversation being read, or null when there is none to show. */
+  open: ConversationData | null;
   initialFilter?: InboxFilter;
-  /** A conversation a link asked to open, e.g. from the dashboard's side panel. */
-  initialConversationId?: string;
 }) {
-  const [messages, setMessages] = useState(() =>
-    // Opened by a link counts as read, the same as opened by a click.
-    initial.map((m) => (m.id === initialConversationId ? { ...m, unread: false } : m))
-  );
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+
   const [filter, setFilter] = useState<InboxFilter>(initialFilter);
-  const [selectedId, setSelectedId] = useState<string | undefined>(
-    initial.some((m) => m.id === initialConversationId)
-      ? initialConversationId
-      : (initialFilter === "unread" ? initial.find((m) => m.unread) : initial[0])?.id
-  );
+  const [detailsFor, setDetailsFor] = useState<string | null>(null);
+  const [problem, setProblem] = useState<string | null>(null);
+  const [sending, startSending] = useTransition();
 
-  // The answered conversation moves to the top: the list is newest first.
-  const [appointments, setAppointments] = useState(initialAppointments);
+  const rows = conversations.map(rowOf);
+  const openId = open?.request.id;
+  const unreadCount = rows.filter((row) => row.unread).length;
+  // The open conversation stays in the unread list after opening marked it read, so it does not
+  // vanish from under the pointer; it drops out once another one is picked.
+  const listed = filter === "all" ? rows : rows.filter((row) => row.unread || row.id === openId);
 
-  // Answering a request from its conversation. The conversation stays: declining a request is
-  // not the end of talking to the customer who sent it.
-  const confirm = (id: string) =>
-    setAppointments((prev) => prev.map((a) => (a.id === id ? { ...a, status: "confirmed" as const } : a)));
-  const decline = (id: string) => setAppointments((prev) => prev.filter((a) => a.id !== id));
-  const [booking, setBooking] = useState<{ open: boolean; prefill?: BookingPrefill; key: number }>({
-    open: false,
-    key: 0,
-  });
-  const [notice, setNotice] = useState<string | null>(null);
+  const thread = open ? threadOf(open) : null;
+  const appointment = open ? appointmentOf(open) : undefined;
+  const detailsShown = open !== null && detailsFor === open.request.id;
 
-  /** Booked from a conversation: over the request it replaces, and confirmed in the conversation. */
-  const addAppointment = ({ appointment, notify, replacesId }: NewBooking) => {
-    const id = `a${Date.now()}`;
-    setAppointments((prev) => [...prev.filter((a) => a.id !== replacesId), { ...appointment, id }]);
-    if (notify) {
-      const conversations = withConfirmation(messages, id, appointment);
-      setMessages(conversations);
-      setSelectedId(conversations[0].id);
-      setNotice(`Booked — a confirmation is on its way to ${appointment.email}.`);
-    } else {
-      setNotice("Booked.");
-    }
+  const pick = (id: string) => {
+    const next = new URLSearchParams(searchParams);
+    next.set(INBOX_CONVERSATION_PARAM, id);
+    setProblem(null);
+    router.push(`${pathname}?${next}`);
   };
 
-  const send = (conversationId: string, text: string) =>
-    setMessages((prev) => {
-      const answered = prev.find((m) => m.id === conversationId);
-      return answered === undefined
-        ? prev
-        : [withReply(answered, text), ...prev.filter((m) => m.id !== conversationId)];
+  const changeFilter = (value: InboxFilter) => {
+    setFilter(value);
+    const next = new URLSearchParams(searchParams);
+    if (value === "unread") next.set(INBOX_FILTER_PARAM, "unread");
+    else next.delete(INBOX_FILTER_PARAM);
+    router.replace(`${pathname}?${next}`, { scroll: false });
+  };
+
+  const send = (requestId: string, text: string) =>
+    startSending(async () => {
+      const failed = await replyToCustomer(requestId, text);
+      setProblem(failed);
+      if (!failed) router.refresh();
     });
 
-  const select = (m: DemoMessage) => {
-    setSelectedId(m.id);
-    setMessages((prev) => prev.map((x) => (x.id === m.id ? { ...x, unread: false } : x)));
-  };
-
-  const selected = messages.find((m) => m.id === selectedId);
-  const selectedAppointment = appointments.find((a) => a.id === selected?.appointmentId);
-
-  // Whose booking has the third column, as an id: picking another conversation closes it rather
-  // than showing somebody else's booking beside the new messages.
-  const [detailsFor, setDetailsFor] = useState<string | null>(null);
-  const detailsShown = selected !== undefined && detailsFor === selected.id && selectedAppointment !== undefined;
-  const unreadCount = messages.filter((m) => m.unread).length;
-  // The open message stays in the unread list after opening it has marked it read, so it does
-  // not vanish from under the pointer; it drops out once another one is picked.
-  const listed = filter === "all" ? messages : messages.filter((m) => m.unread || m.id === selectedId);
-
   return (
-    <>
-      {notice && <BookedNotice onDismiss={() => setNotice(null)}>{notice}</BookedNotice>}
-
-      <NewEntryDialog
-        key={booking.key}
-        open={booking.open}
-        onOpenChange={(open) => setBooking((b) => ({ ...b, open }))}
-        day={new Date(new Date().setHours(0, 0, 0, 0))}
-        customers={knownCustomers(appointments)}
-        prefill={booking.prefill}
-        // Opened from a conversation it is always an appointment, which the form knows from the
-        // prefill; the entry side is never reached.
-        onAddEntry={() => {}}
-        onAddAppointment={addAppointment}
-      />
-
-      {/* Two columns, and a third for the booking while it is open — the width is there, and the
-          booking is read beside the messages about it rather than instead of them. */}
-      <div
-        className={cn(
-          "grid grid-cols-1 items-start gap-4",
-          detailsShown ? "lg:grid-cols-[300px_1fr] xl:grid-cols-[300px_1fr_340px]" : "lg:grid-cols-[360px_1fr]"
-        )}
-      >
-        <Card className="gap-0 rounded-3xl border border-line bg-white py-2 shadow-card">
-          <div role="tablist" aria-label="Show" className="mx-2 mb-2 mt-1 flex gap-1 rounded-full bg-brand-50 p-1">
-            <FilterTab active={filter === "all"} onClick={() => setFilter("all")}>
-              All
-            </FilterTab>
-            <FilterTab active={filter === "unread"} onClick={() => setFilter("unread")}>
-              Unread{unreadCount > 0 && ` (${unreadCount})`}
-            </FilterTab>
-          </div>
-          <CardContent className="flex flex-col gap-1 px-2">
-            {listed.length === 0 && (
-              <p className="px-3 py-6 text-center text-sm text-muted-ink">
-                {filter === "unread" ? "You're all caught up — nothing unread." : "No messages yet."}
-              </p>
-            )}
-            {listed.map((m) => (
-              <button
-                key={m.id}
-                type="button"
-                onClick={() => select(m)}
-                className={cn(
-                  "flex w-full flex-col gap-0.5 rounded-2xl px-3 py-2.5 text-left transition-colors hover:bg-brand-50",
-                  m.id === selectedId && "bg-brand-50"
-                )}
-              >
-                <div className="flex items-center gap-2">
-                  <span
-                    className={
-                      m.unread
-                        ? "size-1.5 shrink-0 rounded-full bg-brand-500"
-                        : "size-1.5 shrink-0 rounded-full bg-transparent"
-                    }
-                  />
-                  <p className={m.unread ? "truncate text-sm font-semibold" : "truncate text-sm font-medium"}>
-                    {m.customerName}
-                  </p>
-                  <time
-                    dateTime={latestMessage(m).sentAt.toISOString()}
-                    suppressHydrationWarning
-                    className="ml-auto shrink-0 text-[11px] text-faint"
-                  >
-                    {listTime(latestMessage(m).sentAt)}
-                  </time>
-                </div>
-                <p className="truncate pl-3.5 text-xs text-muted-ink">
-                  {latestMessage(m).from === "pro" && "You: "}
-                  {latestMessage(m).text}
-                </p>
-              </button>
-            ))}
-          </CardContent>
-        </Card>
-
-        <Card className="gap-4 rounded-3xl border border-line bg-white py-0 shadow-card lg:sticky lg:top-4">
-          <CardContent className="flex h-[min(640px,calc(100dvh-8rem))] flex-col px-6 py-6">
-            {selected ? (
-              <>
-                <div className="mb-3 flex items-center justify-between gap-3">
-                  <h2 className="text-xl font-bold tracking-[-0.01em] text-brand">{selected.customerName}</h2>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() =>
-                      setBooking((b) => ({
-                        open: true,
-                        prefill: prefillForConversation(selected, appointments),
-                        key: b.key + 1,
-                      }))
-                    }
-                    className="h-8 shrink-0 gap-1.5 rounded-full border-line px-3.5 text-xs font-semibold text-muted-ink hover:bg-brand-50 hover:text-brand-500"
-                  >
-                    <CalendarPlus className="size-3.5" />
-                    Book appointment
-                  </Button>
-                </div>
-                <Conversation
-                  conversation={selected}
-                  appointment={selectedAppointment}
-                  onSend={send}
-                  onOpenDetails={() => setDetailsFor(detailsShown ? null : selected.id)}
-                  detailsOpen={detailsShown}
+    <div
+      className={cn(
+        "grid grid-cols-1 items-start gap-4",
+        detailsShown ? "lg:grid-cols-[300px_1fr] xl:grid-cols-[300px_1fr_340px]" : "lg:grid-cols-[360px_1fr]"
+      )}
+    >
+      <Card className="gap-0 rounded-3xl border border-line bg-white py-2 shadow-card">
+        <div role="tablist" aria-label="Show" className="mx-2 mb-2 mt-1 flex gap-1 rounded-full bg-brand-50 p-1">
+          <FilterTab active={filter === "all"} onClick={() => changeFilter("all")}>
+            All
+          </FilterTab>
+          <FilterTab active={filter === "unread"} onClick={() => changeFilter("unread")}>
+            Unread{unreadCount > 0 && ` (${unreadCount})`}
+          </FilterTab>
+        </div>
+        <CardContent className="flex flex-col gap-1 px-2">
+          {listed.length === 0 && (
+            <p className="px-3 py-6 text-center text-sm text-muted-ink">
+              {filter === "unread"
+                ? "You're all caught up — nothing unread."
+                : "No requests yet. When a customer sends one, the conversation starts here."}
+            </p>
+          )}
+          {listed.map((row) => (
+            <button
+              key={row.id}
+              type="button"
+              onClick={() => pick(row.id)}
+              className={cn(
+                "flex w-full flex-col gap-0.5 rounded-2xl px-3 py-2.5 text-left transition-colors hover:bg-brand-50",
+                row.id === openId && "bg-brand-50"
+              )}
+            >
+              <div className="flex items-center gap-2">
+                <span
+                  className={cn("size-1.5 shrink-0 rounded-full", row.unread ? "bg-brand-500" : "bg-transparent")}
                 />
-              </>
-            ) : (
-              <div className="flex flex-1 flex-col items-center justify-center gap-2 text-center text-muted-ink">
-                <Mail className="size-6" />
-                <p className="text-sm">Select a conversation to read it.</p>
+                <p className={row.unread ? "truncate text-sm font-semibold" : "truncate text-sm font-medium"}>
+                  {row.customerName}
+                </p>
+                <time
+                  dateTime={row.sentAt.toISOString()}
+                  suppressHydrationWarning
+                  className="ml-auto shrink-0 text-[11px] text-faint"
+                >
+                  {listTime(row.sentAt)}
+                </time>
               </div>
-            )}
+              <p className="truncate pl-3.5 text-xs text-muted-ink">
+                {row.fromBusiness && "You: "}
+                {row.preview}
+              </p>
+            </button>
+          ))}
+        </CardContent>
+      </Card>
+
+      <Card className="gap-4 rounded-3xl border border-line bg-white py-0 shadow-card lg:sticky lg:top-4">
+        <CardContent className="flex h-[min(640px,calc(100dvh-8rem))] flex-col px-6 py-6">
+          {open && thread ? (
+            <>
+              <h2 className="mb-3 text-xl font-bold tracking-[-0.01em] text-brand">{open.customerName}</h2>
+              {problem && (
+                <p className="mb-2 flex items-center gap-2 rounded-xl bg-destructive/5 px-3 py-2 text-xs text-destructive">
+                  <AlertCircle className="size-3.5 shrink-0" />
+                  {problem}
+                </p>
+              )}
+              <Conversation
+                // Keyed on the request, so a draft does not follow the pointer to the next one.
+                key={open.request.id}
+                conversation={thread}
+                appointment={appointment}
+                onSend={(requestId, text) => send(requestId, text)}
+                onOpenDetails={() => setDetailsFor(detailsShown ? null : open.request.id)}
+                detailsOpen={detailsShown}
+              />
+              {sending && <p className="mt-2 text-xs text-muted-ink">Sending…</p>}
+            </>
+          ) : (
+            <div className="flex flex-1 flex-col items-center justify-center gap-2 text-center text-muted-ink">
+              <Mail className="size-6" />
+              <p className="text-sm">
+                {conversations.length === 0 ? "Nothing to read yet." : "Select a conversation to read it."}
+              </p>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {detailsShown && appointment && (
+        <Card className="gap-0 rounded-3xl border border-line bg-white py-0 shadow-card duration-200 animate-in fade-in slide-in-from-right-4 lg:col-span-2 xl:sticky xl:top-4 xl:col-span-1">
+          <CardContent className="px-5 py-5">
+            <div className="mb-4 flex items-center justify-between gap-3">
+              <p className="text-xs font-semibold uppercase tracking-wide text-faint">Booking</p>
+              <button
+                type="button"
+                onClick={() => setDetailsFor(null)}
+                aria-label="Close booking details"
+                className="grid size-7 shrink-0 place-items-center rounded-full text-muted-ink hover:bg-brand-50 hover:text-brand-500"
+              >
+                <X className="size-4" />
+              </button>
+            </div>
+            {/* No confirm or decline: those are the booking's decisions, and arrive with it. */}
+            <AppointmentDetail appointment={appointment} />
           </CardContent>
         </Card>
-
-        {detailsShown && (
-          <Card className="gap-0 rounded-3xl border border-line bg-white py-0 shadow-card duration-200 animate-in fade-in slide-in-from-right-4 lg:col-span-2 xl:sticky xl:top-4 xl:col-span-1">
-            <CardContent className="px-5 py-5">
-              <div className="mb-4 flex items-center justify-between gap-3">
-                <p className="text-xs font-semibold uppercase tracking-wide text-faint">Booking</p>
-                <button
-                  type="button"
-                  onClick={() => setDetailsFor(null)}
-                  aria-label="Close booking details"
-                  className="grid size-7 shrink-0 place-items-center rounded-full text-muted-ink hover:bg-brand-50 hover:text-brand-500"
-                >
-                  <X className="size-4" />
-                </button>
-              </div>
-              <AppointmentDetail
-                appointment={selectedAppointment}
-                onConfirm={confirm}
-                onDecline={decline}
-                onRebook={(request) =>
-                  setBooking((b) => ({ open: true, prefill: prefillFrom(request), key: b.key + 1 }))
-                }
-              />
-            </CardContent>
-          </Card>
-        )}
-      </div>
-    </>
+      )}
+    </div>
   );
 }
 

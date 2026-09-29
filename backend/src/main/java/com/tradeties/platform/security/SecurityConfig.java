@@ -98,6 +98,10 @@ class SecurityConfig {
 						// in front of it. That is a deliberate gap, and it must be closed before
 						// the application is reachable beyond the test environment.
 						.requestMatchers(HttpMethod.POST, "/api/v1/jobs").permitAll()
+						// A customer has no account; the access token in its header is the
+						// credential, checked by the lookup itself. Anything else is a 404.
+						.requestMatchers(HttpMethod.GET, "/api/v1/jobs/by-token").permitAll()
+						.requestMatchers(HttpMethod.POST, "/api/v1/jobs/by-token/requests/{requestId}/messages").permitAll()
 						.requestMatchers(HttpMethod.GET,
 								"/api/v1/trades", "/api/v1/us-states", "/api/v1/time-zones", "/api/v1/service-jobs",
 								"/api/v1/businesses", "/api/v1/businesses/{slug}",

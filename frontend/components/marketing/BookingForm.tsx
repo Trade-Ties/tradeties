@@ -252,21 +252,12 @@ function Confirmation({ created, businessName }: { created: CreatedJob; business
       <div className="mt-6 rounded-2xl border border-brand-100 bg-brand-50 px-5 py-4">
         <p className="m-0 text-[13.5px] font-semibold text-brand">Keep this link.</p>
         <p className="m-0 mt-1 text-[13px] leading-relaxed text-muted-ink">
-          You have no account with TradeTies, so this link is your only way back to this request.
-          It is shown once — reloading this page will not bring it back, and we cannot send it to
-          you again.
+          You have no account with TradeTies, so this link is your way back to this request. We have
+          emailed it to you as well — reloading this page will not bring it back.
         </p>
         <code className="mt-2.5 block overflow-x-auto rounded-xl border border-line bg-white px-3 py-2 text-[12.5px] text-brand">
           {keepLink}
         </code>
-        {/*
-          The page behind this link does not exist yet, and saying so is better than letting
-          somebody find out by clicking. The token is real and already stored; what is missing is
-          the screen that reads it.
-        */}
-        <p className="m-0 mt-2 text-[12.5px] text-faint">
-          The page this opens is still being built. Save the link — it will work once it is there.
-        </p>
       </div>
 
       <p className="m-0 mt-5 text-[13px] leading-relaxed text-muted-ink">
