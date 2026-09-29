@@ -26,7 +26,7 @@ export function ComingSoonPage({
   children: React.ReactNode;
 }) {
   return (
-    <div className="mx-auto w-full max-w-5xl px-8 py-10">
+    <div className="mx-auto w-full max-w-7xl px-8 py-10">
       <div className="mb-1 flex items-center gap-3">
         <h1 className="text-3xl font-bold tracking-[-0.02em] text-brand">{title}</h1>
         <ComingSoonTag />

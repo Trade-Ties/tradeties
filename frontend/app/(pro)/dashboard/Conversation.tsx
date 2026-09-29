@@ -2,12 +2,13 @@
 
 import { useRef, useState } from "react";
 import { format } from "date-fns";
-import { CalendarDays, CircleCheck, Send } from "lucide-react";
+import { ArrowLeft, CalendarDays, ChevronRight, CircleCheck, Phone, Send } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
-import type { DemoAppointment, DemoMessage } from "./demo-data";
+import { AppointmentDetail, telHref } from "./AppointmentDetail";
+import { prefersPhone, type DemoAppointment, type DemoMessage } from "./demo-data";
 import { messageTime } from "./messageTime";
 
 /**
@@ -22,18 +23,67 @@ export function Conversation({
   conversation,
   appointment,
   onSend,
+  onConfirm,
+  onDecline,
+  onRebook,
+  onOpenDetails,
+  detailsOpen,
   compact,
 }: {
   conversation: DemoMessage;
   /** The booking request the conversation is about, when it is about one. */
   appointment?: DemoAppointment;
   onSend: (conversationId: string, text: string) => void;
+  /** Answering the request from inside its conversation; left out, its details are read-only. */
+  onConfirm?: (id: string) => void;
+  onDecline?: (id: string) => void;
+  onRebook?: (appointment: DemoAppointment) => void;
+  /**
+   * Shows the booking somewhere else — the inbox gives it a column of its own. Left out, the
+   * booking opens in place of the messages, which is all the narrow side panel has room for.
+   */
+  onOpenDetails?: () => void;
+  /** Whether that column is showing this conversation's booking, so the strip can say so. */
+  detailsOpen?: boolean;
   /** The narrower side panel: a shorter thread area and a smaller box. */
   compact?: boolean;
 }) {
+  // Which conversation has its booking open, rather than a flag: moving to another
+  // conversation goes back to its messages instead of carrying the open booking along.
+  const [bookingOpenFor, setBookingOpenFor] = useState<string | null>(null);
+
+  if (appointment && bookingOpenFor === conversation.id) {
+    return (
+      <div className="flex min-h-0 flex-1 flex-col">
+        <button
+          type="button"
+          onClick={() => setBookingOpenFor(null)}
+          className="mb-4 inline-flex w-fit items-center gap-1.5 text-xs font-semibold text-brand-500 hover:underline"
+        >
+          <ArrowLeft className="size-3.5" />
+          Back to messages
+        </button>
+        <div className="min-h-0 flex-1 overflow-y-auto">
+          <AppointmentDetail
+            appointment={appointment}
+            onConfirm={onConfirm}
+            onDecline={onDecline}
+            onRebook={onRebook}
+          />
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      {appointment && <RequestChip appointment={appointment} />}
+      {appointment && (
+        <RequestChip
+          appointment={appointment}
+          active={detailsOpen}
+          onOpen={onOpenDetails ?? (() => setBookingOpenFor(conversation.id))}
+        />
+      )}
 
       <ol
         aria-label={`Conversation with ${conversation.customerName}`}
@@ -79,6 +129,8 @@ export function Conversation({
         ))}
       </ol>
 
+      {prefersPhone(appointment) && <PhonePreference appointment={appointment} />}
+
       {/* Keyed on the conversation so a half-written reply stays with the one it was written for
           rather than following the pointer to the next. */}
       <ReplyBox key={conversation.id} conversation={conversation} onSend={onSend} />
@@ -86,9 +138,27 @@ export function Conversation({
   );
 }
 
-function RequestChip({ appointment }: { appointment: DemoAppointment }) {
+/** The request the conversation is about, in a line — and the way into all of it. */
+function RequestChip({
+  appointment,
+  onOpen,
+  active,
+}: {
+  appointment: DemoAppointment;
+  onOpen: () => void;
+  active?: boolean;
+}) {
   return (
-    <div className="flex items-center gap-2 rounded-xl border border-line bg-white px-3 py-2 text-xs text-muted-ink">
+    <button
+      type="button"
+      onClick={onOpen}
+      aria-pressed={active}
+      aria-label={`Booking details: ${appointment.service}, ${format(appointment.date, "EEEE, MMMM d")} at ${appointment.time}`}
+      className={cn(
+        "group flex w-full items-center gap-2 rounded-xl border px-3 py-2 text-left text-xs text-muted-ink transition-colors hover:border-brand-100 hover:bg-brand-50/60 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none",
+        active ? "border-brand-100 bg-brand-50/60" : "border-line bg-white"
+      )}
+    >
       <CalendarDays className="size-3.5 shrink-0 text-brand-500" />
       <span className="min-w-0 truncate">
         About <span className="font-semibold text-brand">{appointment.service}</span> ·{" "}
@@ -102,6 +172,35 @@ function RequestChip({ appointment }: { appointment: DemoAppointment }) {
       >
         {appointment.status === "pending" ? "Requested" : "Confirmed"}
       </span>
+      <span className="flex shrink-0 items-center gap-0.5 font-semibold text-brand-500">
+        Details
+        <ChevronRight className="size-3.5 transition-transform group-hover:translate-x-0.5" />
+      </span>
+    </button>
+  );
+}
+
+/**
+ * Said where the reply is written, because that is where it is easy to forget: the customer asked
+ * to be called. A message still goes out by email, but on its own it is not the answer they are
+ * waiting for.
+ */
+function PhonePreference({ appointment }: { appointment: DemoAppointment }) {
+  const firstName = appointment.customerName.split(" ")[0];
+
+  return (
+    <div className="mb-2 flex items-center gap-2.5 rounded-xl border border-brand-100 bg-brand-50 px-3 py-2 text-xs text-brand">
+      <Phone className="size-3.5 shrink-0 text-brand-500" />
+      <p className="min-w-0 flex-1">
+        <span className="font-semibold">{firstName} prefers a phone call</span>
+        <span className="text-muted-ink"> · {appointment.phone}</span>
+      </p>
+      <a
+        href={telHref(appointment.phone)}
+        className="shrink-0 rounded-full bg-brand px-3 py-1 text-[11px] font-semibold text-white hover:bg-brand/90"
+      >
+        Call
+      </a>
     </div>
   );
 }
@@ -151,7 +250,8 @@ function ReplyBox({
           }}
           rows={1}
           aria-label={`Reply to ${conversation.customerName}`}
-          placeholder={`Reply to ${firstName}…`}
+          // Says where it goes, which matters most beside a customer who asked for a call instead.
+          placeholder={`Reply to ${firstName} by email…`}
           className="block max-h-36 min-h-8 flex-1 resize-none bg-transparent py-1.5 text-sm leading-5 outline-none placeholder:text-faint"
         />
         <Button
