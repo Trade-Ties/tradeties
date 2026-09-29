@@ -4,6 +4,7 @@ import java.time.DayOfWeek;
 import java.time.LocalDate;
 import java.time.ZoneId;
 import java.time.temporal.TemporalAdjusters;
+import java.util.Map;
 import java.util.UUID;
 
 import com.jayway.jsonpath.JsonPath;
@@ -17,9 +18,11 @@ import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.RequestPostProcessor;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -45,6 +48,9 @@ class CreateJobTests {
 
 	@Autowired
 	MockMvc mockMvc;
+
+	@Autowired
+	JdbcTemplate jdbc;
 
 	/**
 	 * The rule the whole customer side rests on, asked of the first operation that writes.
@@ -141,6 +147,57 @@ class CreateJobTests {
 						.contentType(MediaType.APPLICATION_JSON)
 						.content(body("no-such-business", booking.serviceId(), booking.firstStart())))
 				.andExpect(status().isNotFound());
+	}
+
+	/**
+	 * The customer has no account, so the confirmation email is the only place their way back is
+	 * written down — and it has to be written while the request is, because the clear token exists
+	 * nowhere after the response. Found by that token, which no other test's message can contain.
+	 */
+	@Test
+	void queuesAConfirmationCarryingTheWayBack() throws Exception {
+		Booking booking = bookable("user_job_mail", "job-mail", 60);
+
+		String response = mockMvc.perform(post("/api/v1/jobs")
+						.contentType(MediaType.APPLICATION_JSON)
+						.content(body(booking, booking.firstStart())))
+				.andExpect(status().isCreated())
+				.andReturn().getResponse().getContentAsString();
+
+		String token = JsonPath.read(response, "$.accessToken");
+
+		Map<String, Object> mail = jdbc.queryForMap(
+				"SELECT recipient, subject, body, status FROM mail_outbox WHERE body LIKE ?", "%" + token + "%");
+
+		assertThat(mail.get("recipient")).isEqualTo("dana@example.com");
+		assertThat(mail.get("status")).isEqualTo("PENDING");
+		assertThat((String) mail.get("subject")).startsWith("Your request to ").endsWith(" has been sent");
+		assertThat((String) mail.get("body"))
+				.startsWith("Hi Dana,")
+				.contains("Measured job")
+				.contains("No hot water since Tuesday.")
+				.contains("1 Main St, Apt 4, Colorado Springs, CO 80903")
+				// Read on the business's clock and saying so.
+				.containsPattern("\\(M[SD]T\\)")
+				.contains("http://localhost:3000/request/" + token);
+	}
+
+	/**
+	 * A refused request writes nothing, and that includes its email: the confirmation commits with
+	 * the request or not at all, so nobody is told a request arrived that was never kept.
+	 */
+	@Test
+	void queuesNothingForARefusedRequest() throws Exception {
+		Booking booking = bookable("user_job_nomail", "job-nomail", 60);
+		int before = jdbc.queryForObject("SELECT count(*) FROM mail_outbox", Integer.class);
+
+		mockMvc.perform(post("/api/v1/jobs")
+						.contentType(MediaType.APPLICATION_JSON)
+						.content(body(booking, aMondaySoon().atStartOfDay(DENVER).plusHours(3)
+								.toInstant().toString())))
+				.andExpect(status().isBadRequest());
+
+		assertThat(jdbc.queryForObject("SELECT count(*) FROM mail_outbox", Integer.class)).isEqualTo(before);
 	}
 
 	/** A body the contract itself refuses never reaches the service. */

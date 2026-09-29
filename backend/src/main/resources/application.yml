@@ -2,6 +2,15 @@ spring:
   application:
     name: tradeties-backend
 
+  # Outgoing mail, over SMTP. The defaults are Mailpit from infra/compose.yaml, which accepts
+  # everything and delivers nothing — every message lands in its web inbox at
+  # http://localhost:8025 instead of a real mailbox. Production points these at the provider.
+  mail:
+    host: ${MAIL_HOST:localhost}
+    port: ${MAIL_PORT:1025}
+    username: ${MAIL_USERNAME:}
+    password: ${MAIL_PASSWORD:}
+
   # Java 25 + Boot 4: request handling on virtual threads. Safe here because
   # JDK 24+ no longer pins a virtual thread inside synchronized blocks.
   threads:
@@ -72,6 +81,24 @@ workos:
 tradeties:
   profile-url-prefix: ${PROFILE_URL_PREFIX:tradeties.com/}
 
+  # Where the site itself is, for links that leave it — the one in a customer's confirmation
+  # email above all. Without a scheme and host a link in an email goes nowhere.
+  public-url: ${PUBLIC_URL:http://localhost:3000}
+
+  mail:
+    # What a recipient sees in "From". Production needs an address on a domain whose SPF, DKIM
+    # and DMARC records name the provider, or the messages land in spam.
+    from: ${MAIL_FROM:TradeTies <requests@tradeties.localhost>}
+    # The pass that sends what the outbox holds. See OutboxSender for the retries.
+    sender:
+      # Off in tests, which drive the sender themselves. See src/test/resources.
+      enabled: ${MAIL_SENDER_ENABLED:true}
+      # Every few seconds, because a customer who just pressed "Send request" is looking at
+      # their inbox waiting for it.
+      interval: 10s
+      initial-delay: 10s
+      batch-size: 50
+
   # The customer search answers one page at a time and stops at a cap. Paging makes the
   # list reachable; the cap makes it finite, and the two solve different problems --
   # see BusinessSearchService.
@@ -136,6 +163,12 @@ management:
     health:
       probes:
         enabled: true
+  health:
+    # Not a health concern, by design. The outbox exists so that a mail server being down
+    # costs nothing but a delay — messages wait and are retried. Reporting DOWN for it would
+    # have an orchestrator restart a backend that is working exactly as intended.
+    mail:
+      enabled: false
 
 logging:
   level:
