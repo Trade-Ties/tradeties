@@ -583,6 +583,40 @@ paths:
         "404":
           $ref: "#/components/responses/NotFound"
 
+  /api/v1/marketplace-summary:
+    get:
+      tags: [marketplace]
+      operationId: getMarketplaceSummary
+      security: []
+      summary: How much of the marketplace is open soon.
+      description: |
+        The headline on the landing page, for somebody who has not said where they are yet.
+
+        **The whole marketplace, not a postal code.** Nothing here is "near you": the
+        number is the same for every caller, and a client that prints it beside a place
+        is making a claim this operation cannot back.
+
+        **Free means what a search result would show.** A business counts when the first of
+        its `nextSlots` — as a search without a job would compute them — starts within
+        `windowHours` of now. The notice it requires, its time off and its accepted
+        appointments are subtracted exactly as they are there, so the count never promises
+        an opening the cards behind it do not have.
+
+        **A window and not "today",** because most businesses require a day's notice and
+        today is then empty for all of them. The window is wider than that notice so that it
+        always still holds a whole working day, whatever time of day it is asked.
+
+        **A moment old, on purpose.** The answer may be up to a minute stale. It walks
+        every published calendar, it is asked on every visit to the landing page, and the
+        figure that changes no decision is not worth recomputing per visitor.
+      responses:
+        "200":
+          description: The counts.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MarketplaceSummary"
+
   /api/v1/service-catalog:
     get:
       tags: [marketplace]
@@ -2292,6 +2326,29 @@ components:
           description: |
             True when more results exist than the cap can reach. The pager stops at
             `maximum` pages either way; this is what lets the count say so honestly.
+
+    MarketplaceSummary:
+      type: object
+      description: |
+        Counts across the whole marketplace. Numbers only: nothing here names or narrows to
+        a business.
+      required: [freeWithinWindow, windowHours]
+      properties:
+        freeWithinWindow:
+          type: integer
+          format: int32
+          minimum: 0
+          description: |
+            Published businesses with a bookable start within `windowHours` from now. Zero
+            is an ordinary answer while the marketplace is small.
+        windowHours:
+          type: integer
+          format: int32
+          minimum: 1
+          description: |
+            How far ahead `freeWithinWindow` looked. Sent so that a client printing "in the
+            next 48 hours" reads the number rather than repeating it.
+          examples: [48]
 
     TradeMatch:
       type: object

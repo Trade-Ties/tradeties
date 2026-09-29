@@ -209,6 +209,20 @@ interface BusinessSearchRepository extends Repository<BusinessProfile, UUID> {
 			@Param("ceiling") int ceiling);
 
 	/**
+	 * Every business a search could return from somewhere, with the zone its calendar is kept in.
+	 *
+	 * <p>The {@code service_area} condition is what {@code ST_Covers} in {@link #findServing}
+	 * implies: a published profile without a point is found by no search, so it is free for nobody.
+	 */
+	@Query(value = """
+			SELECT b.id        AS id,
+			       b.time_zone AS timeZone
+			FROM business_profile b
+			WHERE b.status = 'PUBLISHED'
+			  AND b.service_area IS NOT NULL""", nativeQuery = true)
+	List<ZoneRow> findSearchable();
+
+	/**
 	 * One business by the URL it was published under — and only while it is published.
 	 *
 	 * <p><strong>The status is in the query and not in the caller</strong>, for the reason every
@@ -266,5 +280,13 @@ interface BusinessSearchRepository extends Repository<BusinessProfile, UUID> {
 		boolean getLicensed();
 
 		boolean getLicenseVerified();
+	}
+
+	/** What {@link #findSearchable} answers in. */
+	interface ZoneRow {
+
+		UUID getId();
+
+		String getTimeZone();
 	}
 }

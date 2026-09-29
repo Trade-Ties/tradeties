@@ -77,6 +77,9 @@ class SecurityConfig {
 	 * tradesperson never works are the same absence from the same list, which is what stops the
 	 * operation being a way to read somebody's diary by subtraction.
 	 *
+	 * <p>The marketplace summary is the sixth: one count across every published business, taking
+	 * no parameter that could narrow it to one.
+	 *
 	 * <p>Listed one path at a time rather than as {@code /api/v1/reference/**} or a prefix, so
 	 * that opening the next one is a decision somebody has to write down here. The GET is part of
 	 * the rule: {@code /api/v1/businesses} is public to read and has no other method. So is the
@@ -85,7 +88,7 @@ class SecurityConfig {
 	 * {@code /api/v1/businesses/&#123;slug&#125;/availability} a decision rather than an
 	 * inheritance, and keeps the next one under that prefix a decision too.
 	 *
-	 * <p>All eight carry {@code security: []} in {@code api/openapi.yaml}. That declaration
+	 * <p>All nine carry {@code security: []} in {@code api/openapi.yaml}. That declaration
 	 * documents the exception; this line is what actually makes it.
 	 */
 	@Bean
@@ -102,7 +105,7 @@ class SecurityConfig {
 								"/api/v1/trades", "/api/v1/us-states", "/api/v1/time-zones", "/api/v1/service-jobs",
 								"/api/v1/businesses", "/api/v1/businesses/{slug}",
 								"/api/v1/businesses/{slug}/availability",
-								"/api/v1/service-catalog")
+								"/api/v1/service-catalog", "/api/v1/marketplace-summary")
 						.permitAll()
 						.anyRequest().authenticated())
 				.oauth2ResourceServer(oauth2 -> oauth2.jwt(Customizer.withDefaults()))

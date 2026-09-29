@@ -118,6 +118,12 @@ tradeties:
     # ever asks, which nobody picking a tradesperson is likely to.
     max-results: 240
 
+  # How long the landing page's "free in the next 48 hours" count is reused before it is
+  # taken again. It walks every published calendar and is asked on every visit, so it is
+  # not taken per visitor.
+  marketplace:
+    summary-ttl: 60s
+
   # The US Census Bureau's public geocoder, which sharpens a ZIP centroid into a position
   # along the address range. Free, keyless and US-only -- and with no availability promise
   # attached, which is exactly why nothing on the write path waits for it. Configurable so a
