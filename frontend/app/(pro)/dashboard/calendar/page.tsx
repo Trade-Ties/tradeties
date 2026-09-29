@@ -15,7 +15,7 @@ export default async function CalendarPage({
   const view = params[CALENDAR_VIEW_PARAM] === "requests" ? "requests" : "day";
 
   return (
-    <div className="mx-auto w-full max-w-5xl px-8 py-10">
+    <div className="mx-auto w-full max-w-7xl px-8 py-10">
       <Link
         href={DASHBOARD_PATH}
         className="mb-4 inline-flex items-center gap-1.5 text-sm font-medium text-muted-ink hover:text-brand-500"
