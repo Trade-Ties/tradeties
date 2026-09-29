@@ -5,7 +5,9 @@ import Link from "next/link";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
-import { ProCard, proCardView } from "@/components/marketing/ProCard";
+import { Dialog } from "@/components/ui/dialog";
+import { BookingModal } from "@/components/marketing/BookingModal";
+import { ProCard, proCardView, type ProCardSlot, type ProCardView } from "@/components/marketing/ProCard";
 import { PROS, TRADE_ICONS, TRADE_LIST } from "@/components/marketing/pros-data";
 
 const TRADE_FILTERS = ["All", ...TRADE_LIST];
@@ -13,6 +15,10 @@ const TRADE_FILTERS = ["All", ...TRADE_LIST];
 export function AvailabilityRail() {
   const [filter, setFilter] = useState("All");
   const filtered = filter === "All" ? PROS : PROS.filter((p) => p.trade === filter);
+
+  // Kept after closing, so the dialogue still has something to draw while it fades out.
+  const [booking, setBooking] = useState<{ view: ProCardView; slot: ProCardSlot } | null>(null);
+  const [bookingOpen, setBookingOpen] = useState(false);
 
   const railRef = useRef<HTMLDivElement>(null);
   const [canScrollLeft, setCanScrollLeft] = useState(false);
@@ -107,9 +113,20 @@ export function AvailabilityRail() {
               ref={railRef}
               className="rail-scroll flex snap-x snap-mandatory scroll-smooth gap-4 overflow-x-auto p-1"
             >
-              {filtered.map((p) => (
-                <ProCard key={p.name} view={proCardView(p)} className="w-[271px] shrink-0 snap-start" />
-              ))}
+              {filtered.map((p) => {
+                const view = proCardView(p);
+                return (
+                  <ProCard
+                    key={p.name}
+                    view={view}
+                    onBook={(slot) => {
+                      setBooking({ view, slot });
+                      setBookingOpen(true);
+                    }}
+                    className="w-[271px] shrink-0 snap-start"
+                  />
+                );
+              })}
             </div>
 
             <div className="mt-6 flex justify-end gap-1.5">
@@ -137,6 +154,16 @@ export function AvailabilityRail() {
           </>
         )}
       </div>
+
+      <Dialog open={bookingOpen} onOpenChange={setBookingOpen}>
+        {booking && (
+          <BookingModal
+            key={`${booking.view.title} ${booking.slot.key}`}
+            view={booking.view}
+            initialSlot={booking.slot}
+          />
+        )}
+      </Dialog>
     </section>
   );
 }
