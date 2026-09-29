@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
 
-import { fetchMyServices } from "@/lib/api/business";
+import { fetchMyServices, fetchMyWorkingHours } from "@/lib/api/business";
 import { fetchMyTimeOff } from "@/lib/api/calendar";
 import { fetchMyJobRequests } from "@/lib/api/inbox";
 import { portalToken } from "@/lib/portal/session";
@@ -22,10 +22,11 @@ export default async function CalendarPage({
 
   // The same lists the dashboard reads, and it has to be the same: accepting on one screen and
   // still seeing the hour free on the other is the state this slice exists to remove.
-  const [sent, blocked, services] = await Promise.all([
+  const [sent, blocked, services, workingHours] = await Promise.all([
     fetchMyJobRequests(token),
     fetchMyTimeOff(token),
     fetchMyServices(token),
+    fetchMyWorkingHours(token),
   ]);
   const requests = (sent.ok ? sent.data : [])
     .filter((request) => request.status === "PENDING" || request.status === "ACCEPTED")
@@ -45,6 +46,7 @@ export default async function CalendarPage({
         sent={requests}
         blocks={blocked.ok ? blocked.data : []}
         services={serviceOptionsOf(services.ok ? services.data : null)}
+        workingHours={workingHours.ok ? workingHours.data : null}
         initialView={view}
         openOnTimeOff={params[CALENDAR_NEW_PARAM] === "time-off"}
       />

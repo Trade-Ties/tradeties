@@ -106,6 +106,7 @@ function draftFor(
   services: ServiceOption[],
   prefill?: BookingPrefill,
   editing?: Editing,
+  startTime = "09:00",
 ): Draft {
   const serviceId =
     services.find((s) => s.id === prefill?.serviceId)?.id ?? (services.length === 1 ? services[0]!.id : "");
@@ -115,15 +116,15 @@ function draftFor(
   const draft: Draft = {
     kind,
     date,
-    start: "09:00",
-    end: endAfter(date, "09:00", duration),
+    start: startTime,
+    end: endAfter(date, startTime, duration),
     endTouched: false,
     serviceId,
     allDay: true,
     fromDate: date,
     toDate: date,
-    fromTime: "09:00",
-    toTime: "12:00",
+    fromTime: startTime,
+    toTime: endAfter(date, startTime, 180),
     note: "",
     customerName: "",
     phone: "",
@@ -243,6 +244,7 @@ export function NewEntryDialog({
   open,
   onOpenChange,
   day,
+  startTime,
   customers = [],
   services,
   prefill,
@@ -254,6 +256,8 @@ export function NewEntryDialog({
   open: boolean;
   onOpenChange: (open: boolean) => void;
   day: Date;
+  /** `HH:mm` — the half hour clicked in the week. Nine in the morning otherwise. */
+  startTime?: string;
   /** Offered as the customer's name is typed; picking one fills in the rest. */
   customers?: KnownCustomer[];
   /** The business's active services — an appointment is always booked as one of them. */
@@ -268,7 +272,7 @@ export function NewEntryDialog({
   onSaveTimeOff?: (input: TimeOffInput) => Promise<TimeOffSaveResult>;
 }) {
   const [draft, setDraft] = useState<Draft>(() =>
-    draftFor(day, prefill ? "appointment" : initialKind, services, prefill, editing)
+    draftFor(day, prefill ? "appointment" : initialKind, services, prefill, editing, startTime)
   );
   const [tried, setTried] = useState(false);
   const [sending, setSending] = useState(false);

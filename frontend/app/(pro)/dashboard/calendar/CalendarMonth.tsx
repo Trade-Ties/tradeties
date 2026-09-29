@@ -9,6 +9,7 @@ import {
   format,
   isSameDay,
   isSameMonth,
+  startOfDay,
   startOfMonth,
   startOfWeek,
   subMonths,
@@ -20,6 +21,7 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
 import type { TimeOffInput } from "@/lib/api/calendar";
+import type { WorkingHours } from "@/lib/api/wire";
 
 import { AppointmentRow } from "../AppointmentRow";
 import { awayDuring, type StoredTimeOff } from "../blocks";
@@ -35,7 +37,8 @@ import { acceptRequest, declineRequest } from "../actions";
 import { DeclineDialog } from "../DeclineDialog";
 import type { IncomingRequest } from "../requests";
 import { useCalendarWrites } from "../useCalendarWrites";
-import { localDay } from "../wallClock";
+import { localDay, timeField } from "../wallClock";
+import { CalendarWeek } from "./CalendarWeek";
 
 const today = new Date(new Date().setHours(0, 0, 0, 0));
 const WEEKDAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
@@ -46,6 +49,9 @@ const WEEKDAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
  */
 export type CalendarListView = "day" | "requests";
 
+/** The month with the picked day's list beside it, or the picked day's week hour by hour. */
+type CalendarGrid = "month" | "week";
+
 /** A line in a day's list: a customer's appointment or one of the tradesperson's own entries. */
 type DayItem =
   { kind: "appointment"; start: Date; item: DemoAppointment } | { kind: "entry"; start: Date; item: CalendarEntry };
@@ -54,6 +60,7 @@ export function CalendarMonth({
   sent,
   blocks,
   services,
+  workingHours,
   initialView = "day",
   openOnTimeOff = false,
 }: {
@@ -62,6 +69,8 @@ export function CalendarMonth({
   /** Time off and blocked hours, as stored. */
   blocks: StoredTimeOff[];
   services: ServiceOption[];
+  /** Shades the hours outside them in the week. */
+  workingHours: WorkingHours | null;
   initialView?: CalendarListView;
   /** Opens straight into the form on "Time off" — where "Add time off" elsewhere links to. */
   openOnTimeOff?: boolean;
@@ -78,7 +87,10 @@ export function CalendarMonth({
   const [prefill, setPrefill] = useState<BookingPrefill | undefined>();
   // What the form changes, when it was opened on an entry rather than to add one.
   const [editing, setEditing] = useState<Editing | undefined>();
+  // The half hour clicked in the week, which the form starts at.
+  const [formTime, setFormTime] = useState<string | undefined>();
   const [notice, setNotice] = useState<string | null>(null);
+  const [grid, setGrid] = useState<CalendarGrid>("month");
   const [view, setView] = useState<CalendarListView>(initialView);
   const [month, setMonth] = useState(startOfMonth(today));
   const [selected, setSelected] = useState(today);
@@ -126,9 +138,12 @@ export function CalendarMonth({
     setView("day");
   };
 
-  const openForm = (next: { kind?: EntryKind; prefill?: BookingPrefill; editing?: Editing } = {}) => {
+  const openForm = (
+    next: { kind?: EntryKind; prefill?: BookingPrefill; editing?: Editing; startTime?: string } = {}
+  ) => {
     setPrefill(next.prefill);
     setEditing(next.editing);
+    setFormTime(next.startTime);
     setFormKind(next.kind ?? "appointment");
     setFormKey((k) => k + 1);
     setAdding(true);
@@ -162,6 +177,18 @@ export function CalendarMonth({
   };
 
   const rebook = (request: DemoAppointment) => openForm({ prefill: prefillFrom(request) });
+
+  const addAt = (at: Date) => {
+    setOpenId(null);
+    setSelected(startOfDay(at));
+    openForm({ startTime: timeField(at) });
+  };
+
+  // The month the week was in, so switching over keeps the same days in sight.
+  const showGrid = (next: CalendarGrid) => {
+    if (next === "month") setMonth(startOfMonth(selected));
+    setGrid(next);
+  };
 
   /** Whole days and a few hours are one kind of entry on the server, and one form. */
   const editBlock = (id: string) => {
@@ -217,7 +244,15 @@ export function CalendarMonth({
     <>
       <div className="mb-8 flex flex-wrap items-end justify-between gap-3">
         <h1 className="text-3xl font-bold tracking-[-0.02em] text-brand">Calendar</h1>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
+          <div role="tablist" aria-label="Calendar layout" className="flex gap-1 rounded-full bg-brand-50 p-1">
+            <ViewTab active={grid === "month"} onClick={() => showGrid("month")}>
+              Month
+            </ViewTab>
+            <ViewTab active={grid === "week"} onClick={() => showGrid("week")}>
+              Week
+            </ViewTab>
+          </div>
           <Button
             variant="outline"
             onClick={exportAll}
@@ -254,6 +289,7 @@ export function CalendarMonth({
         open={adding}
         onOpenChange={setAdding}
         day={selected}
+        startTime={formTime}
         customers={knownCustomers(appointments)}
         services={services}
         prefill={prefill}
@@ -263,158 +299,190 @@ export function CalendarMonth({
         onSaveTimeOff={saveTimeOff}
       />
 
-      <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-[1.4fr_1fr]">
-        <Card className="gap-4 rounded-3xl border border-line bg-white py-0 shadow-card">
-          <CardHeader className="flex flex-row items-center justify-between px-5 pt-5">
-            <CardTitle className="text-base font-semibold">{format(month, "MMMM yyyy")}</CardTitle>
-            <div className="flex items-center gap-1">
-              <Button
-                variant="ghost"
-                size="icon"
-                aria-label="Previous month"
-                onClick={() => setMonth((m) => subMonths(m, 1))}
-                className="size-8 rounded-full text-muted-ink hover:bg-brand-50 hover:text-brand-500"
-              >
-                <ChevronLeft className="size-4" />
-              </Button>
-              <Button
-                variant="ghost"
-                size="icon"
-                aria-label="Next month"
-                onClick={() => setMonth((m) => addMonths(m, 1))}
-                className="size-8 rounded-full text-muted-ink hover:bg-brand-50 hover:text-brand-500"
-              >
-                <ChevronRight className="size-4" />
-              </Button>
-            </div>
-          </CardHeader>
-          <CardContent className="px-5 pb-5">
-            <div className="grid grid-cols-7 gap-1 text-center text-[11px] font-semibold uppercase text-faint">
-              {WEEKDAY_LABELS.map((d) => (
-                <span key={d} className="py-1.5">
-                  {d}
-                </span>
-              ))}
-            </div>
-
-            <div className="grid grid-cols-7 gap-1">
-              {days.map((day) => {
-                const inMonth = isSameMonth(day, month);
-                const isSelected = isSameDay(day, selected);
-                const isToday = isSameDay(day, today);
-                const dayAppts = appointments.filter((a) => isSameDay(a.date, day));
-                const hasPending = dayAppts.some((a) => a.status === "pending");
-                const hasConfirmed = dayAppts.some((a) => a.status === "confirmed");
-                const hasEntry = entries.some((e) => isSameDay(e.start, day));
-                const off = isOff(day, timeOff) !== undefined;
-                const offOnly = off && !hasPending && !hasConfirmed;
-
-                return (
-                  <button
-                    key={day.toISOString()}
-                    type="button"
-                    onClick={() => {
-                      setSelected(day);
-                      setView("day");
-                      setOpenId(null);
-                    }}
-                    className={cn(
-                      "flex aspect-square flex-col items-center justify-center gap-1 rounded-xl text-sm transition-colors",
-                      !inMonth && "text-faint/60",
-                      inMonth && !isSelected && !off && "text-foreground hover:bg-brand-50",
-                      // Away: greyed, still selectable to see what is on it.
-                      inMonth && !isSelected && off && "bg-slate-100 text-faint hover:bg-slate-200/70",
-                      isSelected && "bg-brand text-white"
-                    )}
-                  >
-                    <span className={isToday && !isSelected ? "font-bold text-brand-500" : "font-medium"}>
-                      {format(day, "d")}
-                    </span>
-                    {/* One dot per kind of thing on the day: a request, a confirmed job, your own entry.
-                        A day away says so instead — unless something booked is still on it. */}
-                    {offOnly && (
-                      <span
-                        className={cn(
-                          "h-1.5 text-[9px] leading-[6px] font-semibold uppercase",
-                          isSelected ? "text-white/80" : "text-faint"
-                        )}
-                      >
-                        Off
-                      </span>
-                    )}
-                    <span className={cn("flex h-1.5 gap-0.5", offOnly && "hidden")}>
-                      {hasPending && <Dot className={isSelected ? "bg-white" : "bg-amber-500"} />}
-                      {hasConfirmed && <Dot className={isSelected ? "bg-white" : "bg-go"} />}
-                      {hasEntry && <Dot className={isSelected ? "bg-white/60" : "bg-slate-400"} />}
-                    </span>
-                  </button>
-                );
-              })}
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* The same panel the dashboard opens, in place of the day's list rather than beside it:
-          a third column does not fit this page's width. Closing it goes back to the list. */}
-        {open !== null ? (
-          <DetailPanel
-            selection={{ type: "appointment", item: open }}
-            onClose={() => setOpenId(null)}
-            onConfirm={confirm}
-            onDecline={decline}
-            onRebook={rebook}
-            onChange={(appointment) => openForm({ editing: { kind: "appointment", appointment } })}
-            onRemove={removeBooked}
-            className=""
-          />
-        ) : (
+      {grid === "week" ? (
+        <CalendarWeek
+          selected={selected}
+          appointments={appointments}
+          entries={entries}
+          timeOff={timeOff}
+          workingHours={workingHours}
+          openId={openId}
+          onSelectDay={setSelected}
+          onOpen={(appointment) => setOpenId(appointment.id)}
+          onAdd={addAt}
+          onEditBlock={editBlock}
+          onRemoveBlock={removeBlock}
+          aside={
+            open && (
+              <DetailPanel
+                selection={{ type: "appointment", item: open }}
+                onClose={() => setOpenId(null)}
+                onConfirm={confirm}
+                onDecline={decline}
+                onRebook={rebook}
+                onChange={(appointment) => openForm({ editing: { kind: "appointment", appointment } })}
+                onRemove={removeBooked}
+                // As tall as the grid, so the panel can stay in sight while the page scrolls; only
+                // the panel itself takes clicks, not the days beneath the rest of that height.
+                className="pointer-events-none h-full *:pointer-events-auto"
+              />
+            )
+          }
+        />
+      ) : (
+        <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-[1.4fr_1fr]">
           <Card className="gap-4 rounded-3xl border border-line bg-white py-0 shadow-card">
-            <CardHeader className="flex flex-col gap-3 px-5 pt-5">
-              <div role="tablist" aria-label="Show" className="flex w-full gap-1 rounded-full bg-brand-50 p-1">
-                <ViewTab active={view === "day"} onClick={() => setView("day")}>
-                  {format(selected, "MMM d")}
-                </ViewTab>
-                <ViewTab active={view === "requests"} onClick={() => setView("requests")}>
-                  Requests{requests.length > 0 && ` (${requests.length})`}
-                </ViewTab>
+            <CardHeader className="flex flex-row items-center justify-between px-5 pt-5">
+              <CardTitle className="text-base font-semibold">{format(month, "MMMM yyyy")}</CardTitle>
+              <div className="flex items-center gap-1">
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  aria-label="Previous month"
+                  onClick={() => setMonth((m) => subMonths(m, 1))}
+                  className="size-8 rounded-full text-muted-ink hover:bg-brand-50 hover:text-brand-500"
+                >
+                  <ChevronLeft className="size-4" />
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  aria-label="Next month"
+                  onClick={() => setMonth((m) => addMonths(m, 1))}
+                  className="size-8 rounded-full text-muted-ink hover:bg-brand-50 hover:text-brand-500"
+                >
+                  <ChevronRight className="size-4" />
+                </Button>
               </div>
-              <CardTitle className="text-base font-semibold">
-                {view === "day" ? format(selected, "EEEE, MMMM d") : "Needs your response"}
-              </CardTitle>
             </CardHeader>
             <CardContent className="px-5 pb-5">
-              {view === "day" && selectedOff && (
-                <div className={cn(listed.length > 0 && "mb-2")}>
-                  <TimeOffBanner off={selectedOff} onEdit={editBlock} onRemove={removeBlock} />
-                </div>
-              )}
-              {listed.length === 0 && view === "day" && selectedOff ? null : listed.length === 0 ? (
-                <p className="rounded-2xl border border-dashed border-line py-6 text-center text-sm text-muted-ink">
-                  {view === "day" ? "Nothing booked this day." : "You're all caught up — no requests waiting."}
-                </p>
-              ) : (
-                <div className="flex flex-col gap-2">
-                  {listed.map((line) =>
-                    line.kind === "appointment" ? (
-                      <AppointmentRow
-                        key={line.item.id}
-                        appointment={line.item}
-                        onConfirm={confirm}
-                        onDecline={decline}
-                        onSelect={(appointment) => setOpenId(appointment.id)}
-                        showDate={view === "requests"}
-                        away={awayDuring(line.item, timeOff, entries)}
-                      />
-                    ) : (
-                      <EntryRow key={line.item.id} entry={line.item} onEdit={editBlock} onRemove={removeBlock} />
-                    ),
-                  )}
-                </div>
-              )}
+              <div className="grid grid-cols-7 gap-1 text-center text-[11px] font-semibold uppercase text-faint">
+                {WEEKDAY_LABELS.map((d) => (
+                  <span key={d} className="py-1.5">
+                    {d}
+                  </span>
+                ))}
+              </div>
+
+              <div className="grid grid-cols-7 gap-1">
+                {days.map((day) => {
+                  const inMonth = isSameMonth(day, month);
+                  const isSelected = isSameDay(day, selected);
+                  const isToday = isSameDay(day, today);
+                  const dayAppts = appointments.filter((a) => isSameDay(a.date, day));
+                  const hasPending = dayAppts.some((a) => a.status === "pending");
+                  const hasConfirmed = dayAppts.some((a) => a.status === "confirmed");
+                  const hasEntry = entries.some((e) => isSameDay(e.start, day));
+                  const off = isOff(day, timeOff) !== undefined;
+                  const offOnly = off && !hasPending && !hasConfirmed;
+
+                  return (
+                    <button
+                      key={day.toISOString()}
+                      type="button"
+                      onClick={() => {
+                        setSelected(day);
+                        setView("day");
+                        setOpenId(null);
+                      }}
+                      className={cn(
+                        "flex aspect-square flex-col items-center justify-center gap-1 rounded-xl text-sm transition-colors",
+                        !inMonth && "text-faint/60",
+                        inMonth && !isSelected && !off && "text-foreground hover:bg-brand-50",
+                        // Away: greyed, still selectable to see what is on it.
+                        inMonth && !isSelected && off && "bg-slate-100 text-faint hover:bg-slate-200/70",
+                        isSelected && "bg-brand text-white"
+                      )}
+                    >
+                      <span className={isToday && !isSelected ? "font-bold text-brand-500" : "font-medium"}>
+                        {format(day, "d")}
+                      </span>
+                      {/* One dot per kind of thing on the day: a request, a confirmed job, your own entry.
+                          A day away says so instead — unless something booked is still on it. */}
+                      {offOnly && (
+                        <span
+                          className={cn(
+                            "h-1.5 text-[9px] leading-[6px] font-semibold uppercase",
+                            isSelected ? "text-white/80" : "text-faint"
+                          )}
+                        >
+                          Off
+                        </span>
+                      )}
+                      <span className={cn("flex h-1.5 gap-0.5", offOnly && "hidden")}>
+                        {hasPending && <Dot className={isSelected ? "bg-white" : "bg-amber-500"} />}
+                        {hasConfirmed && <Dot className={isSelected ? "bg-white" : "bg-go"} />}
+                        {hasEntry && <Dot className={isSelected ? "bg-white/60" : "bg-slate-400"} />}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
             </CardContent>
           </Card>
-        )}
-      </div>
+
+          {/* The same panel the dashboard opens, in place of the day's list rather than beside it:
+            a third column does not fit this page's width. Closing it goes back to the list. */}
+          {open !== null ? (
+            <DetailPanel
+              selection={{ type: "appointment", item: open }}
+              onClose={() => setOpenId(null)}
+              onConfirm={confirm}
+              onDecline={decline}
+              onRebook={rebook}
+              onChange={(appointment) => openForm({ editing: { kind: "appointment", appointment } })}
+              onRemove={removeBooked}
+              className=""
+            />
+          ) : (
+            <Card className="gap-4 rounded-3xl border border-line bg-white py-0 shadow-card">
+              <CardHeader className="flex flex-col gap-3 px-5 pt-5">
+                <div role="tablist" aria-label="Show" className="flex w-full gap-1 rounded-full bg-brand-50 p-1">
+                  <ViewTab active={view === "day"} onClick={() => setView("day")}>
+                    {format(selected, "MMM d")}
+                  </ViewTab>
+                  <ViewTab active={view === "requests"} onClick={() => setView("requests")}>
+                    Requests{requests.length > 0 && ` (${requests.length})`}
+                  </ViewTab>
+                </div>
+                <CardTitle className="text-base font-semibold">
+                  {view === "day" ? format(selected, "EEEE, MMMM d") : "Needs your response"}
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="px-5 pb-5">
+                {view === "day" && selectedOff && (
+                  <div className={cn(listed.length > 0 && "mb-2")}>
+                    <TimeOffBanner off={selectedOff} onEdit={editBlock} onRemove={removeBlock} />
+                  </div>
+                )}
+                {listed.length === 0 && view === "day" && selectedOff ? null : listed.length === 0 ? (
+                  <p className="rounded-2xl border border-dashed border-line py-6 text-center text-sm text-muted-ink">
+                    {view === "day" ? "Nothing booked this day." : "You're all caught up — no requests waiting."}
+                  </p>
+                ) : (
+                  <div className="flex flex-col gap-2">
+                    {listed.map((line) =>
+                      line.kind === "appointment" ? (
+                        <AppointmentRow
+                          key={line.item.id}
+                          appointment={line.item}
+                          onConfirm={confirm}
+                          onDecline={decline}
+                          onSelect={(appointment) => setOpenId(appointment.id)}
+                          showDate={view === "requests"}
+                          away={awayDuring(line.item, timeOff, entries)}
+                        />
+                      ) : (
+                        <EntryRow key={line.item.id} entry={line.item} onEdit={editBlock} onRemove={removeBlock} />
+                      ),
+                    )}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          )}
+        </div>
+      )}
     </>
   );
 }
