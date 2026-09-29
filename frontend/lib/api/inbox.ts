@@ -1,7 +1,8 @@
 import "server-only";
 
 import { apiClient } from "./client";
-import { attempt, type ApiResult } from "./problem";
+import { APPOINTMENT_CONFLICTS } from "./failure";
+import { answer, attempt, failureOf, type ApiFailure, type ApiResult } from "./problem";
 import type { components } from "./schema";
 
 /**
@@ -14,6 +15,50 @@ import type { components } from "./schema";
 
 export type BusinessJobRequest = components["schemas"]["BusinessJobRequest"];
 export type JobRequestStatus = components["schemas"]["JobRequestStatus"];
+export type AppointmentInput = components["schemas"]["AppointmentInput"];
+export type AppointmentChange = components["schemas"]["AppointmentChange"];
+export type AppointmentConflict = components["schemas"]["AppointmentConflict"];
+export type AppointmentResolution = components["schemas"]["AppointmentResolution"];
+
+/**
+ * `conflicts` is a refusal to render rather than a sentence to show: the accepted appointments in
+ * the way, which the form puts to the tradesperson before sending the same body again.
+ */
+export type AppointmentOutcome =
+  | { outcome: "saved"; request: BusinessJobRequest }
+  | { outcome: "conflicts"; conflicts: AppointmentConflict[] }
+  | { outcome: "failed"; failure: ApiFailure };
+
+function isConflictList(body: unknown): body is { conflicts: AppointmentConflict[] } {
+  if (typeof body !== "object" || body === null) return false;
+
+  const candidate = body as { type?: unknown; conflicts?: unknown };
+  return candidate.type === APPOINTMENT_CONFLICTS && Array.isArray(candidate.conflicts);
+}
+
+/** `answer` rather than `attempt`: a typed 409 carries the appointments in the way. */
+async function settled(
+  endpoint: string,
+  call: () => Promise<{ data?: BusinessJobRequest; error?: unknown; response: Response }>,
+): Promise<AppointmentOutcome> {
+  const answered = await answer<BusinessJobRequest>(endpoint, call);
+
+  if (!answered.reached) {
+    return { outcome: "failed", failure: answered.failure };
+  }
+
+  const { data, error, response } = answered;
+
+  if (response.ok) {
+    return { outcome: "saved", request: data as BusinessJobRequest };
+  }
+
+  if (response.status === 409 && isConflictList(error)) {
+    return { outcome: "conflicts", conflicts: error.conflicts };
+  }
+
+  return { outcome: "failed", failure: failureOf(endpoint, response, error) };
+}
 
 /**
  * Every request this business has had, soonest appointment first.
@@ -59,6 +104,35 @@ export function declineJobRequest(
     apiClient(accessToken).POST("/api/v1/me/business/job-requests/{requestId}/decline", {
       params: { path: { requestId } },
       body: { reason },
+    }),
+  );
+}
+
+/** A customer booked in directly: accepted the moment it is written. */
+export function bookAppointment(accessToken: string, body: AppointmentInput): Promise<AppointmentOutcome> {
+  return settled("POST /api/v1/me/business/appointments", () =>
+    apiClient(accessToken).POST("/api/v1/me/business/appointments", { body }),
+  );
+}
+
+/** Any accepted appointment; a 422 for a request still waiting for an answer. */
+export function changeAppointment(
+  accessToken: string,
+  requestId: string,
+  body: AppointmentChange,
+): Promise<AppointmentOutcome> {
+  return settled("PUT /api/v1/me/business/appointments/{requestId}", () =>
+    apiClient(accessToken).PUT("/api/v1/me/business/appointments/{requestId}", {
+      params: { path: { requestId } },
+      body,
+    }),
+  );
+}
+
+export function removeAppointment(accessToken: string, requestId: string): Promise<ApiResult<void>> {
+  return attempt("DELETE /api/v1/me/business/appointments/{requestId}", () =>
+    apiClient(accessToken).DELETE("/api/v1/me/business/appointments/{requestId}", {
+      params: { path: { requestId } },
     }),
   );
 }

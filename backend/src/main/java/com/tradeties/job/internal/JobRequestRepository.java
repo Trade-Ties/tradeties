@@ -7,6 +7,8 @@ import java.util.Optional;
 import java.util.UUID;
 
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
+import org.springframework.data.jpa.repository.Query;
 
 interface JobRequestRepository extends JpaRepository<JobRequestRow, UUID> {
 
@@ -49,4 +51,17 @@ interface JobRequestRepository extends JpaRepository<JobRequestRow, UUID> {
 	/** Accepted appointments that could collide with a span, for the business being written to. */
 	List<JobRequestRow> findByBusinessIdAndStatusAndEndsAtAfterAndStartsAtBefore(
 			UUID businessId, RequestStatus status, Instant from, Instant to);
+
+	/** The same question over several states — what new time off lands on. */
+	List<JobRequestRow> findByBusinessIdAndStatusInAndEndsAtAfterAndStartsAtBeforeOrderByStartsAtAsc(
+			UUID businessId, Collection<RequestStatus> statuses, Instant from, Instant to);
+
+	/**
+	 * Moves the overlap check to the end of the current transaction, for one that rearranges
+	 * several appointments: a swap overlaps between its two updates. Only for a caller that has
+	 * checked the end state itself — see V28.
+	 */
+	@Modifying
+	@Query(value = "SET CONSTRAINTS job_request_no_overlapping_appointments DEFERRED", nativeQuery = true)
+	void deferOverlapCheck();
 }

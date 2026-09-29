@@ -19,18 +19,23 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
+import type { TimeOffInput } from "@/lib/api/calendar";
+
 import { AppointmentRow } from "../AppointmentRow";
+import { awayDuring, type StoredTimeOff } from "../blocks";
 import { appointmentStart, calendarFile, downloadCalendarFile } from "../calendarFile";
 import { DetailPanel } from "../DetailPanel";
 import { EntryRow } from "../EntryRow";
-import { isOff, knownCustomers, type CalendarEntry, type DemoAppointment, type TimeOff } from "../demo-data";
-import { prefillFrom, type BookingPrefill, type NewBooking } from "../booking";
+import { isOff, knownCustomers, type CalendarEntry, type DemoAppointment } from "../demo-data";
+import { prefillFrom, type BookingPrefill, type BookResult, type NewBooking, type ServiceOption } from "../booking";
 import { BookedNotice } from "../BookedNotice";
-import { NewEntryDialog, type EntryKind } from "../NewEntryDialog";
+import { NewEntryDialog, type Editing, type EntryKind } from "../NewEntryDialog";
 import { TimeOffBanner } from "../TimeOffBanner";
 import { acceptRequest, declineRequest } from "../actions";
 import { DeclineDialog } from "../DeclineDialog";
-import { asAppointment, type IncomingRequest } from "../requests";
+import type { IncomingRequest } from "../requests";
+import { useCalendarWrites } from "../useCalendarWrites";
+import { localDay } from "../wallClock";
 
 const today = new Date(new Date().setHours(0, 0, 0, 0));
 const WEEKDAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
@@ -47,31 +52,32 @@ type DayItem =
 
 export function CalendarMonth({
   sent,
-  entries: initialEntries,
-  timeOff: initialTimeOff,
+  blocks,
+  services,
   initialView = "day",
   openOnTimeOff = false,
 }: {
   /** What customers asked for. Named apart from the `requests` view below, which is a day's rows. */
   sent: IncomingRequest[];
-  entries: CalendarEntry[];
-  timeOff: TimeOff[];
+  /** Time off and blocked hours, as stored. */
+  blocks: StoredTimeOff[];
+  services: ServiceOption[];
   initialView?: CalendarListView;
   /** Opens straight into the form on "Time off" — where "Add time off" elsewhere links to. */
   openOnTimeOff?: boolean;
 }) {
-  // Days built here rather than on the server, for the reason `requests.ts` gives.
-  const [appointments, setAppointments] = useState(() => sent.map(asAppointment));
+  const writes = useCalendarWrites(sent, blocks);
+  const { appointments, setAppointments, entries, timeOff } = writes;
   const [refusal, setRefusal] = useState<{ message: string; gone: boolean } | null>(null);
   const [declining, setDeclining] = useState<DemoAppointment | null>(null);
-  const [entries, setEntries] = useState(initialEntries);
-  const [timeOff, setTimeOff] = useState(initialTimeOff);
   const [adding, setAdding] = useState(openOnTimeOff);
   const [formKind, setFormKind] = useState<EntryKind>(openOnTimeOff ? "timeOff" : "appointment");
   // Bumped on every opening, so the form starts empty and on the day picked now.
   const [formKey, setFormKey] = useState(0);
   // Who the form is booking for, when it was opened from their request rather than from scratch.
   const [prefill, setPrefill] = useState<BookingPrefill | undefined>();
+  // What the form changes, when it was opened on an entry rather than to add one.
+  const [editing, setEditing] = useState<Editing | undefined>();
   const [notice, setNotice] = useState<string | null>(null);
   const [view, setView] = useState<CalendarListView>(initialView);
   const [month, setMonth] = useState(startOfMonth(today));
@@ -119,29 +125,66 @@ export function CalendarMonth({
     setMonth(startOfMonth(start));
     setView("day");
   };
-  const addEntry = (entry: Omit<CalendarEntry, "id">) => {
-    setEntries((prev) => [...prev, { ...entry, id: `e${Date.now()}` }]);
-    showDay(entry.start);
-  };
-  const addAppointment = ({ appointment, notify, replacesId }: NewBooking) => {
-    setAppointments((prev) => [...prev.filter((a) => a.id !== replacesId), { ...appointment, id: `a${Date.now()}` }]);
-    setOpenId(null);
-    setNotice(notify ? `Booked — a confirmation is on its way to ${appointment.email}.` : "Booked.");
-    showDay(appointment.date);
-  };
 
-  const rebook = (request: DemoAppointment) => {
-    setPrefill(prefillFrom(request));
+  const openForm = (next: { kind?: EntryKind; prefill?: BookingPrefill; editing?: Editing } = {}) => {
+    setPrefill(next.prefill);
+    setEditing(next.editing);
+    setFormKind(next.kind ?? "appointment");
     setFormKey((k) => k + 1);
     setAdding(true);
   };
-  const removeEntry = (id: string) => setEntries((prev) => prev.filter((e) => e.id !== id));
 
-  const addTimeOff = (off: Omit<TimeOff, "id">) => {
-    setTimeOff((prev) => [...prev, { ...off, id: `t${Date.now()}` }]);
-    showDay(off.from);
+  const book = async (booking: NewBooking): Promise<BookResult> => {
+    const changing = editing?.kind === "appointment" ? editing.appointment.id : undefined;
+    const result = await writes.book(booking, changing);
+
+    if (result.kind !== "saved") return result;
+
+    setOpenId(null);
+    setNotice(
+      changing
+        ? "Saved."
+        : booking.notify
+          ? `Booked — a confirmation is on its way to ${booking.appointment.email}.`
+          : "Booked."
+    );
+    showDay(result.booked.date);
+    return { kind: "saved" };
   };
-  const removeTimeOff = (id: string) => setTimeOff((prev) => prev.filter((t) => t.id !== id));
+
+  const saveTimeOff = async (input: TimeOffInput) => {
+    const result = await writes.saveTimeOff(input, editing?.kind === "timeOff" ? editing.block : undefined);
+
+    if (result.kind === "saved") {
+      showDay(localDay(input.allDay ? input.firstDay! : input.startsAt!.slice(0, 10)));
+    }
+    return result;
+  };
+
+  const rebook = (request: DemoAppointment) => openForm({ prefill: prefillFrom(request) });
+
+  /** Whole days and a few hours are one kind of entry on the server, and one form. */
+  const editBlock = (id: string) => {
+    const block = writes.blocks.find((b) => b.id === id);
+    if (block) openForm({ kind: "timeOff", editing: { kind: "timeOff", block } });
+  };
+
+  const removeBlock = async (id: string) => {
+    const message = await writes.removeTimeOff(id);
+    if (message !== null) setRefusal({ message, gone: false });
+  };
+
+  const removeBooked = async (id: string) => {
+    const message = await writes.removeAppointment(id);
+
+    if (message !== null) {
+      setRefusal({ message, gone: false });
+      return;
+    }
+
+    setOpenId(null);
+    setNotice("Removed from your calendar.");
+  };
 
   const exportAll = () => downloadCalendarFile("tradeties-calendar.ics", calendarFile(appointments, entries, timeOff));
   const selectedOff = isOff(selected, timeOff);
@@ -183,15 +226,7 @@ export function CalendarMonth({
             <Download className="size-4" />
             Export
           </Button>
-          <Button
-            onClick={() => {
-              setPrefill(undefined);
-              setFormKind("appointment");
-              setFormKey((k) => k + 1);
-              setAdding(true);
-            }}
-            className="h-9 gap-1.5 rounded-full px-4 text-sm font-semibold"
-          >
+          <Button onClick={() => openForm()} className="h-9 gap-1.5 rounded-full px-4 text-sm font-semibold">
             <Plus className="size-4" />
             New entry
           </Button>
@@ -220,12 +255,12 @@ export function CalendarMonth({
         onOpenChange={setAdding}
         day={selected}
         customers={knownCustomers(appointments)}
+        services={services}
         prefill={prefill}
-        appointments={appointments}
+        editing={editing}
         initialKind={formKind}
-        onAddEntry={addEntry}
-        onAddAppointment={addAppointment}
-        onAddTimeOff={addTimeOff}
+        onBook={book}
+        onSaveTimeOff={saveTimeOff}
       />
 
       <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-[1.4fr_1fr]">
@@ -328,6 +363,8 @@ export function CalendarMonth({
             onConfirm={confirm}
             onDecline={decline}
             onRebook={rebook}
+            onChange={(appointment) => openForm({ editing: { kind: "appointment", appointment } })}
+            onRemove={removeBooked}
             className=""
           />
         ) : (
@@ -348,7 +385,7 @@ export function CalendarMonth({
             <CardContent className="px-5 pb-5">
               {view === "day" && selectedOff && (
                 <div className={cn(listed.length > 0 && "mb-2")}>
-                  <TimeOffBanner off={selectedOff} onRemove={removeTimeOff} />
+                  <TimeOffBanner off={selectedOff} onEdit={editBlock} onRemove={removeBlock} />
                 </div>
               )}
               {listed.length === 0 && view === "day" && selectedOff ? null : listed.length === 0 ? (
@@ -366,9 +403,10 @@ export function CalendarMonth({
                         onDecline={decline}
                         onSelect={(appointment) => setOpenId(appointment.id)}
                         showDate={view === "requests"}
+                        away={awayDuring(line.item, timeOff, entries)}
                       />
                     ) : (
-                      <EntryRow key={line.item.id} entry={line.item} onRemove={removeEntry} />
+                      <EntryRow key={line.item.id} entry={line.item} onEdit={editBlock} onRemove={removeBlock} />
                     ),
                   )}
                 </div>

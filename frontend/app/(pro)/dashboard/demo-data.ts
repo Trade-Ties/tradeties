@@ -76,6 +76,10 @@ export interface DemoAppointment {
    * tradesperson may already know them.
    */
   bookedBy?: "pro";
+  /** The business's own service it was asked for or booked as. */
+  serviceId?: string;
+  /** False where the customer typed the details themselves: those stay theirs. */
+  detailsEditable?: boolean;
 }
 
 export const DEMO_APPOINTMENTS: DemoAppointment[] = [
@@ -151,9 +155,9 @@ export const DEMO_APPOINTMENTS: DemoAppointment[] = [
 ];
 
 /**
- * Something the tradesperson put in their own calendar — a supplier run, a day off, a job booked
- * outside TradeTies. It is theirs rather than a customer's, and it holds the time: nobody can be
- * booked into it.
+ * A few hours the tradesperson took off their own calendar — a supplier run, a job booked outside
+ * TradeTies. It holds the time: nobody can be booked into it. Drawn from stored entries, see
+ * `blocks.ts`.
  */
 export interface CalendarEntry {
   id: string;
@@ -163,23 +167,12 @@ export interface CalendarEntry {
   notes?: string;
 }
 
-export const DEMO_ENTRIES: CalendarEntry[] = [
-  {
-    id: "e1",
-    title: "Supplier pickup",
-    start: new Date(addDays(today, 1).setHours(7, 30)),
-    end: new Date(addDays(today, 1).setHours(8, 30)),
-    notes: "Collect the water heater order at Ferguson.",
-  },
-];
-
 /**
  * Days the tradesperson is away — a vacation, a trade show, a surgery — and whole days off: no
  * slot inside is offered to customers.
  *
- * Whole days, both ends included, in the business's own calendar. The backend already stores
- * this (`availability_time_off`) and already leaves it out of the free slots; what it does not
- * have yet is a way to write it, which is why this is demo data.
+ * Whole days, both ends included, in the business's own calendar. The dashboard draws stored
+ * entries in this shape — see `blocks.ts`.
  */
 export interface TimeOff {
   id: string;
@@ -189,15 +182,6 @@ export interface TimeOff {
   to: Date;
   note?: string;
 }
-
-export const DEMO_TIME_OFF: TimeOff[] = [
-  {
-    id: "t1",
-    from: addDays(today, 16),
-    to: addDays(today, 22),
-    note: "Family vacation",
-  },
-];
 
 /** Whether a day falls inside a stretch of time off. */
 export function isOff(day: Date, timeOff: TimeOff[]): TimeOff | undefined {

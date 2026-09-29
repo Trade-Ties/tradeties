@@ -2,15 +2,17 @@ import Link from "next/link";
 import { ArrowRight, CalendarCheck, Clock3, Mail } from "lucide-react";
 
 import { buttonVariants } from "@/components/ui/button";
-import { fetchMyBusiness, fetchMyReadiness, fetchMyTrades } from "@/lib/api/business";
+import { fetchMyBusiness, fetchMyReadiness, fetchMyServices, fetchMyTrades } from "@/lib/api/business";
+import { fetchMyTimeOff } from "@/lib/api/calendar";
 import { fetchMyJobRequests } from "@/lib/api/inbox";
 import { dayOf } from "@/components/marketing/availability";
 import { portalSession, portalToken } from "@/lib/portal/session";
 import { CALENDAR_PATH, CALENDAR_REQUESTS_PATH, INBOX_UNREAD_PATH, WIZARD_PATH } from "@/lib/routes";
 
+import { serviceOptionsOf } from "./booking";
 import { DashboardShell } from "./DashboardShell";
 import { StatTile } from "./StatTile";
-import { DEMO_ENTRIES, DEMO_MESSAGES, DEMO_REVIEWS, DEMO_TIME_OFF } from "./demo-data";
+import { DEMO_MESSAGES, DEMO_REVIEWS } from "./demo-data";
 import { incoming } from "./requests";
 import { RatingBadge } from "./RatingBadge";
 
@@ -18,19 +20,21 @@ export default async function DashboardPage() {
   const { user } = await portalSession();
   const token = await portalToken();
 
-  const [business, trades, readiness, sent] = await Promise.all([
+  const [business, trades, readiness, sent, blocked, services] = await Promise.all([
     fetchMyBusiness(token),
     fetchMyTrades(token),
     fetchMyReadiness(token),
     fetchMyJobRequests(token),
+    fetchMyTimeOff(token),
+    fetchMyServices(token),
   ]);
 
   const primaryTrade = trades.ok ? trades.data?.primary?.displayName : undefined;
   const needsSetup = !business.ok || business.data === null || (readiness.ok && readiness.data?.ready === false);
 
   /*
-    Real requests now, and only the two states the calendar draws: a declined one was never on
-    it, and withdrawal and cancellation are the customer's to make and nothing writes them yet.
+    Only the two states the calendar draws: a declined, withdrawn or cancelled request no longer
+    holds any time.
 
     A business with no profile answers 404 rather than an empty list, which is the same thing to
     this page — there is nothing to show either way, and the setup banner below says why.
@@ -52,8 +56,8 @@ export default async function DashboardPage() {
   return (
     <DashboardShell
       requests={requests}
-      entries={DEMO_ENTRIES}
-      timeOff={DEMO_TIME_OFF}
+      blocks={blocked.ok ? blocked.data : []}
+      services={serviceOptionsOf(services.ok ? services.data : null)}
       messages={DEMO_MESSAGES}
     >
       <div className="mb-8 flex flex-wrap items-end justify-between gap-4">

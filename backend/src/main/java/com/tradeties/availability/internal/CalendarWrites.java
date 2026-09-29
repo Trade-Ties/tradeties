@@ -9,11 +9,11 @@ import java.util.UUID;
 import com.tradeties.availability.BookingRules;
 import com.tradeties.availability.HoursBlock;
 import com.tradeties.availability.OpenDay;
+import com.tradeties.availability.StaleCalendarException;
 import com.tradeties.availability.WorkingWeek;
 import com.tradeties.business.OnboardingProgress;
 import com.tradeties.business.OnboardingStep;
 
-import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -82,7 +82,8 @@ class CalendarWrites {
 		BookingPolicyRow policy = lock(businessId);
 
 		if (policy.version() != expectedVersion) {
-			throw new OptimisticLockingFailureException("The booking rules changed since they were read");
+			throw new StaleCalendarException(
+					"The booking rules changed since you loaded them. Reload and apply your edit again.");
 		}
 
 		policy.apply(rules);

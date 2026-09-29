@@ -14,12 +14,17 @@ import java.util.UUID;
  * <p>The money and the duration are the snapshot, not today's profile. What the customer agreed
  * to is what the tradesperson is deciding on.
  *
+ * @param bookedBy who put it in the calendar: only the business's own appointments can be moved
+ * @param detailsFrom who entered the customer's details — the customer's own words stay theirs
  * @param preferredContact null when the customer did not say, which is neither answer
  * @param declineReason present exactly when the request was declined
  */
 public record BusinessRequest(
 		UUID id,
 		RequestState status,
+		UUID serviceId,
+		BookingParty bookedBy,
+		BookingParty detailsFrom,
 		Instant startsAt,
 		Instant endsAt,
 		String timeZone,

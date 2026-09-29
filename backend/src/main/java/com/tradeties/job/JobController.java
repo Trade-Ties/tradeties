@@ -73,7 +73,7 @@ class JobController implements JobApi {
 	private static JobRequestSummary summary(PlacedJob placed) {
 		return new JobRequestSummary()
 				.id(placed.requestId())
-				// Nothing can accept one yet, so a fresh request has only the one status.
+				// A customer's request always arrives pending; only the business answers it.
 				.status(JobRequestStatus.PENDING)
 				.businessSlug(placed.businessSlug())
 				.businessName(placed.businessName())

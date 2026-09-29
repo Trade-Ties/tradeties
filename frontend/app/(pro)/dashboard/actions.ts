@@ -4,8 +4,17 @@ import { revalidatePath } from "next/cache";
 
 import { signOut, withAuth } from "@workos-inc/authkit-nextjs";
 
+import * as calendar from "@/lib/api/calendar";
+import type { TimeOff, TimeOffConflict, TimeOffInput } from "@/lib/api/calendar";
+import { isAlreadyGone } from "@/lib/api/failure";
 import { registerAsTradesperson } from "@/lib/api/identity";
 import * as api from "@/lib/api/inbox";
+import type {
+  AppointmentChange,
+  AppointmentConflict,
+  AppointmentInput,
+  BusinessJobRequest,
+} from "@/lib/api/inbox";
 import { portalToken as token } from "@/lib/portal/session";
 import { DASHBOARD_PATH } from "@/lib/routes";
 
@@ -78,6 +87,79 @@ export async function acceptRequest(requestId: string): Promise<Answered> {
  */
 export async function declineRequest(requestId: string, reason: string): Promise<Answered> {
   const result = await api.declineJobRequest(await token(), requestId, reason);
+
+  if (result.ok) {
+    revalidatePath(DASHBOARD_PATH);
+    return { ok: true };
+  }
+
+  return { ok: false, gone: false, message: result.failure.detail };
+}
+
+/** `conflicts` is not a failure: it is the list the dialog puts to the tradesperson next. */
+export type TimeOffSaved =
+  | { kind: "saved"; timeOff: TimeOff }
+  | { kind: "conflicts"; conflicts: TimeOffConflict[] }
+  | { kind: "refused"; message: string };
+
+/** Adds time off, or replaces the entry named by `existing`. */
+export async function saveTimeOff(
+  input: TimeOffInput,
+  existing?: { id: string; version: number },
+): Promise<TimeOffSaved> {
+  const outcome = await calendar.saveMyTimeOff(await token(), input, existing);
+
+  if (outcome.outcome === "saved") {
+    revalidatePath(DASHBOARD_PATH);
+    return { kind: "saved", timeOff: outcome.timeOff };
+  }
+
+  if (outcome.outcome === "conflicts") {
+    return { kind: "conflicts", conflicts: outcome.conflicts };
+  }
+
+  return { kind: "refused", message: outcome.failure.detail };
+}
+
+/** Already gone is what was asked for — a second tab removed it first. */
+export async function deleteTimeOff(timeOffId: string): Promise<Answered> {
+  const result = await calendar.removeMyTimeOff(await token(), timeOffId);
+
+  if (result.ok || isAlreadyGone(result.failure)) {
+    revalidatePath(DASHBOARD_PATH);
+    return { ok: true };
+  }
+
+  return { ok: false, gone: false, message: result.failure.detail };
+}
+
+/** `conflicts` is not a failure: it is the list of appointments in the way the form puts next. */
+export type Booked =
+  | { kind: "saved"; request: BusinessJobRequest }
+  | { kind: "conflicts"; conflicts: AppointmentConflict[] }
+  | { kind: "refused"; message: string };
+
+function booked(outcome: api.AppointmentOutcome): Booked {
+  if (outcome.outcome === "saved") {
+    revalidatePath(DASHBOARD_PATH);
+    return { kind: "saved", request: outcome.request };
+  }
+
+  return outcome.outcome === "conflicts"
+    ? { kind: "conflicts", conflicts: outcome.conflicts }
+    : { kind: "refused", message: outcome.failure.detail };
+}
+
+export async function bookAppointment(body: AppointmentInput): Promise<Booked> {
+  return booked(await api.bookAppointment(await token(), body));
+}
+
+export async function changeAppointment(requestId: string, body: AppointmentChange): Promise<Booked> {
+  return booked(await api.changeAppointment(await token(), requestId, body));
+}
+
+export async function removeAppointment(requestId: string): Promise<Answered> {
+  const result = await api.removeAppointment(await token(), requestId);
 
   if (result.ok) {
     revalidatePath(DASHBOARD_PATH);

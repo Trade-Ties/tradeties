@@ -1,5 +1,5 @@
 import { format } from "date-fns";
-import { Lock, Trash2 } from "lucide-react";
+import { Lock, Pencil, Trash2 } from "lucide-react";
 
 import type { CalendarEntry } from "./demo-data";
 
@@ -9,11 +9,13 @@ import type { CalendarEntry } from "./demo-data";
  */
 export function EntryRow({
   entry,
+  onEdit,
   onRemove,
   showDate,
 }: {
   entry: CalendarEntry;
-  /** Left out where the list is only a preview and nothing is edited. */
+  /** Left out, like `onRemove`, where the list is only a preview and nothing is edited. */
+  onEdit?: (id: string) => void;
   onRemove?: (id: string) => void;
   showDate?: boolean;
 }) {
@@ -36,6 +38,16 @@ export function EntryRow({
         {entry.notes && <p className="truncate text-xs text-muted-ink">{entry.notes}</p>}
       </div>
 
+      {onEdit && (
+        <button
+          type="button"
+          onClick={() => onEdit(entry.id)}
+          aria-label={`Change ${entry.title}`}
+          className="grid size-8 shrink-0 place-items-center rounded-full text-faint hover:bg-brand-50 hover:text-brand-500"
+        >
+          <Pencil className="size-4" />
+        </button>
+      )}
       {onRemove && (
         <button
           type="button"

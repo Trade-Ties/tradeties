@@ -5,6 +5,8 @@ import java.time.Instant;
 import java.util.UUID;
 
 import com.tradeties.business.GeoPoint;
+import com.tradeties.job.AppointmentDetails;
+import com.tradeties.job.BookingParty;
 import com.tradeties.job.ContactMethod;
 import com.tradeties.job.NewJob;
 
@@ -46,10 +48,15 @@ class JobRow {
 	@Column(name = "customer_user_id")
 	private UUID customerUserId;
 
+	@Enumerated(EnumType.STRING)
+	@Column(name = "created_by", nullable = false, updatable = false, length = 16)
+	private BookingParty createdBy;
+
 	@Column(name = "customer_name", nullable = false, length = 200)
 	private String customerName;
 
-	@Column(name = "customer_email", nullable = false, length = 320)
+	/** Always present on a job a customer sent; a business entering one may leave it out. */
+	@Column(name = "customer_email", length = 320)
 	private String customerEmail;
 
 	@Column(name = "customer_phone", length = 16)
@@ -59,27 +66,26 @@ class JobRow {
 	@Column(name = "preferred_contact", length = 16)
 	private ContactMethod preferredContact;
 
-	@Column(name = "description", nullable = false, length = 2000)
+	@Column(name = "description", length = 2000)
 	private String description;
 
 	@Column(name = "trade_id", nullable = false, updatable = false)
 	private UUID tradeId;
 
-	@Column(name = "street1", nullable = false, length = 200)
+	@Column(name = "street1", length = 200)
 	private String street1;
 
 	@Column(name = "street2", length = 200)
 	private String street2;
 
-	@Column(name = "city", nullable = false, length = 100)
+	@Column(name = "city", length = 100)
 	private String city;
 
-	/** {@code CHAR(2)} and a foreign key to {@code us_state}, exactly as the profile stores it. */
 	@JdbcTypeCode(SqlTypes.CHAR)
-	@Column(name = "state", nullable = false, length = 2)
+	@Column(name = "state", length = 2)
 	private String state;
 
-	@Column(name = "postal_code", nullable = false, length = 10)
+	@Column(name = "postal_code", length = 10)
 	private String postalCode;
 
 	@Column(name = "latitude")
@@ -95,10 +101,11 @@ class JobRow {
 	 * The SHA-256 of the token, never the token. This row is otherwise a password store in the
 	 * clear — the value is a credential that grants access to somebody's address and phone number.
 	 */
-	@Column(name = "access_token_hash", nullable = false, length = 64)
+	@Column(name = "access_token_hash", length = 64)
 	private String accessTokenHash;
 
-	@Column(name = "access_token_expires_at", nullable = false)
+	/** Null together with the hash on a job the business entered: nobody has a link to it. */
+	@Column(name = "access_token_expires_at")
 	private Instant accessTokenExpiresAt;
 
 	@Column(name = "created_at", nullable = false, updatable = false)
@@ -118,6 +125,7 @@ class JobRow {
 	JobRow(NewJob details, UUID tradeId, String timeZone, GeoPoint located,
 			String accessTokenHash, Instant accessTokenExpiresAt) {
 
+		this.createdBy = BookingParty.CUSTOMER;
 		this.customerName = details.customerName();
 		this.customerEmail = details.customerEmail();
 		this.customerPhone = details.customerPhone();
@@ -141,6 +149,39 @@ class JobRow {
 		}
 	}
 
+	/** A job the business entered itself, for a customer who phoned or a regular. */
+	JobRow(AppointmentDetails details, UUID tradeId, String timeZone, GeoPoint located) {
+		this.createdBy = BookingParty.BUSINESS;
+		this.tradeId = tradeId;
+		this.timeZone = timeZone;
+		correct(details, located);
+	}
+
+	/**
+	 * Only on a job the business entered. One a customer sent holds their own words, and is the
+	 * same row every business they asked reads.
+	 */
+	void correct(AppointmentDetails details, GeoPoint located) {
+		if (createdBy != BookingParty.BUSINESS) {
+			throw new IllegalStateException("Job " + id + " was sent by its customer and is not the business's to edit");
+		}
+
+		this.customerName = details.customerName().trim();
+		this.customerPhone = blankToNull(details.customerPhone());
+		this.customerEmail = blankToNull(details.customerEmail());
+		this.description = blankToNull(details.notes());
+		this.street1 = blankToNull(details.street1());
+		this.city = blankToNull(details.city());
+		this.state = blankToNull(details.state());
+		this.postalCode = blankToNull(details.postalCode());
+		this.latitude = located == null ? null : located.latitude();
+		this.longitude = located == null ? null : located.longitude();
+	}
+
+	private static String blankToNull(String value) {
+		return value == null || value.isBlank() ? null : value.trim();
+	}
+
 	@PrePersist
 	void stampCreation() {
 		Instant now = Instant.now();
@@ -155,6 +196,10 @@ class JobRow {
 
 	UUID id() {
 		return id;
+	}
+
+	BookingParty createdBy() {
+		return createdBy;
 	}
 
 	Instant accessTokenExpiresAt() {

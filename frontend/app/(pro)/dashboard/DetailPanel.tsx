@@ -1,6 +1,21 @@
+"use client";
+
+import { useState } from "react";
 import Link from "next/link";
 import { format } from "date-fns";
-import { Calendar as CalendarIcon, CalendarPlus, Check, Clock3, Mail, MapPin, Phone, Wrench, X } from "lucide-react";
+import {
+  Calendar as CalendarIcon,
+  CalendarPlus,
+  Check,
+  Clock3,
+  Mail,
+  MapPin,
+  Pencil,
+  Phone,
+  Trash2,
+  Wrench,
+  X,
+} from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { inboxConversationPath } from "@/lib/routes";
@@ -22,6 +37,8 @@ export function DetailPanel({
   onReply,
   onRebook,
   onBook,
+  onChange,
+  onRemove,
   appointments = [],
   className = "lg:w-[360px]",
 }: {
@@ -35,6 +52,10 @@ export function DetailPanel({
   onRebook?: (appointment: DemoAppointment) => void;
   /** Opens the booking form on a conversation's customer. */
   onBook?: (conversation: DemoMessage) => void;
+  /** Opens the form on a confirmed appointment, to move it or correct it. */
+  onChange?: (appointment: DemoAppointment) => void;
+  /** Takes a confirmed appointment out of the calendar, as cancelled by the business. */
+  onRemove?: (id: string) => Promise<void>;
   /** For naming the booking request a conversation is about. */
   appointments?: DemoAppointment[];
   /** Width at the breakpoints; the dashboard docks it beside the grid, the calendar in a column. */
@@ -59,10 +80,13 @@ export function DetailPanel({
 
         {selection.type === "appointment" ? (
           <AppointmentDetail
+            key={selection.item.id}
             appointment={selection.item}
             onConfirm={onConfirm}
             onDecline={onDecline}
             onRebook={onRebook}
+            onChange={onChange}
+            onRemove={onRemove}
           />
         ) : (
           <MessageDetail
@@ -82,14 +106,38 @@ function AppointmentDetail({
   onConfirm,
   onDecline,
   onRebook,
+  onChange,
+  onRemove,
 }: {
   appointment: DemoAppointment;
   onConfirm: (id: string) => void;
   onDecline: (id: string) => void;
   onRebook?: (appointment: DemoAppointment) => void;
+  onChange?: (appointment: DemoAppointment) => void;
+  onRemove?: (id: string) => Promise<void>;
 }) {
   const pending = appointment.status === "pending";
   const address = addressLine(appointment.address);
+  // A customer agreed to this time, so changing it is asked about first; removing always is.
+  const customerBooked = appointment.bookedBy !== "pro";
+  const [asking, setAsking] = useState<"change" | "remove" | null>(null);
+  const [removing, setRemoving] = useState(false);
+
+  const proceed = async () => {
+    if (asking === "change") {
+      setAsking(null);
+      onChange?.(appointment);
+      return;
+    }
+
+    setRemoving(true);
+    try {
+      await onRemove?.(appointment.id);
+    } finally {
+      setRemoving(false);
+      setAsking(null);
+    }
+  };
 
   return (
     <div>
@@ -163,6 +211,70 @@ function AppointmentDetail({
           <CalendarPlus className="size-4" />
           Add to my calendar
         </Button>
+      )}
+
+      {/* Any confirmed appointment, whoever booked it; a request still waiting is answered instead. */}
+      {!pending && (onChange || onRemove) && asking === null && (
+        <div className="mt-2 flex gap-2">
+          {onChange && (
+            <Button
+              variant="outline"
+              onClick={() => (customerBooked ? setAsking("change") : onChange(appointment))}
+              className="h-9 flex-1 gap-1.5 rounded-full border-line text-sm font-semibold text-muted-ink hover:bg-brand-50 hover:text-brand-500"
+            >
+              <Pencil className="size-4" />
+              Change
+            </Button>
+          )}
+          {onRemove && (
+            <Button
+              variant="outline"
+              onClick={() => setAsking("remove")}
+              className="h-9 flex-1 gap-1.5 rounded-full border-line text-sm font-semibold text-muted-ink hover:border-destructive/40 hover:bg-destructive/5 hover:text-destructive"
+            >
+              <Trash2 className="size-4" />
+              Remove
+            </Button>
+          )}
+        </div>
+      )}
+
+      {!pending && asking !== null && (
+        <div role="alert" className="mt-2 rounded-2xl border border-amber-500/30 bg-amber-500/5 px-4 py-3 text-sm text-amber-800">
+          <p className="font-semibold">
+            {customerBooked
+              ? "Are you sure? The customer asked for this appointment."
+              : "Remove this appointment from your calendar?"}
+          </p>
+          {customerBooked && (
+            <p className="mt-1 text-xs">
+              {asking === "change"
+                ? "Change it only once they have agreed to the new time."
+                : "Removing it cancels it for them."}
+            </p>
+          )}
+          <div className="mt-3 flex gap-2">
+            <Button
+              onClick={() => void proceed()}
+              disabled={removing}
+              className={
+                asking === "remove"
+                  ? "h-9 flex-1 rounded-full bg-destructive text-sm font-semibold text-white hover:bg-destructive/90"
+                  : "h-9 flex-1 rounded-full text-sm font-semibold"
+              }
+            >
+              {asking === "change" ? "Yes, change it" : removing ? "Removing…" : "Yes, remove it"}
+            </Button>
+            <Button
+              variant="outline"
+              onClick={() => setAsking(null)}
+              disabled={removing}
+              className="h-9 flex-1 rounded-full border-line text-sm font-semibold text-muted-ink"
+            >
+              Keep it
+            </Button>
+          </div>
+        </div>
       )}
 
       {pending && (

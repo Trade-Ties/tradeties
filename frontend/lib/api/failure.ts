@@ -128,3 +128,15 @@ export const isAlreadyGone = (failure: ApiFailure): boolean => failure.status ==
  * customer back to the calendar, that one back to the list of services.
  */
 export const SLOT_NOT_OFFERED = "urn:tradeties:problem:slot-not-offered";
+
+/**
+ * Time off would cover requests that have not all been answered. The body lists them in
+ * `conflicts`; answer each in `resolutions` and send the same body again.
+ */
+export const TIME_OFF_CONFLICTS = "urn:tradeties:problem:time-off-conflicts";
+
+/**
+ * An appointment would overlap accepted ones not all moved or removed. The body lists them in
+ * `conflicts`; answer each in `resolutions` and send the same body again.
+ */
+export const APPOINTMENT_CONFLICTS = "urn:tradeties:problem:appointment-conflicts";

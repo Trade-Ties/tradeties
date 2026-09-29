@@ -1,4 +1,5 @@
 import { dayOf, timeLabel } from "@/components/marketing/availability";
+import { fromE164 } from "@/components/profile/phone";
 import type { BusinessJobRequest } from "@/lib/api/inbox";
 
 import type { DemoAppointment, ServiceAddress } from "./demo-data";
@@ -24,8 +25,11 @@ export interface IncomingRequest {
   email: string;
   address: ServiceAddress;
   service: string;
+  serviceId: string;
   notes: string;
   preferredContact?: DemoAppointment["preferredContact"];
+  bookedByBusiness: boolean;
+  detailsEditable: boolean;
 }
 
 /**
@@ -39,23 +43,27 @@ export function incoming(request: BusinessJobRequest): IncomingRequest {
     id: request.id,
     day: dayOf(request.startsAt, request.timeZone),
     time: timeLabel(request.startsAt, request.timeZone),
-    durationMinutes: request.estimatedDurationMinutes,
+    // The span, not the estimate: an appointment the business booked runs as long as it chose.
+    durationMinutes: (Date.parse(request.endsAt) - Date.parse(request.startsAt)) / 60_000,
     status: request.status === "ACCEPTED" ? "confirmed" : "pending",
     customerName: request.customerName,
-    // The dashboard's row expects a string and skips an empty one; absent means they gave none.
-    phone: request.customerPhone ?? "",
-    email: request.customerEmail,
+    // The dashboard's rows expect strings and skip an empty one; absent means nobody gave one.
+    phone: fromE164(request.customerPhone ?? ""),
+    email: request.customerEmail ?? "",
     address: {
-      // The customer types one address line; the dashboard was drawn for two boxes. Putting it
-      // all in `street` and leaving `number` empty is what `addressLine` already skips over.
-      street: request.street1,
+      // One address line on the wire; the dashboard was drawn for two boxes. Putting it all in
+      // `street` and leaving `number` empty is what `addressLine` already skips over.
+      street: request.street1 ?? "",
       number: "",
-      city: request.city,
-      state: request.state,
-      zip: request.postalCode,
+      city: request.city ?? "",
+      state: request.state ?? "",
+      zip: request.postalCode ?? "",
     },
     service: request.serviceName,
-    notes: request.description,
+    serviceId: request.serviceId,
+    notes: request.description ?? "",
+    bookedByBusiness: request.bookedBy === "BUSINESS",
+    detailsEditable: request.detailsFrom === "BUSINESS",
     preferredContact:
       request.preferredContact === "PHONE"
         ? "phone"
@@ -92,5 +100,8 @@ export function asAppointment(request: IncomingRequest): DemoAppointment {
     time: request.time,
     durationMinutes: request.durationMinutes,
     status: request.status,
+    serviceId: request.serviceId,
+    bookedBy: request.bookedByBusiness ? "pro" : undefined,
+    detailsEditable: request.detailsEditable,
   };
 }

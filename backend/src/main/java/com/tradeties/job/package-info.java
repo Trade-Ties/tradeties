@@ -17,8 +17,8 @@
  * this module depends on {@code business} and why {@code business} knows nothing of it: a profile
  * edited tomorrow must leave every request already sent exactly as it was.
  *
- * <p>Nothing here can be accepted yet. The inbox, and with it the point where an accepted
- * appointment starts subtracting from the calendar, is the next slice.
+ * <p>A business can also put an appointment in its calendar itself. It is stored like an accepted
+ * request, so the overlap constraint and the free-slot subtraction cover it without a second path.
  */
 @org.springframework.modulith.ApplicationModule(displayName = "Job")
 package com.tradeties.job;

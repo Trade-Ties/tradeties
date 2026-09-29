@@ -35,4 +35,14 @@ public interface BookableServices {
 	 * need different sentences, and only one of them should reload.
 	 */
 	boolean isPublished(String slug);
+
+	/**
+	 * The same terms, for a business booking one of its own services itself — published or not,
+	 * since a business that has gone offline still keeps its regulars.
+	 *
+	 * @param businessId resolved from the caller's token, never taken from a request
+	 * @return empty when the service is not this business's, is inactive, or the business has no
+	 *         pricing terms yet to copy
+	 */
+	Optional<BookableService> findOwn(UUID businessId, UUID serviceId);
 }

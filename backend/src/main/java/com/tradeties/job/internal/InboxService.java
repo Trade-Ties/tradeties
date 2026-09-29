@@ -29,12 +29,18 @@ import org.springframework.transaction.annotation.Transactional;
 public class InboxService {
 
 	private final JobRequestRepository requests;
-	private final JobRepository jobs;
+	private final BusinessRequestReader reader;
+	private final RequestHistory history;
 	private final CalendarGuard calendar;
 
-	InboxService(JobRequestRepository requests, JobRepository jobs, CalendarGuard calendar) {
+	InboxService(JobRequestRepository requests,
+			BusinessRequestReader reader,
+			RequestHistory history,
+			CalendarGuard calendar) {
+
 		this.requests = requests;
-		this.jobs = jobs;
+		this.reader = reader;
+		this.history = history;
 		this.calendar = calendar;
 	}
 
@@ -47,7 +53,7 @@ public class InboxService {
 				? requests.findByBusinessIdOrderByStartsAtAsc(businessId)
 				: requests.findByBusinessIdAndStatusOrderByStartsAtAsc(businessId, RequestStatus.valueOf(status.name()));
 
-		return rows.stream().map(this::describe).toList();
+		return rows.stream().map(reader::describe).toList();
 	}
 
 	/**
@@ -78,7 +84,8 @@ public class InboxService {
 			requireDayHasRoom(businessId, request, rules);
 
 			request.accept(Instant.now());
-			return describe(requests.save(request));
+			history.record(request, RequestStatus.PENDING, Actor.BUSINESS, null);
+			return reader.describe(requests.save(request));
 		});
 	}
 
@@ -90,7 +97,8 @@ public class InboxService {
 			// No lock and no checks. Declining commits no calendar, so it cannot collide with
 			// anything the calendar's mutex protects.
 			request.decline(Instant.now(), reason);
-			return describe(requests.save(request));
+			history.record(request, RequestStatus.PENDING, Actor.BUSINESS, null);
+			return reader.describe(requests.save(request));
 		});
 	}
 
@@ -140,7 +148,7 @@ public class InboxService {
 			return;
 		}
 
-		ZoneId zone = ZoneId.of(jobFor(request).timeZone());
+		ZoneId zone = ZoneId.of(reader.jobFor(request).timeZone());
 		LocalDate day = LocalDate.ofInstant(request.startsAt(), zone);
 
 		int already = requests.countByBusinessIdAndStatusAndStartsAtGreaterThanEqualAndStartsAtLessThan(
@@ -152,48 +160,5 @@ public class InboxService {
 			throw new HourNoLongerFreeException(
 					"That day already holds the " + most + " appointments this business accepts");
 		}
-	}
-
-	private JobRow jobFor(JobRequestRow request) {
-		return jobs.findById(request.jobId()).orElseThrow(() -> new IllegalStateException(
-				"Request " + request.id() + " points at job " + request.jobId() + ", which is gone"));
-	}
-
-	/**
-	 * The request and the job it belongs to, as one thing to decide on.
-	 *
-	 * <p>Two reads rather than a join. One business's inbox is a bounded list, and the join would
-	 * buy a projection to maintain in exchange for a round trip nobody is counting.
-	 */
-	private BusinessRequest describe(JobRequestRow request) {
-		JobRow job = jobFor(request);
-
-		return new BusinessRequest(
-				request.id(),
-				RequestState.valueOf(request.status().name()),
-				request.startsAt(),
-				request.endsAt(),
-				job.timeZone(),
-				request.serviceName(),
-				request.estimatedDurationMinutes(),
-				job.customerName(),
-				job.customerEmail(),
-				job.customerPhone(),
-				job.preferredContact(),
-				job.description(),
-				job.street1(),
-				job.street2(),
-				job.city(),
-				job.state(),
-				job.postalCode(),
-				request.currency(),
-				request.servicePrice(),
-				request.effectiveHourlyRate(),
-				request.serviceCallFee(),
-				request.cancellationFee(),
-				request.cancellationNoticeHours(),
-				request.createdAt(),
-				request.decidedAt(),
-				request.declineReason());
 	}
 }

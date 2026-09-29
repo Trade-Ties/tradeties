@@ -1,5 +1,8 @@
+import { fetchMyServices } from "@/lib/api/business";
+import { portalToken } from "@/lib/portal/session";
 import { INBOX_CONVERSATION_PARAM, INBOX_FILTER_PARAM } from "@/lib/routes";
 
+import { serviceOptionsOf } from "../booking";
 import { DEMO_APPOINTMENTS, DEMO_MESSAGES } from "../demo-data";
 import { InboxView } from "./InboxView";
 
@@ -11,6 +14,7 @@ export default async function InboxPage({
   const params = await searchParams;
   const filter = params[INBOX_FILTER_PARAM] === "unread" ? "unread" : "all";
   const conversation = params[INBOX_CONVERSATION_PARAM];
+  const services = await fetchMyServices(await portalToken());
 
   return (
     <div className="mx-auto w-full max-w-5xl px-8 py-10">
@@ -18,6 +22,7 @@ export default async function InboxPage({
       <InboxView
         messages={DEMO_MESSAGES}
         appointments={DEMO_APPOINTMENTS}
+        services={serviceOptionsOf(services.ok ? services.data : null)}
         initialFilter={filter}
         initialConversationId={typeof conversation === "string" ? conversation : undefined}
       />

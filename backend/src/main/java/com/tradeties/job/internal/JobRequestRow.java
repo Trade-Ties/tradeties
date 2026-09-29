@@ -6,6 +6,7 @@ import java.time.temporal.ChronoUnit;
 import java.util.UUID;
 
 import com.tradeties.business.BookableService;
+import com.tradeties.job.BookingParty;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
@@ -30,12 +31,10 @@ import org.hibernate.type.SqlTypes;
  * cancellation fee tomorrow changes neither, which is the whole reason they are columns here
  * rather than a join away.
  *
- * <p>Three of the six states are reachable: a request arrives {@code PENDING} and the business
- * accepts or declines it. Withdrawal and cancellation are the customer's, and their columns —
- * {@code withdrawn_at}, {@code cancelled_at}, {@code cancelled_by},
- * {@code cancellation_fee_charged}, {@code completed_at} — are deliberately unmapped until
- * something writes them. Mapping a column nothing reads makes this look like the entity it is not,
- * and {@code ddl-auto: validate} only checks the columns named here.
+ * <p>A customer's request arrives {@code PENDING} and the business accepts or declines it; an
+ * appointment the business books itself is {@code ACCEPTED} from the start. Either kind, once
+ * accepted, can be moved or cancelled by the business. {@code withdrawn_at} and {@code completed_at} stay unmapped until something writes them —
+ * mapping a column nothing reads makes this look like the entity it is not.
  */
 @Entity
 @Table(name = "job_request")
@@ -63,6 +62,10 @@ class JobRequestRow {
 	@Enumerated(EnumType.STRING)
 	@Column(name = "status", nullable = false, length = 32)
 	private RequestStatus status;
+
+	@Enumerated(EnumType.STRING)
+	@Column(name = "booked_by", nullable = false, updatable = false, length = 16)
+	private BookingParty bookedBy;
 
 	@JdbcTypeCode(SqlTypes.CHAR)
 	@Column(name = "currency", nullable = false, updatable = false, length = 3)
@@ -102,6 +105,16 @@ class JobRequestRow {
 	@Column(name = "decline_reason", length = 500)
 	private String declineReason;
 
+	@Column(name = "cancelled_at")
+	private Instant cancelledAt;
+
+	@Enumerated(EnumType.STRING)
+	@Column(name = "cancelled_by", length = 16)
+	private BookingParty cancelledBy;
+
+	@Column(name = "cancellation_fee_charged")
+	private BigDecimal cancellationFeeCharged;
+
 	@Column(name = "created_at", nullable = false, updatable = false)
 	private Instant createdAt;
 
@@ -117,17 +130,33 @@ class JobRequestRow {
 	}
 
 	/**
-	 * The end is computed and never taken from the caller. It is what the overlap check between
-	 * accepted appointments is written against, so a client proposing it could propose one that
-	 * does not match the duration it was quoted.
+	 * A customer's request. The end is computed and never taken from the caller: it is what the
+	 * overlap check between accepted appointments is written against, so a customer proposing it
+	 * could propose one that does not match the duration they were quoted.
 	 */
 	JobRequestRow(UUID jobId, Instant startsAt, BookableService offered) {
+		this(jobId, startsAt, startsAt.plus(offered.estimatedDurationMinutes(), ChronoUnit.MINUTES), offered);
+		this.status = RequestStatus.PENDING;
+		this.bookedBy = BookingParty.CUSTOMER;
+	}
+
+	/** An appointment the business chose the time of itself, so the end is its choice too. */
+	static JobRequestRow bookedByBusiness(UUID jobId, Instant startsAt, Instant endsAt, BookableService offered,
+			Instant now) {
+
+		JobRequestRow row = new JobRequestRow(jobId, startsAt, endsAt, offered);
+		row.status = RequestStatus.ACCEPTED;
+		row.bookedBy = BookingParty.BUSINESS;
+		row.decidedAt = now;
+		return row;
+	}
+
+	private JobRequestRow(UUID jobId, Instant startsAt, Instant endsAt, BookableService offered) {
 		this.jobId = jobId;
 		this.businessId = offered.businessId();
 		this.serviceId = offered.serviceId();
 		this.startsAt = startsAt;
-		this.endsAt = startsAt.plus(offered.estimatedDurationMinutes(), ChronoUnit.MINUTES);
-		this.status = RequestStatus.PENDING;
+		this.endsAt = endsAt;
 
 		this.currency = offered.currency();
 		this.serviceName = offered.serviceName();
@@ -221,8 +250,33 @@ class JobRequestRow {
 		return declineReason;
 	}
 
+	UUID serviceId() {
+		return serviceId;
+	}
+
+	BookingParty bookedBy() {
+		return bookedBy;
+	}
+
 	boolean isPending() {
 		return status == RequestStatus.PENDING;
+	}
+
+	boolean isAccepted() {
+		return status == RequestStatus.ACCEPTED;
+	}
+
+	void reschedule(Instant startsAt, Instant endsAt) {
+		this.startsAt = startsAt;
+		this.endsAt = endsAt;
+	}
+
+	/** A cancellation by the business never costs the customer anything; the schema insists. */
+	void cancelByBusiness(Instant when) {
+		this.status = RequestStatus.CANCELLED;
+		this.cancelledAt = when;
+		this.cancelledBy = BookingParty.BUSINESS;
+		this.cancellationFeeCharged = BigDecimal.ZERO;
 	}
 
 	/**

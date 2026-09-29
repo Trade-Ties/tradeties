@@ -1,7 +1,12 @@
 package com.tradeties.job;
 
 import java.net.URI;
+import java.time.ZoneOffset;
 
+import com.tradeties.generated.model.AppointmentConflict;
+import com.tradeties.generated.model.Party;
+
+import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ProblemDetail;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -31,6 +36,8 @@ class JobExceptionHandler {
 	 * somebody back to the service list when what moved was the time.
 	 */
 	private static final URI SLOT_NOT_OFFERED = URI.create("urn:tradeties:problem:slot-not-offered");
+
+	private static final URI APPOINTMENT_CONFLICTS = URI.create("urn:tradeties:problem:appointment-conflicts");
 
 	/**
 	 * 404 rather than 400. The slug is the address, and a slug nobody holds is a page that does
@@ -82,6 +89,54 @@ class JobExceptionHandler {
 		ProblemDetail problem = ProblemDetail.forStatus(HttpStatus.UNPROCESSABLE_ENTITY);
 		problem.setTitle("Already answered");
 		problem.setDetail(exception.getMessage());
+		return problem;
+	}
+
+	@ExceptionHandler(NotAnAcceptedAppointmentException.class)
+	ProblemDetail handleNotAccepted(NotAnAcceptedAppointmentException exception) {
+		ProblemDetail problem = ProblemDetail.forStatus(HttpStatus.UNPROCESSABLE_ENTITY);
+		problem.setTitle("Not an accepted appointment");
+		problem.setDetail(exception.getMessage());
+		return problem;
+	}
+
+	/** Typed, because the client answers it with a dialog and a resend rather than a sentence. */
+	@ExceptionHandler(AppointmentConflictException.class)
+	ProblemDetail handleAppointmentConflicts(AppointmentConflictException exception) {
+		ProblemDetail problem = ProblemDetail.forStatus(HttpStatus.CONFLICT);
+		problem.setType(APPOINTMENT_CONFLICTS);
+		problem.setTitle("Appointments in the way");
+		problem.setDetail(exception.getMessage());
+		problem.setProperty("conflicts", exception.inTheWay().stream()
+				.map(appointment -> new AppointmentConflict()
+						.requestId(appointment.requestId())
+						.bookedBy(Party.fromValue(appointment.bookedBy().name()))
+						.startsAt(appointment.startsAt().atOffset(ZoneOffset.UTC))
+						.endsAt(appointment.endsAt().atOffset(ZoneOffset.UTC))
+						.timeZone(appointment.timeZone())
+						.customerName(appointment.customerName())
+						.serviceName(appointment.serviceName()))
+				.toList());
+		return problem;
+	}
+
+	@ExceptionHandler(InvalidAppointmentException.class)
+	ProblemDetail handleInvalidAppointment(InvalidAppointmentException exception) {
+		ProblemDetail problem = ProblemDetail.forStatus(HttpStatus.BAD_REQUEST);
+		problem.setTitle("Invalid appointment");
+		problem.setDetail(exception.getMessage());
+		return problem;
+	}
+
+	/**
+	 * Two writes to one request in the same moment — a second tab, a double click. The detail is
+	 * fixed because Hibernate's own names the entity class and the row id.
+	 */
+	@ExceptionHandler(OptimisticLockingFailureException.class)
+	ProblemDetail handleConcurrentWrite(OptimisticLockingFailureException exception) {
+		ProblemDetail problem = ProblemDetail.forStatus(HttpStatus.CONFLICT);
+		problem.setTitle("Conflict");
+		problem.setDetail("This changed at the same moment somewhere else. Reload to see where it stands.");
 		return problem;
 	}
 }

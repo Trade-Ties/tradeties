@@ -66,8 +66,9 @@ tags:
   - name: inbox
     description: |
       The tradesperson's side of those same requests: reading them, taking them,
-      turning them down. Every operation resolves the business from the access
-      token, exactly as `business` does.
+      turning them down — and booking a customer in directly, for a time agreed
+      another way. Every operation resolves the business from the access token,
+      exactly as `business` does.
 
       Apart from `job` because the two halves have opposite security. That one
       takes no token by design; nothing here may be reached without one, and a
@@ -1494,6 +1495,137 @@ paths:
         "404":
           $ref: "#/components/responses/NotFound"
 
+  /api/v1/me/business/time-off:
+    get:
+      tags: [availability]
+      operationId: listMyTimeOff
+      summary: Time off and blocked hours that are not over yet.
+      description: |
+        Soonest first. An entry that has ended is left out: it takes nothing off the
+        calendar any more.
+      responses:
+        "200":
+          description: The entries, soonest first.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/TimeOff"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+    post:
+      tags: [availability]
+      operationId: addMyTimeOff
+      summary: Take whole days or a few hours off the calendar.
+      description: |
+        One operation for a holiday and for an afternoon at the dentist: both take
+        their hours off the market exactly as an accepted appointment does. A calendar
+        write, so it serialises on the same lock as accepting a request.
+
+        **Requests already in the way are answered, never passed over.** When pending
+        requests or accepted appointments overlap the entry, it is refused with `409`
+        and type `urn:tradeties:problem:time-off-conflicts`, listing them in
+        `conflicts`. Send the same body again with one `resolutions` entry per
+        conflict: a pending request is declined or left open, an accepted appointment
+        is kept — it stays booked. The list is read again under the lock, so a request
+        that arrived in between answers `409` once more with the new list.
+
+        A pending request left open cannot be accepted while the entry stands.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TimeOffInput"
+      responses:
+        "201":
+          description: The stored entry.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TimeOff"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          description: Requests are in the way and have not all been answered.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/TimeOffConflictProblem"
+
+  /api/v1/me/business/time-off/{timeOffId}:
+    parameters:
+      - name: timeOffId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    put:
+      tags: [availability]
+      operationId: replaceMyTimeOff
+      summary: Move, lengthen, shorten or re-label an entry.
+      description: |
+        The same rules as adding one. Only the requests the new span covers and the old
+        one did not are put to you: the rest were answered when the entry was made, and
+        an unchanged span asks nothing.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TimeOffUpdate"
+      responses:
+        "200":
+          description: The stored entry.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TimeOff"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          description: |
+            Typed `urn:tradeties:problem:time-off-conflicts` when requests newly in the
+            way have not been answered; untyped when `version` is not the stored one.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/TimeOffConflictProblem"
+
+    delete:
+      tags: [availability]
+      operationId: removeMyTimeOff
+      summary: Give the time back to the calendar.
+      description: |
+        The hours are offered again at once. Requests declined when the entry was made
+        stay declined.
+      responses:
+        "204":
+          description: Removed.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
   /api/v1/me/business/job-requests:
     get:
       tags: [inbox]
@@ -1644,6 +1776,147 @@ paths:
         "422":
           description: |
             The request is not pending any more, so there is nothing to decline.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+
+  /api/v1/me/business/appointments:
+    post:
+      tags: [inbox]
+      operationId: bookAppointment
+      summary: Put a customer's job in the calendar yourself.
+      description: |
+        For a time agreed another way — on the phone, or with a regular. The appointment
+        is accepted the moment it is written: nobody else has to agree to it.
+
+        **The hard rules still hold.** It may not fall into time off, and it may not
+        overlap another accepted appointment. The buffer, the daily limit, the notice
+        and the horizon are not applied: they protect the business from the marketplace,
+        and here the business picked the time itself.
+
+        **Appointments in the way are moved or removed, never overlapped.** The first
+        attempt over them is refused with `409` and type
+        `urn:tradeties:problem:appointment-conflicts`, listing them in `conflicts`. Send
+        the same body again with one `resolutions` entry per conflict — `MOVE` with the
+        new time, or `CANCEL`. Everything is written in one transaction or not at all.
+
+        With `replacesRequestId` it takes the place of that pending request, which is
+        declined in the same step. The appointment then belongs to that request's job,
+        so the customer's own details are kept and the ones sent here are ignored.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AppointmentInput"
+      responses:
+        "201":
+          description: The appointment, already accepted.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BusinessJobRequest"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          description: |
+            Typed `urn:tradeties:problem:appointment-conflicts` when accepted appointments
+            are in the way and not all have been answered. Untyped when time off covers the
+            time, or a time an appointment was moved to is taken.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/AppointmentConflictProblem"
+        "422":
+          description: The request to replace is not pending any more.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+
+  /api/v1/me/business/appointments/{requestId}:
+    parameters:
+      - name: requestId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    put:
+      tags: [inbox]
+      operationId: changeAppointment
+      summary: Move an appointment, or correct its details.
+      description: |
+        Any accepted appointment, whether a customer asked for it or the business booked
+        it. The same rules as booking one, including `resolutions` for appointments in
+        the way of the new time.
+
+        The service stays the one it was booked as, because its terms were copied onto the
+        appointment then — remove it and book again to change it. The customer's details
+        and notes change only where the business entered them (`detailsFrom: BUSINESS`);
+        otherwise they are the customer's own words and the ones sent here are ignored.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AppointmentChange"
+      responses:
+        "200":
+          description: The appointment as it now stands.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BusinessJobRequest"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          description: As for booking one.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/AppointmentConflictProblem"
+        "422":
+          description: |
+            Not an accepted appointment: still waiting for an answer, or no longer standing.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+
+    delete:
+      tags: [inbox]
+      operationId: removeAppointment
+      summary: Take an accepted appointment out of the calendar.
+      description: |
+        Any accepted appointment. Recorded as cancelled by the business, never deleted —
+        the row stays as the record of what was agreed. A cancellation by the business
+        costs the customer nothing.
+      responses:
+        "204":
+          description: Removed from the calendar.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          description: |
+            Not an accepted appointment: still waiting for an answer, or no longer standing.
           content:
             application/problem+json:
               schema:
@@ -2676,21 +2949,22 @@ components:
         telephone number and the address the work is at — which the tradesperson
         needs to do the job and nobody else has any business reading. It is only
         ever served under `/me/business`.
+
+        A customer's own request always carries an email address, a description and
+        the address of the job site. An appointment the business entered itself may
+        lack any of them: the tradesperson may already know them.
       required:
         - id
         - status
+        - serviceId
+        - bookedBy
+        - detailsFrom
         - startsAt
         - endsAt
         - timeZone
         - serviceName
         - estimatedDurationMinutes
         - customerName
-        - customerEmail
-        - description
-        - street1
-        - city
-        - state
-        - postalCode
         - currency
         - cancellationFee
         - cancellationNoticeHours
@@ -2701,6 +2975,23 @@ components:
           format: uuid
         status:
           $ref: "#/components/schemas/JobRequestStatus"
+        serviceId:
+          type: string
+          format: uuid
+          description: The business's own service this was asked for or booked as.
+        bookedBy:
+          allOf:
+            - $ref: "#/components/schemas/Party"
+          description: |
+            `CUSTOMER` for a request sent through the marketplace, `BUSINESS` for an
+            appointment the business put in its calendar itself.
+        detailsFrom:
+          allOf:
+            - $ref: "#/components/schemas/Party"
+          description: |
+            Who entered the customer's details and the notes. `CUSTOMER` also for an
+            appointment the business booked in place of a customer's request, which
+            keeps that customer's own words.
         startsAt:
           type: string
           format: date-time
@@ -2786,8 +3077,9 @@ components:
     JobRequestStatus:
       type: string
       description: |
-        Where one request stands. Only `PENDING` can occur today — nothing can
-        accept, decline or withdraw yet.
+        Where one request stands. `WITHDRAWN` and `COMPLETED` cannot occur yet —
+        nothing withdraws a request or marks a job done — and `CANCELLED` only as an
+        appointment the business took out of its calendar.
 
         **All six are declared now anyway.** A new value in a response enum reaches
         clients that may not handle it: Jackson rejects unknown enum values by
@@ -2801,6 +3093,202 @@ components:
         - WITHDRAWN
         - CANCELLED
         - COMPLETED
+
+    Party:
+      type: string
+      description: One of the two sides of a booking.
+      enum:
+        - CUSTOMER
+        - BUSINESS
+
+    AppointmentInput:
+      type: object
+      description: |
+        A customer's job the business puts in its own calendar. Only the customer's name
+        is required of their details — the tradesperson may already know the rest.
+
+        **Times are the business's wall clock**, like its working hours: the zone comes
+        from the profile. The end is chosen rather than computed; the service's duration
+        is only a suggestion here.
+      required: [serviceId, startsAt, endsAt, customerName]
+      properties:
+        serviceId:
+          type: string
+          format: uuid
+          description: |
+            One of the business's own active services. Its name, price and cancellation
+            terms are copied onto the appointment as they read now.
+        startsAt:
+          $ref: "#/components/schemas/LocalDateTime"
+        endsAt:
+          $ref: "#/components/schemas/LocalDateTime"
+        replacesRequestId:
+          type: string
+          format: uuid
+          description: |
+            A pending request this appointment takes the place of — a time agreed with
+            that customer instead of the one they asked for. It is declined in the same
+            step, and the customer fields below are ignored in favour of theirs.
+        customerName:
+          type: string
+          minLength: 1
+          maxLength: 200
+        customerPhone:
+          type: string
+          pattern: '^\+[1-9]\d{1,14}$'
+          maxLength: 16
+        customerEmail:
+          type: string
+          format: email
+          maxLength: 320
+        street1:
+          type: string
+          maxLength: 200
+        city:
+          type: string
+          maxLength: 100
+        state:
+          $ref: "#/components/schemas/UsStateCode"
+        postalCode:
+          type: string
+          pattern: '^\d{5}(-\d{4})?$'
+          maxLength: 10
+        notes:
+          type: string
+          maxLength: 2000
+          description: What needs doing. Shown as the job's description.
+        resolutions:
+          type: array
+          maxItems: 50
+          description: |
+            One answer per accepted appointment in the way, sent after a `409` named them.
+            Answers about appointments that are not in the way are ignored.
+          items:
+            $ref: "#/components/schemas/AppointmentResolution"
+
+    AppointmentResolution:
+      type: object
+      description: What happens to an accepted appointment in the way of another.
+      required: [requestId, action]
+      properties:
+        requestId:
+          type: string
+          format: uuid
+        action:
+          $ref: "#/components/schemas/AppointmentResolutionAction"
+        startsAt:
+          allOf:
+            - $ref: "#/components/schemas/LocalDateTime"
+          description: Required with `MOVE`, on the business's clock.
+        endsAt:
+          allOf:
+            - $ref: "#/components/schemas/LocalDateTime"
+          description: Required with `MOVE`.
+
+    AppointmentResolutionAction:
+      type: string
+      description: |
+        `MOVE` gives it the time in `startsAt` and `endsAt`, under the same rules as any
+        appointment. `CANCEL` records it as cancelled by the business, at no cost to the
+        customer. Keeping it is not an answer: one business holds one appointment at a time.
+      enum:
+        - MOVE
+        - CANCEL
+
+    AppointmentConflict:
+      type: object
+      description: An accepted appointment in the way, as the dialog answering it needs it.
+      required: [requestId, bookedBy, startsAt, endsAt, timeZone, customerName, serviceName]
+      properties:
+        requestId:
+          type: string
+          format: uuid
+        bookedBy:
+          $ref: "#/components/schemas/Party"
+        startsAt:
+          type: string
+          format: date-time
+        endsAt:
+          type: string
+          format: date-time
+        timeZone:
+          type: string
+        customerName:
+          type: string
+          maxLength: 200
+        serviceName:
+          type: string
+          maxLength: 160
+
+    AppointmentConflictProblem:
+      type: object
+      description: |
+        The `409` of an appointment write. With type
+        `urn:tradeties:problem:appointment-conflicts` it lists every accepted appointment
+        in the way, answered or not.
+      properties:
+        type:
+          type: string
+          format: uri
+        title:
+          type: string
+        status:
+          type: integer
+          format: int32
+        detail:
+          type: string
+        instance:
+          type: string
+          format: uri
+        conflicts:
+          type: array
+          items:
+            $ref: "#/components/schemas/AppointmentConflict"
+
+    AppointmentChange:
+      type: object
+      description: |
+        An AppointmentInput without the service, which cannot change, and without a
+        request to replace. The customer fields and `notes` are ignored when
+        `detailsFrom` is `CUSTOMER`.
+      required: [startsAt, endsAt, customerName]
+      properties:
+        startsAt:
+          $ref: "#/components/schemas/LocalDateTime"
+        endsAt:
+          $ref: "#/components/schemas/LocalDateTime"
+        customerName:
+          type: string
+          minLength: 1
+          maxLength: 200
+        customerPhone:
+          type: string
+          pattern: '^\+[1-9]\d{1,14}$'
+          maxLength: 16
+        customerEmail:
+          type: string
+          format: email
+          maxLength: 320
+        street1:
+          type: string
+          maxLength: 200
+        city:
+          type: string
+          maxLength: 100
+        state:
+          $ref: "#/components/schemas/UsStateCode"
+        postalCode:
+          type: string
+          pattern: '^\d{5}(-\d{4})?$'
+          maxLength: 10
+        notes:
+          type: string
+          maxLength: 2000
+        resolutions:
+          type: array
+          maxItems: 50
+          items:
+            $ref: "#/components/schemas/AppointmentResolution"
 
     BusinessAvailability:
       type: object
@@ -4011,6 +4499,194 @@ components:
           items:
             $ref: "#/components/schemas/WorkingDay"
 
+    LocalDateTime:
+      type: string
+      description: |
+        A moment on the business's own wall clock, `YYYY-MM-DDTHH:mm`, with no offset.
+
+        Not `format: date-time`, which requires one — and an offset chosen by the client
+        would be the browser's, which is the wrong clock for a tradesperson away from home.
+        The profile's zone turns it into an instant on the server.
+      pattern: '^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])T([01]\d|2[0-3]):[0-5]\d$'
+      examples: ["2026-10-13T13:00"]
+
+    TimeOffInput:
+      type: object
+      description: |
+        Whole days or a stretch of hours, in one shape. With `allDay`, the days from
+        `firstDay` to `lastDay`, both included; without it, `startsAt` to `endsAt`. The
+        other pair is not read.
+      required: [allDay]
+      properties:
+        allDay:
+          type: boolean
+        firstDay:
+          type: string
+          format: date
+        lastDay:
+          type: string
+          format: date
+        startsAt:
+          $ref: "#/components/schemas/LocalDateTime"
+        endsAt:
+          $ref: "#/components/schemas/LocalDateTime"
+        note:
+          type: string
+          maxLength: 200
+          description: |
+            For the business only. A customer sees that the time is taken, never why —
+            and not through `declineReason` either, which is written separately.
+        resolutions:
+          type: array
+          maxItems: 500
+          description: |
+            One answer per request in the way, sent after a `409` named them. Answers
+            about requests that are not in the way are ignored.
+          items:
+            $ref: "#/components/schemas/TimeOffResolution"
+        declineReason:
+          type: string
+          maxLength: 500
+          description: |
+            What the customers whose requests are declined here are given. Required as
+            soon as one resolution declines.
+
+    TimeOffUpdate:
+      type: object
+      description: A TimeOffInput plus the version being replaced.
+      required: [version, allDay]
+      properties:
+        version:
+          type: integer
+          format: int64
+        allDay:
+          type: boolean
+        firstDay:
+          type: string
+          format: date
+        lastDay:
+          type: string
+          format: date
+        startsAt:
+          $ref: "#/components/schemas/LocalDateTime"
+        endsAt:
+          $ref: "#/components/schemas/LocalDateTime"
+        note:
+          type: string
+          maxLength: 200
+        resolutions:
+          type: array
+          maxItems: 500
+          items:
+            $ref: "#/components/schemas/TimeOffResolution"
+        declineReason:
+          type: string
+          maxLength: 500
+
+    TimeOffResolution:
+      type: object
+      required: [requestId, action]
+      properties:
+        requestId:
+          type: string
+          format: uuid
+        action:
+          $ref: "#/components/schemas/TimeOffResolutionAction"
+
+    TimeOffResolutionAction:
+      type: string
+      description: |
+        `DECLINE` turns a pending request down with `declineReason`. `KEEP` leaves a
+        pending request open or keeps an accepted appointment, which is the only answer an
+        accepted appointment takes.
+      enum:
+        - DECLINE
+        - KEEP
+
+    TimeOff:
+      type: object
+      description: |
+        One entry, in the shape it was sent: `firstDay` and `lastDay` when `allDay`,
+        otherwise `startsAt` and `endsAt` — read on the business's clock, `timeZone`.
+      required: [id, allDay, timeZone, version]
+      properties:
+        id:
+          type: string
+          format: uuid
+        allDay:
+          type: boolean
+        firstDay:
+          type: string
+          format: date
+        lastDay:
+          type: string
+          format: date
+        startsAt:
+          $ref: "#/components/schemas/LocalDateTime"
+        endsAt:
+          $ref: "#/components/schemas/LocalDateTime"
+        timeZone:
+          type: string
+          examples: ["America/Denver"]
+        note:
+          type: string
+          maxLength: 200
+        version:
+          type: integer
+          format: int64
+
+    TimeOffConflict:
+      type: object
+      description: A request the entry would cover, as the dialog that answers it needs it.
+      required: [requestId, status, startsAt, endsAt, timeZone, customerName, serviceName]
+      properties:
+        requestId:
+          type: string
+          format: uuid
+        status:
+          allOf:
+            - $ref: "#/components/schemas/JobRequestStatus"
+          description: "`PENDING` or `ACCEPTED` — nothing else holds or asks for time."
+        startsAt:
+          type: string
+          format: date-time
+        endsAt:
+          type: string
+          format: date-time
+        timeZone:
+          type: string
+        customerName:
+          type: string
+          maxLength: 200
+        serviceName:
+          type: string
+          maxLength: 160
+
+    TimeOffConflictProblem:
+      type: object
+      description: |
+        The `409` of a time-off write. With type
+        `urn:tradeties:problem:time-off-conflicts` it lists every request in the way,
+        answered or not, for the dialog to show again.
+      properties:
+        type:
+          type: string
+          format: uri
+        title:
+          type: string
+        status:
+          type: integer
+          format: int32
+        detail:
+          type: string
+        instance:
+          type: string
+          format: uri
+        conflicts:
+          type: array
+          items:
+            $ref: "#/components/schemas/TimeOffConflict"
+
     # -----------------------------------------------------------------------
     # Step 8 — booking rules
     # -----------------------------------------------------------------------
@@ -4210,6 +4886,12 @@ components:
           profile failing a condition it was meeting, so it was refused and rolled back.
           Nothing to confirm and nothing to re-read: the version you sent still stands. Show
           `detail` and let the holder undo the edit.
+        - `urn:tradeties:problem:time-off-conflicts` — time off would cover requests that
+          have not all been answered. `conflicts` lists them; answer each one in
+          `resolutions` and send the same body again.
+        - `urn:tradeties:problem:appointment-conflicts` — an appointment would overlap
+          accepted ones that have not all been moved or removed. `conflicts` lists them;
+          answer each one in `resolutions` and send the same body again.
 
         Match on `type`, never on `detail` — the wording is written for people and will be
         reworded.

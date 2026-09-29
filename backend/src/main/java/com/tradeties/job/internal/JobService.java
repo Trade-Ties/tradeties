@@ -41,18 +41,21 @@ public class JobService {
 	private final OpenSlots openSlots;
 	private final JobRepository jobs;
 	private final JobRequestRepository requests;
+	private final RequestHistory history;
 
 	JobService(BookableServices bookable,
 			SiteLocations locations,
 			OpenSlots openSlots,
 			JobRepository jobs,
-			JobRequestRepository requests) {
+			JobRequestRepository requests,
+			RequestHistory history) {
 
 		this.bookable = bookable;
 		this.locations = locations;
 		this.openSlots = openSlots;
 		this.jobs = jobs;
 		this.requests = requests;
+		this.history = history;
 	}
 
 	/**
@@ -74,6 +77,7 @@ public class JobService {
 				AccessTokens.digest(token), Instant.now().plus(AccessTokens.LIFETIME)));
 
 		JobRequestRow request = requests.save(new JobRequestRow(job.id(), submitted.startsAt(), offered));
+		history.record(request, null, Actor.CUSTOMER, null);
 
 		return new PlacedJob(
 				job.id(),

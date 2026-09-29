@@ -1,11 +1,13 @@
 import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
 
+import { fetchMyServices } from "@/lib/api/business";
+import { fetchMyTimeOff } from "@/lib/api/calendar";
 import { fetchMyJobRequests } from "@/lib/api/inbox";
 import { portalToken } from "@/lib/portal/session";
 import { CALENDAR_NEW_PARAM, CALENDAR_VIEW_PARAM, DASHBOARD_PATH } from "@/lib/routes";
 
-import { DEMO_ENTRIES, DEMO_TIME_OFF } from "../demo-data";
+import { serviceOptionsOf } from "../booking";
 import { incoming } from "../requests";
 import { CalendarMonth } from "./CalendarMonth";
 
@@ -16,10 +18,15 @@ export default async function CalendarPage({
 }) {
   const params = await searchParams;
   const view = params[CALENDAR_VIEW_PARAM] === "requests" ? "requests" : "day";
+  const token = await portalToken();
 
-  // The same list the dashboard reads, and it has to be the same: accepting on one screen and
+  // The same lists the dashboard reads, and it has to be the same: accepting on one screen and
   // still seeing the hour free on the other is the state this slice exists to remove.
-  const sent = await fetchMyJobRequests(await portalToken());
+  const [sent, blocked, services] = await Promise.all([
+    fetchMyJobRequests(token),
+    fetchMyTimeOff(token),
+    fetchMyServices(token),
+  ]);
   const requests = (sent.ok ? sent.data : [])
     .filter((request) => request.status === "PENDING" || request.status === "ACCEPTED")
     .map(incoming);
@@ -36,8 +43,8 @@ export default async function CalendarPage({
 
       <CalendarMonth
         sent={requests}
-        entries={DEMO_ENTRIES}
-        timeOff={DEMO_TIME_OFF}
+        blocks={blocked.ok ? blocked.data : []}
+        services={serviceOptionsOf(services.ok ? services.data : null)}
         initialView={view}
         openOnTimeOff={params[CALENDAR_NEW_PARAM] === "time-off"}
       />

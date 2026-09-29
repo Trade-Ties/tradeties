@@ -3,15 +3,15 @@ package com.tradeties.availability.internal;
 import java.time.Instant;
 import java.util.Collection;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
 import org.springframework.data.repository.Repository;
 
 /**
- * A bare {@link Repository} rather than a {@code JpaRepository}, for the same reason the customer
- * search uses one: there is nothing to write here. Time off has no writer in this application
- * yet, and inheriting twenty write methods onto a read that only subtracts would open a door
- * before anybody has decided what walking through it means.
+ * A bare {@link Repository} exposing exactly the writes {@link TimeOffWrites} makes. Every one of
+ * them has to happen behind the calendar lock, and an inherited {@code saveAll} or
+ * {@code deleteAll} would be a write path that never took it.
  */
 interface TimeOffRepository extends Repository<TimeOffRow, UUID> {
 
@@ -26,4 +26,13 @@ interface TimeOffRepository extends Repository<TimeOffRow, UUID> {
 
 	/** The same question for one business, which is what a single write path asks before it writes. */
 	List<TimeOffRow> findByBusinessIdAndEndsAtAfter(UUID businessId, Instant notBefore);
+
+	List<TimeOffRow> findByBusinessIdAndEndsAtAfterOrderByStartsAtAsc(UUID businessId, Instant notBefore);
+
+	/** By id and business, never by id alone: the business comes from the token. */
+	Optional<TimeOffRow> findByIdAndBusinessId(UUID id, UUID businessId);
+
+	TimeOffRow saveAndFlush(TimeOffRow row);
+
+	void delete(TimeOffRow row);
 }

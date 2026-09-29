@@ -2,18 +2,26 @@ package com.tradeties.job;
 
 import java.math.BigDecimal;
 import java.time.Instant;
+import java.time.LocalDateTime;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
+import java.time.format.DateTimeFormatter;
+import java.time.format.DateTimeParseException;
+import java.time.format.ResolverStyle;
 import java.util.List;
 import java.util.UUID;
 
 import com.tradeties.business.Businesses;
 import com.tradeties.generated.api.InboxApi;
+import com.tradeties.generated.model.AppointmentChange;
+import com.tradeties.generated.model.AppointmentInput;
 import com.tradeties.generated.model.BusinessJobRequest;
 import com.tradeties.generated.model.JobRequestDecline;
 import com.tradeties.generated.model.JobRequestStatus;
+import com.tradeties.generated.model.Party;
 import com.tradeties.identity.CurrentMarketplaceUser;
 import com.tradeties.identity.MarketplaceUser;
+import com.tradeties.job.internal.AppointmentService;
 import com.tradeties.job.internal.InboxService;
 
 import org.springframework.http.HttpStatus;
@@ -34,17 +42,61 @@ import org.springframework.web.server.ResponseStatusException;
 @RestController
 class InboxController implements InboxApi {
 
+	/** The contract's `LocalDateTime`. Strict, or a 31st of February would quietly become the 28th. */
+	private static final DateTimeFormatter WALL_CLOCK = DateTimeFormatter.ofPattern("uuuu-MM-dd'T'HH:mm")
+			.withResolverStyle(ResolverStyle.STRICT);
+
 	private final CurrentMarketplaceUser currentMarketplaceUser;
 	private final Businesses businesses;
 	private final InboxService inbox;
+	private final AppointmentService appointments;
 
 	InboxController(CurrentMarketplaceUser currentMarketplaceUser,
 			Businesses businesses,
-			InboxService inbox) {
+			InboxService inbox,
+			AppointmentService appointments) {
 
 		this.currentMarketplaceUser = currentMarketplaceUser;
 		this.businesses = businesses;
 		this.inbox = inbox;
+		this.appointments = appointments;
+	}
+
+	@Override
+	public ResponseEntity<BusinessJobRequest> bookAppointment(AppointmentInput input) {
+		AppointmentDetails details = new AppointmentDetails(
+				wallClock(input.getStartsAt()), wallClock(input.getEndsAt()),
+				input.getCustomerName(), input.getCustomerPhone(), input.getCustomerEmail(),
+				input.getStreet1(), input.getCity(), input.getState(), input.getPostalCode(), input.getNotes());
+
+		BusinessRequest booked = appointments
+				.book(myBusiness(), new NewAppointment(input.getServiceId(), input.getReplacesRequestId(), details,
+						resolutions(input.getResolutions())))
+				.orElseThrow(InboxController::noSuchRequest);
+
+		return ResponseEntity.status(HttpStatus.CREATED).body(toWire(booked));
+	}
+
+	@Override
+	public ResponseEntity<BusinessJobRequest> changeAppointment(UUID requestId, AppointmentChange change) {
+		AppointmentDetails details = new AppointmentDetails(
+				wallClock(change.getStartsAt()), wallClock(change.getEndsAt()),
+				change.getCustomerName(), change.getCustomerPhone(), change.getCustomerEmail(),
+				change.getStreet1(), change.getCity(), change.getState(), change.getPostalCode(), change.getNotes());
+
+		return ResponseEntity.ok(appointments.change(myBusiness(), requestId, details,
+						resolutions(change.getResolutions()))
+				.map(InboxController::toWire)
+				.orElseThrow(InboxController::noSuchRequest));
+	}
+
+	@Override
+	public ResponseEntity<Void> removeAppointment(UUID requestId) {
+		if (!appointments.remove(myBusiness(), requestId)) {
+			throw noSuchRequest();
+		}
+
+		return ResponseEntity.noContent().build();
 	}
 
 	@Override
@@ -88,10 +140,37 @@ class InboxController implements InboxApi {
 		return new ResponseStatusException(HttpStatus.NOT_FOUND, "No such request for this business");
 	}
 
+	private static List<AppointmentResolution> resolutions(
+			List<com.tradeties.generated.model.AppointmentResolution> wire) {
+
+		if (wire == null) {
+			return List.of();
+		}
+
+		return wire.stream()
+				.map(answer -> new AppointmentResolution(
+						answer.getRequestId(),
+						AppointmentResolution.Action.valueOf(answer.getAction().getValue()),
+						answer.getStartsAt() == null ? null : wallClock(answer.getStartsAt()),
+						answer.getEndsAt() == null ? null : wallClock(answer.getEndsAt())))
+				.toList();
+	}
+
+	private static LocalDateTime wallClock(String value) {
+		try {
+			return LocalDateTime.parse(value, WALL_CLOCK);
+		} catch (DateTimeParseException notOnTheCalendar) {
+			throw new InvalidAppointmentException(value + " is not a time on the calendar.");
+		}
+	}
+
 	private static BusinessJobRequest toWire(BusinessRequest request) {
 		BusinessJobRequest wire = new BusinessJobRequest()
 				.id(request.id())
 				.status(JobRequestStatus.fromValue(request.status().name()))
+				.serviceId(request.serviceId())
+				.bookedBy(Party.fromValue(request.bookedBy().name()))
+				.detailsFrom(Party.fromValue(request.detailsFrom().name()))
 				.startsAt(utc(request.startsAt()))
 				.endsAt(utc(request.endsAt()))
 				.timeZone(request.timeZone())
