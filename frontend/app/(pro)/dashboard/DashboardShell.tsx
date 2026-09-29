@@ -167,10 +167,9 @@ export function DashboardShell({
 
   return (
     <div
-      className={cn(
-        "mx-auto w-full px-8 py-10 transition-[max-width] duration-300",
-        selection ? "max-w-6xl" : "max-w-5xl"
-      )}
+      // As wide as every other tab, panel open or not: the grid makes room for the panel by
+      // narrowing, rather than the page growing under the reader's pointer.
+      className="mx-auto w-full max-w-7xl px-8 py-10"
     >
       {children}
 

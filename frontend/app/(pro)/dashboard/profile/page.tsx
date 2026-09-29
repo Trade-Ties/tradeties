@@ -51,7 +51,7 @@ async function Overview() {
   const resume = await resumeFor(business, token);
 
   return (
-    <div className="mx-auto w-full max-w-5xl px-8 py-10">
+    <div className="mx-auto w-full max-w-7xl px-8 py-10">
       <h1 className="mb-1 text-3xl font-bold tracking-[-0.02em] text-brand">Business profile</h1>
       <p className="mb-8 text-muted-ink">What customers see when they find you.</p>
 
@@ -147,7 +147,7 @@ function ResumedWizard({
  */
 function ProfileUnavailable() {
   return (
-    <div className="w-full max-w-5xl px-8 py-10">
+    <div className="w-full max-w-7xl px-8 py-10">
       <h1 className="text-3xl font-bold tracking-[-0.02em] text-brand">Your profile could not be loaded</h1>
 
       <p className="mt-4 max-w-prose text-muted-ink">

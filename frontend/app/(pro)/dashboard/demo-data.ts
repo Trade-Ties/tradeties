@@ -119,6 +119,7 @@ export const DEMO_APPOINTMENTS: DemoAppointment[] = [
     address: { street: "S Gaylord St", number: "905", city: "Denver", state: "CO", zip: "80209" },
     service: "Drain cleaning",
     notes: "Bathroom sink and tub are both draining very slowly. Tried a plunger, no luck.",
+    preferredContact: "phone",
     date: addDays(today, 1),
     time: "11:00 AM",
     durationMinutes: 60,
@@ -242,6 +243,15 @@ export function knownCustomers(appointments: DemoAppointment[]): KnownCustomer[]
     byName.set(a.customerName, { name: a.customerName, phone: a.phone, email: a.email, address: a.address });
   }
   return [...byName.values()].sort((x, y) => x.name.localeCompare(y.name));
+}
+
+/**
+ * Whether the customer asked to be called rather than written to — and left a number to call.
+ * Messages still go out by email either way; this is what tells the tradesperson that a reply
+ * alone is not what this customer is waiting for.
+ */
+export function prefersPhone(appointment: DemoAppointment | undefined): appointment is DemoAppointment {
+  return appointment?.preferredContact === "phone" && appointment.phone !== "";
 }
 
 /** The newest message, which is what a list row previews and dates itself by. */

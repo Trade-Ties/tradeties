@@ -15,7 +15,9 @@ import com.tradeties.job.NoSuchBusinessException;
 import com.tradeties.job.PlacedJob;
 import com.tradeties.job.ServiceNotOfferedException;
 import com.tradeties.job.SlotNotOfferedException;
+import com.tradeties.mail.MailOutbox;
 
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -42,13 +44,17 @@ public class JobService {
 	private final JobRepository jobs;
 	private final JobRequestRepository requests;
 	private final RequestHistory history;
+	private final MailOutbox mail;
+	private final String requestUrl;
 
 	JobService(BookableServices bookable,
 			SiteLocations locations,
 			OpenSlots openSlots,
 			JobRepository jobs,
 			JobRequestRepository requests,
-			RequestHistory history) {
+			RequestHistory history,
+			MailOutbox mail,
+			@Value("${tradeties.public-url}") String publicUrl) {
 
 		this.bookable = bookable;
 		this.locations = locations;
@@ -56,6 +62,8 @@ public class JobService {
 		this.jobs = jobs;
 		this.requests = requests;
 		this.history = history;
+		this.mail = mail;
+		this.requestUrl = publicUrl.replaceAll("/+$", "") + "/request";
 	}
 
 	/**
@@ -79,7 +87,7 @@ public class JobService {
 		JobRequestRow request = requests.save(new JobRequestRow(job.id(), submitted.startsAt(), offered));
 		history.record(request, null, Actor.CUSTOMER, null);
 
-		return new PlacedJob(
+		PlacedJob placed = new PlacedJob(
 				job.id(),
 				token,
 				job.accessTokenExpiresAt(),
@@ -94,6 +102,13 @@ public class JobService {
 				request.currency(),
 				request.cancellationFee(),
 				request.cancellationNoticeHours());
+
+		// Here, inside the transaction and while the clear token is still in hand — the one place
+		// it ever is. The confirmation commits with the request or not at all, and it is sent
+		// afterwards by the mail module, so a mail server being down cannot fail a booking.
+		mail.enqueue(RequestConfirmation.compose(submitted, placed, requestUrl));
+
+		return placed;
 	}
 
 	/**

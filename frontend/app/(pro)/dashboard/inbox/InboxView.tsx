@@ -1,15 +1,17 @@
 "use client";
 
 import { useState } from "react";
-import { CalendarPlus, Mail } from "lucide-react";
+import { CalendarPlus, Mail, X } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 
+import { AppointmentDetail } from "../AppointmentDetail";
 import { BookedNotice } from "../BookedNotice";
 import {
   prefillForConversation,
+  prefillFrom,
   withConfirmation,
   type BookingPrefill,
   type NewBooking,
@@ -50,6 +52,12 @@ export function InboxView({
 
   // The answered conversation moves to the top: the list is newest first.
   const [appointments, setAppointments] = useState(initialAppointments);
+
+  // Answering a request from its conversation. The conversation stays: declining a request is
+  // not the end of talking to the customer who sent it.
+  const confirm = (id: string) =>
+    setAppointments((prev) => prev.map((a) => (a.id === id ? { ...a, status: "confirmed" as const } : a)));
+  const decline = (id: string) => setAppointments((prev) => prev.filter((a) => a.id !== id));
   const [booking, setBooking] = useState<{ open: boolean; prefill?: BookingPrefill; key: number }>({
     open: false,
     key: 0,
@@ -84,6 +92,12 @@ export function InboxView({
   };
 
   const selected = messages.find((m) => m.id === selectedId);
+  const selectedAppointment = appointments.find((a) => a.id === selected?.appointmentId);
+
+  // Whose booking has the third column, as an id: picking another conversation closes it rather
+  // than showing somebody else's booking beside the new messages.
+  const [detailsFor, setDetailsFor] = useState<string | null>(null);
+  const detailsShown = selected !== undefined && detailsFor === selected.id && selectedAppointment !== undefined;
   const unreadCount = messages.filter((m) => m.unread).length;
   // The open message stays in the unread list after opening it has marked it read, so it does
   // not vanish from under the pointer; it drops out once another one is picked.
@@ -108,7 +122,14 @@ export function InboxView({
         }}
       />
 
-      <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-[380px_1fr]">
+      {/* Two columns, and a third for the booking while it is open — the width is there, and the
+          booking is read beside the messages about it rather than instead of them. */}
+      <div
+        className={cn(
+          "grid grid-cols-1 items-start gap-4",
+          detailsShown ? "lg:grid-cols-[300px_1fr] xl:grid-cols-[300px_1fr_340px]" : "lg:grid-cols-[360px_1fr]"
+        )}
+      >
         <Card className="gap-0 rounded-3xl border border-line bg-white py-2 shadow-card">
           <div role="tablist" aria-label="Show" className="mx-2 mb-2 mt-1 flex gap-1 rounded-full bg-brand-50 p-1">
             <FilterTab active={filter === "all"} onClick={() => setFilter("all")}>
@@ -186,8 +207,10 @@ export function InboxView({
                 </div>
                 <Conversation
                   conversation={selected}
-                  appointment={appointments.find((a) => a.id === selected.appointmentId)}
+                  appointment={selectedAppointment}
                   onSend={send}
+                  onOpenDetails={() => setDetailsFor(detailsShown ? null : selected.id)}
+                  detailsOpen={detailsShown}
                 />
               </>
             ) : (
@@ -198,6 +221,32 @@ export function InboxView({
             )}
           </CardContent>
         </Card>
+
+        {detailsShown && (
+          <Card className="gap-0 rounded-3xl border border-line bg-white py-0 shadow-card duration-200 animate-in fade-in slide-in-from-right-4 lg:col-span-2 xl:sticky xl:top-4 xl:col-span-1">
+            <CardContent className="px-5 py-5">
+              <div className="mb-4 flex items-center justify-between gap-3">
+                <p className="text-xs font-semibold uppercase tracking-wide text-faint">Booking</p>
+                <button
+                  type="button"
+                  onClick={() => setDetailsFor(null)}
+                  aria-label="Close booking details"
+                  className="grid size-7 shrink-0 place-items-center rounded-full text-muted-ink hover:bg-brand-50 hover:text-brand-500"
+                >
+                  <X className="size-4" />
+                </button>
+              </div>
+              <AppointmentDetail
+                appointment={selectedAppointment}
+                onConfirm={confirm}
+                onDecline={decline}
+                onRebook={(request) =>
+                  setBooking((b) => ({ open: true, prefill: prefillFrom(request), key: b.key + 1 }))
+                }
+              />
+            </CardContent>
+          </Card>
+        )}
       </div>
     </>
   );

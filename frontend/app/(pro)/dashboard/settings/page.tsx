@@ -43,11 +43,13 @@ export default async function SettingsPage() {
   const upcomingTimeOff = blocked.ok ? blocked.data : [];
 
   return (
-    <div className="mx-auto w-full max-w-5xl px-8 py-10">
+    <div className="mx-auto w-full max-w-7xl px-8 py-10">
       <h1 className="mb-8 text-3xl font-bold tracking-[-0.02em] text-brand">Settings</h1>
 
-      <div className="flex flex-col gap-4">
-        <Card className="gap-4 rounded-3xl border border-line bg-white py-0 shadow-card">
+      {/* Two columns at the width every tab now has; one card per column would stretch a
+          seven-line timetable across the whole page. The account sits across the top. */}
+      <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-2">
+        <Card className="gap-4 rounded-3xl border border-line bg-white py-0 shadow-card lg:col-span-2">
           <CardHeader className="px-5 pt-5">
             <CardTitle className="flex items-center gap-2 text-base font-semibold">
               <UserIcon className="size-4 text-brand-500" />
