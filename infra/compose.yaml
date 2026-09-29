@@ -69,6 +69,20 @@ services:
       start_period: 30s
       start_interval: 1s
 
+  # A mail server that delivers nothing. The backend sends to it over SMTP exactly as
+  # it will send to the real provider, and every message ends up in a web inbox at
+  # http://localhost:8025 instead of in somebody's mailbox — so a test booking with a
+  # real address cannot email a stranger, and what customers receive can be read
+  # before it ships. The defaults in application.yml point here.
+  #
+  # Multi-arch, unlike the database image: no emulation needed on Apple Silicon.
+  mailpit:
+    image: axllent/mailpit:v1.27
+    restart: unless-stopped
+    ports:
+      - "${MAIL_PORT:-1025}:1025" # SMTP, for the backend
+      - "${MAILPIT_UI_PORT:-8025}:8025" # the inbox, for people
+
 volumes:
   # Named, not a bind mount: a bind mount would put PostgreSQL's data directory
   # on the host filesystem, where on Windows and macOS it is both slower and
