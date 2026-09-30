@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import Link from "next/link";
+import { Calendar, Pencil } from "lucide-react";
 
 import { SiteHeader } from "@/components/marketing/SiteHeader";
 import { SiteFooter } from "@/components/marketing/SiteFooter";
@@ -52,6 +53,8 @@ export default async function BookPage({
   // that when the request is sent, against the walk that offered it — a second check here would
   // be a second answer to the same question, taken a moment earlier and no more true for it.
   const startsAt = instantOf(firstValue(query.at));
+  // What the customer searched for, carried here so the description starts from it.
+  const job = firstValue(query.job).trim().slice(0, 200);
 
   // Arriving without a service or without a time is not an error, it is an unfinished step —
   // reached by a bookmark, or by an address somebody trimmed. The calendar is where both are
@@ -69,7 +72,7 @@ export default async function BookPage({
   return (
     <>
       <SiteHeader />
-      <section className="pb-20 pt-8">
+      <section className="bg-canvas pb-20 pt-8">
         <div className="mx-auto max-w-[680px] px-6">
           <Link
             href={`${proPath(slug)}?service=${service.id}`}
@@ -81,24 +84,43 @@ export default async function BookPage({
           <h1 className="mb-1.5 text-[clamp(24px,3vw,30px)] font-extrabold tracking-[-0.03em]">
             Request this appointment
           </h1>
-          <p className="mb-7 text-[15px] leading-relaxed text-muted-ink">
-            {service.name} with {profile.displayName} on{" "}
-            <span className="font-semibold text-brand">{dayLabel(dayOf(startsAt, profile.timeZone))}</span>,{" "}
-            <span className="font-semibold text-brand">
-              {spanLabel(startsAt, service.estimatedDurationMinutes, profile.timeZone)}
-            </span>{" "}
-            ({profile.timeZone}).
-          </p>
 
-          <BookingForm
-            slug={slug}
-            businessName={profile.displayName}
-            serviceId={service.id}
-            serviceName={service.name}
-            startsAt={startsAt}
-            cancellationFee={profile.pricing.cancellationFee}
-            cancellationNoticeHours={profile.pricing.cancellationNoticeHours}
-          />
+          {/*
+            What is being asked for, stated the way the booking dialogue states it, with the one
+            way to change it: back to the calendar, the time still chosen, rather than starting over.
+          */}
+          <div className="mb-6 mt-5 flex flex-wrap items-center gap-3 rounded-2xl border border-brand-100 bg-brand-50 px-4 py-3.5 shadow-sm">
+            <Calendar className="size-4.5 shrink-0 text-brand-500" aria-hidden="true" />
+            <div className="min-w-0 flex-1">
+              <p className="m-0 text-[15px] font-semibold text-brand">
+                {dayLabel(dayOf(startsAt, profile.timeZone))},{" "}
+                {spanLabel(startsAt, service.estimatedDurationMinutes, profile.timeZone)}
+              </p>
+              <p className="m-0 mt-0.5 text-[13px] text-muted-ink">
+                {service.name} with {profile.displayName} · times are {profile.timeZone}
+              </p>
+            </div>
+            <Link
+              href={`${proPath(slug)}?${new URLSearchParams({ service: service.id, at: startsAt, calendar: "1", ...(job ? { job } : {}) })}#when`}
+              className="inline-flex items-center gap-1 rounded-full border border-line bg-white px-3 py-1 text-[13px] font-semibold text-brand-500 no-underline transition-colors hover:border-brand-100 hover:bg-brand-50"
+            >
+              <Pencil className="size-3.5" aria-hidden="true" />
+              Change
+            </Link>
+          </div>
+
+          <div className="rounded-3xl border border-line bg-white p-6 shadow-card">
+            <BookingForm
+              slug={slug}
+              businessName={profile.displayName}
+              serviceId={service.id}
+              serviceName={service.name}
+              startsAt={startsAt}
+              cancellationFee={profile.pricing.cancellationFee}
+              cancellationNoticeHours={profile.pricing.cancellationNoticeHours}
+              description={job}
+            />
+          </div>
         </div>
       </section>
       <SiteFooter />

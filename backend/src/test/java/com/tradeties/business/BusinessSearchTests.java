@@ -348,6 +348,37 @@ class BusinessSearchTests {
 	 * is dropped by a JSONPath filter expression, so "the rate is absent" and "the business is
 	 * absent" would otherwise be the same green.
 	 */
+	/**
+	 * Five services and no more, in the order the business lists them — enough for the card to
+	 * say what kind of plumber this is, with the rest left to the profile.
+	 */
+	@Test
+	void aResultNamesItsFirstFiveServices() throws Exception {
+		RequestPostProcessor token = publish("user_find_svc", "find-svc", DENVER, "PLUMBER");
+		BusinessFixtures.givenAService(mockMvc, token, "Pipe repair");
+		BusinessFixtures.givenAService(mockMvc, token, "Water heater install");
+		BusinessFixtures.givenAService(mockMvc, token, "Leak detection");
+		BusinessFixtures.givenAService(mockMvc, token, "Sewer camera inspection");
+		BusinessFixtures.givenAService(mockMvc, token, "Sump pump repair");
+
+		assertEquals(List.of("Clog removal", "Pipe repair", "Water heater install", "Leak detection",
+				"Sewer camera inspection"), result(DENVER, "find-svc").get("services"));
+	}
+
+	/** A retired service cannot be booked, so the card does not offer it; the next one moves up. */
+	@Test
+	void aRetiredServiceIsNotNamed() throws Exception {
+		RequestPostProcessor token = publish("user_find_retired", "find-retired", DENVER, "PLUMBER");
+		BusinessFixtures.givenAService(mockMvc, token, "Pipe repair");
+		BusinessFixtures.givenAService(mockMvc, token, "Leak detection");
+		jdbcTemplate.update("""
+				UPDATE business_service SET active = FALSE
+				WHERE name = 'Pipe repair'
+				  AND business_id = (SELECT id FROM business_profile WHERE slug = 'find-retired')""");
+
+		assertEquals(List.of("Clog removal", "Leak detection"), result(DENVER, "find-retired").get("services"));
+	}
+
 	private Map<String, Object> result(String zip, String slug) throws Exception {
 		String body = mockMvc.perform(get("/api/v1/businesses").param("zip", zip))
 				.andExpect(status().isOk())

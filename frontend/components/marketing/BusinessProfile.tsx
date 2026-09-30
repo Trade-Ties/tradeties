@@ -1,21 +1,23 @@
+import { BadgeCheck, Calendar, CalendarDays, Globe, MapPin } from "lucide-react";
 import Link from "next/link";
-import { ArrowLeft, BadgeCheck, Globe, MapPin } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
-import { ServicePicker } from "@/components/marketing/ServicePicker";
-import { dayLabel, dayOf, timeLabel } from "@/components/marketing/availability";
-import { amount, colorOf, duration, initialsOf, money } from "@/components/marketing/business-format";
-import type { PublicBusinessProfile } from "@/lib/api/marketplace";
+import { BackToResults } from "@/components/marketing/BackToResults";
+import { ServiceSelect } from "@/components/marketing/ServiceSelect";
+import { dayLabel, dayOf, spanLabel } from "@/components/marketing/availability";
+import { amount, colorOf, duration, initialsOf, money, priceOf } from "@/components/marketing/business-format";
+import { proPath } from "@/lib/routes";
+import type { PublicBusinessProfile, PublicService } from "@/lib/api/marketplace";
 
 type Pricing = PublicBusinessProfile["pricing"];
 
 /**
- * One tradesperson's own page: what they do, how long each job takes, and what it costs.
+ * One tradesperson's own page, as the search leads to it: who they are, the appointment the
+ * customer picked — titled with what they searched for — and what it costs.
  *
- * <p>The duration on every service is the reason this page is read before any calendar. A slot
- * has no length until a service is chosen, so the openings cannot be drawn until the customer has
- * answered this page — which is also why the services are the first thing on it and not a list
- * under the rates.
+ * <p>A request still names one service, since that sets how long the appointment is. It is asked
+ * as a dropdown on the appointment, starting on the one the search matched, rather than as a list
+ * of tiles to read through first; each service's price is under "What it costs".
  *
  * <p>Stays a server component: only the two interactive parts ship JavaScript, and `calendar`
  * arrives as a node so the page above decides what suspends while the diary is read.
@@ -25,6 +27,8 @@ export function BusinessProfile({
   picked,
   month,
   at,
+  job,
+  calendarAsked,
   calendar,
 }: {
   profile: PublicBusinessProfile;
@@ -34,122 +38,152 @@ export function BusinessProfile({
   month: string | null;
   /** The time the URL carries, already read as an instant, or null. */
   at: string | null;
+  /** What the customer typed into the search, or null when they came some other way. */
+  job: string | null;
+  /** Whether "Show all availability" was pressed, or the page was opened on the calendar. */
+  calendarAsked: boolean;
   calendar: React.ReactNode;
 }) {
   const services = profile.services ?? [];
   const licenses = profile.licenses ?? [];
   const trades = profile.trades ?? [];
 
+  const pickedService = services.find((service) => service.id === picked);
+
   const primary = trades.find((trade) => trade.id === profile.primaryTradeId);
   const others = trades.filter((trade) => trade.id !== profile.primaryTradeId);
 
   return (
-    <section className="pb-20 pt-8">
+    // The canvas and the white cards on it are the search's own look, so the page a card opens
+    // reads as the same place rather than a different site.
+    <section className="bg-canvas pb-20 pt-8">
       <div className="mx-auto max-w-[860px] px-6">
-        <Link
-          href="/"
-          className="mb-6 inline-flex items-center gap-1.5 text-[14px] font-semibold text-brand-500 no-underline"
-        >
-          <ArrowLeft className="size-4" />
-          Back to search
-        </Link>
+        <BackToResults className="mb-6 inline-flex items-center gap-1.5 text-[14px] font-semibold text-brand-500 no-underline" />
 
-        <header className="mb-9 flex flex-wrap items-start gap-5">
-          <div
-            className="grid size-[68px] shrink-0 place-items-center rounded-full text-[22px] font-bold tracking-[-0.02em] text-white"
-            style={{ background: colorOf(profile.slug) }}
-          >
-            {initialsOf(profile.displayName)}
-          </div>
+        <div className={`mb-9 p-6 ${CARD}`}>
+          <header className="flex flex-wrap items-start gap-5">
+            <div
+              className="grid size-[68px] shrink-0 place-items-center rounded-full text-[22px] font-bold tracking-[-0.02em] text-white"
+              style={{ background: colorOf(profile.slug) }}
+            >
+              {initialsOf(profile.displayName)}
+            </div>
 
-          <div className="min-w-[240px] flex-1">
-            <h1 className="mb-1.5 text-[clamp(26px,3vw,34px)] font-extrabold tracking-[-0.03em]">
-              {profile.displayName}
-            </h1>
+            <div className="min-w-[240px] flex-1">
+              <h1 className="mb-1.5 text-[clamp(26px,3vw,34px)] font-extrabold tracking-[-0.03em]">
+                {profile.displayName}
+              </h1>
 
-            <p className="m-0 flex flex-wrap items-center gap-2 text-[14.5px] text-muted-ink">
-              <span className="inline-flex items-center gap-1.5">
-                <MapPin className="size-4 text-faint" aria-hidden="true" />
-                {profile.city}, {profile.state}
-              </span>
-              {profile.websiteUrl && (
-                <>
-                  <span className="text-[#CBD6E2]">•</span>
-                  <a
-                    href={profile.websiteUrl}
-                    target="_blank"
-                    rel="noopener noreferrer nofollow"
-                    className="inline-flex items-center gap-1.5 font-medium text-brand-500"
-                  >
-                    <Globe className="size-4" aria-hidden="true" />
-                    Website
-                  </a>
-                </>
-              )}
-            </p>
-
-            {(primary || others.length > 0) && (
-              <div className="mt-3 flex flex-wrap items-center gap-2">
-                {primary && (
-                  <Badge className="h-auto rounded-full border-transparent bg-brand-50 px-3 py-1 text-[12px] font-semibold text-brand-500">
-                    {primary.displayName}
-                  </Badge>
-                )}
-                {others.map((trade) => (
-                  <Badge
-                    key={trade.id}
-                    className="h-auto rounded-full border border-line bg-white px-3 py-1 text-[12px] font-medium text-muted-ink"
-                  >
-                    {trade.displayName}
-                  </Badge>
-                ))}
-              </div>
-            )}
-
-            {/*
-              Said only when it is true. An explicit "not licensed" would be a claim this data
-              cannot support — plenty of trades need no licence in plenty of states, and a profile
-              completed before the licence step reads exactly the same way.
-            */}
-            {licenses.length > 0 && (
-              <div className="mt-3 flex flex-wrap items-center gap-3 text-[12.5px] font-medium text-muted-ink">
-                <span className="inline-flex items-center gap-1">
-                  <BadgeCheck className="size-3.5 text-go" aria-hidden="true" />
-                  Licensed
+              <p className="m-0 flex flex-wrap items-center gap-2 text-[14.5px] text-muted-ink">
+                <span className="inline-flex items-center gap-1.5">
+                  <MapPin className="size-4 text-faint" aria-hidden="true" />
+                  {profile.city}, {profile.state}
                 </span>
-                {licenses.some((license) => license.verified) && (
+                {profile.websiteUrl && (
+                  <>
+                    <span className="text-[#CBD6E2]">•</span>
+                    <a
+                      href={profile.websiteUrl}
+                      target="_blank"
+                      rel="noopener noreferrer nofollow"
+                      className="inline-flex items-center gap-1.5 font-medium text-brand-500"
+                    >
+                      <Globe className="size-4" aria-hidden="true" />
+                      Website
+                    </a>
+                  </>
+                )}
+              </p>
+
+              {(primary || others.length > 0) && (
+                <div className="mt-3 flex flex-wrap items-center gap-2">
+                  {primary && (
+                    <Badge className="h-auto rounded-full border-transparent bg-brand-50 px-3 py-1 text-[12px] font-semibold text-brand-500">
+                      {primary.displayName}
+                    </Badge>
+                  )}
+                  {others.map((trade) => (
+                    <Badge
+                      key={trade.id}
+                      className="h-auto rounded-full border border-line bg-white px-3 py-1 text-[12px] font-medium text-muted-ink"
+                    >
+                      {trade.displayName}
+                    </Badge>
+                  ))}
+                </div>
+              )}
+
+              {/*
+                Said only when it is true. An explicit "not licensed" would be a claim this data
+                cannot support — plenty of trades need no licence in plenty of states, and a profile
+                completed before the licence step reads exactly the same way.
+              */}
+              {licenses.length > 0 && (
+                <div className="mt-3 flex flex-wrap items-center gap-3 text-[12.5px] font-medium text-muted-ink">
                   <span className="inline-flex items-center gap-1">
                     <BadgeCheck className="size-3.5 text-go" aria-hidden="true" />
-                    Licence verified
+                    Licensed
                   </span>
-                )}
-              </div>
-            )}
-          </div>
-        </header>
+                </div>
+              )}
+            </div>
+          </header>
 
-        {profile.description && (
-          <p className="mb-9 max-w-[64ch] whitespace-pre-line text-[15.5px] leading-relaxed text-muted-ink">
-            {profile.description}
-          </p>
+          {profile.description && (
+            <p className="m-0 mt-5 max-w-[64ch] whitespace-pre-line border-t border-line pt-5 text-[15px] leading-relaxed text-muted-ink">
+              {profile.description}
+            </p>
+          )}
+        </div>
+
+        {at && pickedService && (
+          <ChosenTime
+            slug={profile.slug}
+            service={pickedService}
+            at={at}
+            job={job}
+            timeZone={profile.timeZone}
+            calendarAsked={calendarAsked}
+            select={
+              <ServiceSelect
+                slug={profile.slug}
+                services={services}
+                picked={pickedService.id}
+                month={month}
+                at={at}
+                job={job}
+                calendarOpen={calendarAsked}
+              />
+            }
+          />
         )}
 
-        <Section title={picked ? "What they do" : `What they do — ${ask(at, profile.timeZone)}`}>
-          <ServicePicker
-            slug={profile.slug}
-            services={services}
-            pricing={profile.pricing}
-            picked={picked}
-            month={month}
-            at={at}
-          />
-        </Section>
-
-        {calendar && <Section title="When they are free">{calendar}</Section>}
+        {calendar && pickedService && (
+          <Section
+            id="when"
+            title="When they are free"
+            // With no appointment card above, the service is asked here, where the calendar is.
+            aside={
+              !at && (
+                <ServiceSelect
+                  slug={profile.slug}
+                  services={services}
+                  picked={pickedService.id}
+                  month={month}
+                  at={null}
+                  job={job}
+                  calendarOpen={calendarAsked}
+                />
+              )
+            }
+          >
+            {calendar}
+          </Section>
+        )}
 
         <Section title="What it costs">
-          <dl className="grid grid-cols-1 gap-x-8 gap-y-3.5 sm:grid-cols-2">
-            {terms(profile.pricing).map((term) => (
+          <dl className={`m-0 grid grid-cols-1 gap-x-8 gap-y-3.5 p-6 sm:grid-cols-2 ${CARD}`}>
+            {[...serviceRows(services, profile.pricing), ...terms(profile.pricing)].map((term) => (
               <div key={term.label} className="border-b border-line pb-3.5">
                 <dt className="text-[12px] font-bold uppercase tracking-[0.04em] text-faint">{term.label}</dt>
                 <dd className="m-0 mt-1 text-[14.5px] text-brand">{term.value}</dd>
@@ -160,24 +194,20 @@ export function BusinessProfile({
 
         {licenses.length > 0 && (
           <Section title="Licences on file">
-            <ul className="m-0 flex list-none flex-col gap-2.5 p-0">
+            <ul className={`m-0 flex list-none flex-col p-0 ${CARD}`}>
               {licenses.map((license) => (
                 <li
                   key={`${license.state}-${license.licenseNumber}`}
-                  className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-line bg-white px-5 py-4"
+                  className="flex flex-wrap items-center justify-between gap-3 border-line px-6 py-4 not-last:border-b"
                 >
                   <span className="text-[14.5px]">
                     <strong className="font-semibold">{license.state}</strong> · {license.licenseNumber}
                     {license.licenseType && <span className="text-muted-ink"> · {license.licenseType}</span>}
                   </span>
-                  <span className="text-[13px] text-faint">
-                    {/*
-                      What TradeTies checked is the licence, and the badge says no more than that.
-                      Anything broader would be claiming an identity check nobody has performed.
-                    */}
-                    {license.verified ? "Checked with the state" : "Not checked by TradeTies"}
-                    {license.expiresOn && ` · expires ${expiry(license.expiresOn)}`}
-                  </span>
+                  {/* The licence as entered, and nothing about checking it: nothing checks it yet. */}
+                  {license.expiresOn && (
+                    <span className="text-[13px] text-faint">Expires {expiry(license.expiresOn)}</span>
+                  )}
                 </li>
               ))}
             </ul>
@@ -188,17 +218,98 @@ export function BusinessProfile({
   );
 }
 
-/** What the service list is waiting on — and, when a time came with the link, which time it is for. */
-function ask(at: string | null, timeZone: string): string {
-  return at
-    ? `pick one to book ${dayLabel(dayOf(at, timeZone))}, ${timeLabel(at, timeZone)}`
-    : "pick one to see their diary";
+/**
+ * The time picked on a search card, said plainly under the business it is with, with the two
+ * things to do about it: request it, or open the whole calendar to choose another. The calendar
+ * stays closed until asked for, so the page reads as "this appointment" rather than a diary.
+ */
+function ChosenTime({
+  slug,
+  service,
+  at,
+  job,
+  timeZone,
+  calendarAsked,
+  select,
+}: {
+  slug: string;
+  service: PublicService;
+  at: string;
+  job: string | null;
+  timeZone: string;
+  calendarAsked: boolean;
+  /** The service dropdown, or nothing when there is only one service to book. */
+  select: React.ReactNode;
+}) {
+  const carried: Record<string, string> = job ? { job } : {};
+  const calendar = new URLSearchParams({ service: service.id, at, calendar: "1", ...carried });
+
+  return (
+    <div className="mb-9 rounded-3xl border border-brand-100 bg-brand-50 px-6 py-5 shadow-card">
+      {/* What they searched for is what they are booking; the service is the business's word for it. */}
+      <p className="m-0 text-[12px] font-bold uppercase tracking-[0.04em] text-faint">Your appointment</p>
+      <h2 className="m-0 mt-1 text-[20px] font-bold tracking-[-0.02em] text-brand">{job ?? service.name}</h2>
+
+      <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-3">
+        <p className="m-0 inline-flex items-center gap-2 text-[15px] font-semibold text-brand">
+          <Calendar className="size-4.5 shrink-0 text-brand-500" aria-hidden="true" />
+          {dayLabel(dayOf(at, timeZone))}, {spanLabel(at, service.estimatedDurationMinutes, timeZone)}
+        </p>
+        {select}
+      </div>
+      <p className="m-0 mt-1 text-[12.5px] text-muted-ink">Times are {timeZone}, the tradesperson&apos;s own clock.</p>
+
+      <div className="mt-4 flex flex-wrap gap-2">
+        {!calendarAsked && (
+          <Link
+            href={`${proPath(slug)}?${calendar}#when`}
+            className="inline-flex items-center gap-1.5 rounded-full border border-line bg-white px-4 py-2 text-[13.5px] font-semibold text-brand-500 no-underline transition-colors hover:border-brand-100"
+          >
+            <CalendarDays className="size-4" aria-hidden="true" />
+            Show all availability
+          </Link>
+        )}
+        <Link
+          href={`${proPath(slug)}/book?${new URLSearchParams({ service: service.id, at, ...carried })}`}
+          className="inline-flex items-center rounded-full bg-brand px-4 py-2 text-[13.5px] font-semibold text-white no-underline"
+        >
+          Request this appointment
+        </Link>
+      </div>
+    </div>
+  );
 }
 
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
+/** What the service list is waiting on — and, when a time came with the link, which time it is for. */
+/** Each service with its price and how long it takes — what the tiles above the calendar used to say. */
+function serviceRows(services: PublicService[], pricing: Pricing): { label: string; value: string }[] {
+  return services.map((service) => ({
+    label: service.name,
+    value: `${priceOf(service, pricing)} · ${duration(service.estimatedDurationMinutes)}`,
+  }));
+}
+
+/** The booking cards' surface: white, rounded, lifted a little off the canvas. */
+const CARD = "rounded-3xl border border-line bg-white shadow-card";
+
+function Section({
+  id,
+  title,
+  aside,
+  children,
+}: {
+  id?: string;
+  title: string;
+  /** Beside the title, at its right. */
+  aside?: React.ReactNode;
+  children: React.ReactNode;
+}) {
   return (
-    <div className="mb-9">
-      <h2 className="mb-3.5 text-[12px] font-bold uppercase tracking-[0.04em] text-faint">{title}</h2>
+    <div id={id} className="mb-9 scroll-mt-24">
+      <div className="mb-3.5 flex flex-wrap items-center justify-between gap-3">
+        <h2 className="m-0 text-[12px] font-bold uppercase tracking-[0.04em] text-faint">{title}</h2>
+        {aside}
+      </div>
       {children}
     </div>
   );

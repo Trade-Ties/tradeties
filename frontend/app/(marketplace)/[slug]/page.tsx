@@ -7,7 +7,7 @@ import { SiteHeader } from "@/components/marketing/SiteHeader";
 import { SiteFooter } from "@/components/marketing/SiteFooter";
 import { BusinessProfile } from "@/components/marketing/BusinessProfile";
 import { ServiceCalendar } from "@/components/marketing/ServiceCalendar";
-import { instantOf, isMonth, monthIn, monthWindow } from "@/components/marketing/availability";
+import { instantOf, isMonth, monthIn, monthWindow, shiftMonth } from "@/components/marketing/availability";
 import { getAvailability, getBusiness, type PublicService } from "@/lib/api/marketplace";
 
 function firstValue(value: string | string[] | undefined): string {
@@ -70,11 +70,18 @@ export default async function ProfilePage({
   const asked = firstValue(query.service);
   const at = instantOf(firstValue(query.at));
 
-  // A time with no service is a card clicked for a business the search had no job for. With one
-  // service on the menu there is nothing left to ask.
-  const service =
-    profile.services.find((offered) => offered.id === asked) ??
-    (at && profile.services.length === 1 ? profile.services[0] : null);
+  // With no service named, the first one stands in, so the page always opens on a calendar — what
+  // "View all available times" and a card's time lead here to see. The customer can switch
+  // service above it, and the calendar follows.
+  const service = profile.services.find((offered) => offered.id === asked) ?? profile.services[0] ?? null;
+
+  // A time chosen on a search card is shown on its own, ready to request; the whole calendar waits
+  // behind "Show all availability". Without a chosen time the calendar is the only way to one, so
+  // it is always there.
+  const calendarAsked = firstValue(query.calendar) === "1";
+  // What the customer searched for, to title the appointment and start the booking form with.
+  const job = firstValue(query.job).trim().slice(0, 200) || null;
+  const calendarShown = calendarAsked || !at;
 
   const wanted = firstValue(query.month);
   const month = isMonth(wanted) ? wanted : null;
@@ -94,13 +101,16 @@ export default async function ProfilePage({
         picked={service?.id ?? null}
         month={month}
         at={at}
+        job={job}
+        calendarAsked={calendarAsked}
         calendar={
-          service && (
+          service &&
+          calendarShown && (
             // Keyed so a different service, month or picked time is a fresh calendar: the chosen
             // time lives in that subtree, and carrying it across would leave an hour selected
             // that belongs to a month nobody is looking at any more.
             <Suspense key={`${service.id}-${showing}-${at ?? ""}`} fallback={<Reading />}>
-              <Diary slug={slug} service={service} month={showing} at={at} />
+              <Diary slug={slug} service={service} month={showing} at={at} job={job} follow={!month && !at} />
             </Suspense>
           )
         }
@@ -119,16 +129,33 @@ export default async function ProfilePage({
 async function Diary({
   slug,
   service,
-  month,
+  month: asked,
   at,
+  job,
+  follow,
 }: {
   slug: string;
   service: PublicService;
   month: string;
   at: string | null;
+  job: string | null;
+  /** True when nobody chose the month, so an exhausted one may give way to the next. */
+  follow: boolean;
 }) {
-  const { from, to } = monthWindow(month);
-  const result = await getAvailability(slug, service.id, from, to);
+  let month = asked;
+  let result = await getAvailability(slug, service.id, monthWindow(month).from, monthWindow(month).to);
+
+  // The notice a business needs can reach past the end of this month — on its last day, a day's
+  // notice is enough. That is not a closed diary, only a month with nothing left in it, so the
+  // next one is read instead: twice at most, which covers any notice the wizard allows.
+  for (
+    let step = 0;
+    follow && step < 2 && result.ok && result.data && result.data.from > monthWindow(month).to;
+    step++
+  ) {
+    month = shiftMonth(month, 1);
+    result = await getAvailability(slug, service.id, monthWindow(month).from, monthWindow(month).to);
+  }
 
   // A 404 here is the profile going down between the two reads. Both that and a backend that
   // refused say the same thing to the reader: there is no diary to show, and it is not their
@@ -148,6 +175,7 @@ async function Diary({
       serviceName={service.name}
       month={month}
       at={at}
+      job={job}
       availability={result.data}
     />
   );

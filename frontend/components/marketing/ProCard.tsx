@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { addDays, format, isSameDay } from "date-fns";
-import { ArrowRight, BadgeCheck, MapPin } from "lucide-react";
+import { ArrowRight, BadgeCheck, Check, MapPin } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";
@@ -14,6 +14,9 @@ const today = new Date(new Date().setHours(0, 0, 0, 0));
 
 /** Two columns of three: as many as a card holds without the times turning into a list. */
 const SLOTS_SHOWN = 6;
+
+/** Services on the card itself; any more, up to the five a result carries, open on hover. */
+const SERVICES_SHOWN = 3;
 
 /**
  * What the card draws, independent of where it came from.
@@ -92,8 +95,16 @@ export interface ProCardView {
   location?: string;
   /** Display only, never a real link — absent for a real result, which has no site on file yet. */
   website?: string;
-  /** Absent for a real result — the search endpoint doesn't return a business's service list. */
+  /**
+   * What it offers, by name. The card lists three and the rest on hover; a real result sends five,
+   * with the job searched for first when the business lists it.
+   */
   services?: string[];
+  /**
+   * The business's own name for the job the customer searched for, when it lists that job — the
+   * one thing on the card that answers their search rather than describing the business.
+   */
+  offers?: string;
   slots: ProCardSlot[];
   /**
    * Every day ahead, empty ones included, for the booking dialogue's calendar. Only the sample
@@ -252,87 +263,106 @@ export function ProCard({
         <span className="shrink-0">{view.distance} away</span>
       </div>
 
-      {/* Drawn even with no badge, so the line under it and everything below sit where they do on every other card. */}
-      <div className="mb-3.5 mt-2 flex items-center gap-3 border-b border-line pb-3.5 text-[12px] font-medium text-muted-ink">
-        {view.badges.length === 0 && (
-          <span aria-hidden="true" className="invisible inline-flex items-center gap-1">
-            <BadgeCheck className="size-3.5" />
-            Licensed
-          </span>
+      {/*
+        The badge line is drawn at full height even when empty. The services under it take the rows
+        their names need; whatever that leaves over falls above the price, which is pinned to the
+        foot of the card, so the times line up across a row however the chips wrapped.
+      */}
+      <div className="mb-4 mt-2">
+        <div className="flex items-center gap-3 text-[12px] font-medium text-muted-ink">
+          {view.badges.length === 0 && (
+            <span aria-hidden="true" className="invisible inline-flex items-center gap-1">
+              <BadgeCheck className="size-3.5" />
+              Licensed
+            </span>
+          )}
+          {view.badges.map((badge) => (
+            <span key={badge} className="inline-flex items-center gap-1">
+              <BadgeCheck className="size-3.5 text-go" />
+              {badge}
+            </span>
+          ))}
+        </div>
+
+        {view.offers && (
+          <p className="m-0 mt-3 inline-flex max-w-full items-center gap-1.5 rounded-full bg-go-bg px-2.5 py-1 text-[12px] font-semibold text-[#07734F]">
+            <Check className="size-3.5 shrink-0" aria-hidden="true" />
+            <span className="truncate">Offers {view.offers}</span>
+          </p>
         )}
-        {view.badges.map((badge) => (
-          <span key={badge} className="inline-flex items-center gap-1">
-            <BadgeCheck className="size-3.5 text-go" />
-            {badge}
-          </span>
-        ))}
+
+        {/* Without the job it offers: that is already said, just above. */}
+        <ServiceList services={(view.services ?? []).filter((service) => service !== view.offers)} />
       </div>
 
-      <p className="mb-2 text-xs font-semibold text-faint">
-        {view.rateFrom !== undefined && (
-          <>
-            From <span className="font-bold text-brand">${view.rateFrom}</span>/hr ·{" "}
-          </>
-        )}
-        {view.slots.length === 0 ? "No openings listed" : "Next available"}
-      </p>
-      {/*
-        A fixed two-column grid rather than flex-wrap: with wrap, how many times
-        shared a row depended on how wide that pro's labels happened to be
-        ("Tue 10:30 AM" vs "3:00 PM"), so slot 3 landed in a different place on
-        every card. Two columns, filled left to right, put slot N in the same
-        spot on every card of the grid. min-h reserves all three rows even for a
-        pro with fewer times, so every card ends at the same height.
-      */}
-      <div className="mt-auto grid min-h-[116px] grid-cols-2 content-start gap-1.5">
-        {view.slots.slice(0, SLOTS_SHOWN).map((slot) => {
-          // Tighter than a full-width row: two to a line leaves about 110px each, which
-          // "Fri 10:30 AM" in the mono face fills. The word "Book" is in the accessible name.
-          const slotClassName = slot.today
-            ? "h-auto min-w-0 rounded-[10px] border-[#BFEBD8] bg-go-bg px-1.5 py-2 font-mono text-[12px] font-medium text-[#07734F] hover:border-go hover:bg-go hover:text-white"
-            : "h-auto min-w-0 rounded-[10px] border-line bg-white px-1.5 py-2 font-mono text-[12px] font-medium text-brand hover:border-brand hover:bg-brand hover:text-white";
+      <div className="mt-auto border-t border-line pt-3.5">
+        <p className="mb-2 text-xs font-semibold text-faint">
+          {view.rateFrom !== undefined && (
+            <>
+              From <span className="font-bold text-brand">${view.rateFrom}</span>/hr ·{" "}
+            </>
+          )}
+          {view.slots.length === 0 ? "No openings listed" : "Next available"}
+        </p>
+        {/*
+          A fixed two-column grid rather than flex-wrap: with wrap, how many times
+          shared a row depended on how wide that pro's labels happened to be
+          ("Tue 10:30 AM" vs "3:00 PM"), so slot 3 landed in a different place on
+          every card. Two columns, filled left to right, put slot N in the same
+          spot on every card of the grid. min-h reserves all three rows even for a
+          pro with fewer times, so every card ends at the same height.
+        */}
+        <div className="grid min-h-[116px] grid-cols-2 content-start gap-1.5">
+          {view.slots.slice(0, SLOTS_SHOWN).map((slot) => {
+            // Tighter than a full-width row: two to a line leaves about 110px each, which
+            // "Fri 10:30 AM" in the mono face fills. The word "Book" is in the accessible name.
+            const slotClassName = slot.today
+              ? "h-auto min-w-0 rounded-[10px] border-[#BFEBD8] bg-go-bg px-1.5 py-2 font-mono text-[12px] font-medium text-[#07734F] hover:border-go hover:bg-go hover:text-white"
+              : // Tinted like the calendar's open days, so a time reads as something to press.
+              "h-auto min-w-0 rounded-[10px] border-brand-100 bg-brand-50 px-1.5 py-2 font-mono text-[12px] font-medium text-brand hover:border-brand hover:bg-brand hover:text-white";
 
-          if (onBook) {
+            if (onBook) {
+              return (
+                <Button
+                  key={slot.key}
+                  type="button"
+                  variant="outline"
+                  aria-label={`Book ${slot.dateLabel}, ${slot.timeLabel} with ${view.title}`}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onBook(slot);
+                  }}
+                  className={slotClassName}
+                >
+                  <SlotText slot={slot} />
+                </Button>
+              );
+            }
+
+            if (!slot.href) {
+              return (
+                <Button key={slot.key} type="button" variant="outline" disabled className={slotClassName}>
+                  <SlotText slot={slot} />
+                </Button>
+              );
+            }
+
+            // Not the booking itself: the business's page, with this time picked in its calendar.
+            // A request needs a service, and only that page can ask for one when the search named
+            // none.
+            // A plain link in the button's clothes, since `Button` would announce it as a button.
             return (
-              <Button
+              <Link
                 key={slot.key}
-                type="button"
-                variant="outline"
-                aria-label={`Book ${slot.dateLabel}, ${slot.timeLabel} with ${view.title}`}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onBook(slot);
-                }}
-                className={slotClassName}
+                href={slot.href}
+                aria-label={`${slot.dateLabel}, ${slot.timeLabel} with ${view.title}`}
+                className={cn(buttonVariants({ variant: "outline" }), "relative z-10 no-underline", slotClassName)}
               >
                 <SlotText slot={slot} />
-              </Button>
+              </Link>
             );
-          }
-
-          if (!slot.href) {
-            return (
-              <Button key={slot.key} type="button" variant="outline" disabled className={slotClassName}>
-                <SlotText slot={slot} />
-              </Button>
-            );
-          }
-
-          // Not the booking itself: the business's page, with this time picked in its calendar.
-          // A request needs a service, and only that page can ask for one when the search named
-          // none.
-          // A plain link in the button's clothes, since `Button` would announce it as a button.
-          return (
-            <Link
-              key={slot.key}
-              href={slot.href}
-              aria-label={`${slot.dateLabel}, ${slot.timeLabel} with ${view.title}`}
-              className={cn(buttonVariants({ variant: "outline" }), "relative z-10 no-underline", slotClassName)}
-            >
-              <SlotText slot={slot} />
-            </Link>
-          );
-        })}
+          })}
+        </div>
       </div>
 
       {/*
@@ -345,7 +375,8 @@ export function ProCard({
       */}
       {view.href && !onBook ? (
         <Link
-          href={view.href}
+          // The business's page with its calendar open, and straight down to it.
+          href={`${view.href}${view.href.includes("?") ? "&" : "?"}calendar=1#when`}
           className="mt-3 inline-flex items-center gap-1 text-[13px] font-semibold text-brand-500 no-underline after:absolute after:inset-0 after:rounded-3xl"
         >
           View all available times
@@ -390,5 +421,47 @@ function SlotText({ slot }: { slot: ProCardSlot }) {
         <span className="col-span-2 text-center">{slot.timeLabel}</span>
       )}
     </span>
+  );
+}
+
+/**
+ * The first three services as a list, and — when there are more — a "+2 more" under them whose
+ * hover shows every one. On hover rather than in place, so the card never changes height under
+ * the pointer and pushes its row about.
+ */
+function ServiceList({ services }: { services: string[] }) {
+  if (services.length === 0) return null;
+  const rest = services.length - SERVICES_SHOWN;
+  if (rest <= 0) return <Bullets services={services} className="mt-3" />;
+
+  return (
+    <PreviewCard>
+      <PreviewCardTrigger
+        // Above the card-wide link, and not a click on the card: hovering is all this is for.
+        render={
+          <div className="relative z-10 mt-3 w-fit max-w-full cursor-default" onClick={(e) => e.stopPropagation()} />
+        }
+      >
+        <Bullets services={services.slice(0, SERVICES_SHOWN)} />
+        <p className="m-0 mt-1 pl-3 text-[12px] font-semibold text-brand-500">+ {rest} more</p>
+      </PreviewCardTrigger>
+      <PreviewCardContent className="w-64 p-4">
+        <p className="m-0 mb-2.5 text-[11px] font-semibold tracking-wide text-faint uppercase">Services</p>
+        <Bullets services={services} />
+      </PreviewCardContent>
+    </PreviewCard>
+  );
+}
+
+function Bullets({ services, className }: { services: string[]; className?: string }) {
+  return (
+    <ul aria-label="Services" className={cn("m-0 flex list-none flex-col gap-1 p-0", className)}>
+      {services.map((service) => (
+        <li key={service} className="flex min-w-0 items-center gap-2 text-[12.5px] leading-[18px] text-foreground">
+          <span aria-hidden="true" className="size-1 shrink-0 rounded-full bg-brand-500/60" />
+          <span className="truncate">{service}</span>
+        </li>
+      ))}
+    </ul>
   );
 }

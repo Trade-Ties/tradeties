@@ -449,7 +449,7 @@ export function BrowseProfessionals() {
             // gaps = 820px, which is exactly this results column's width
             // at the page's max content width — so a full row of 3 lines
             // up flush with the right edge, same as the Sort control above.
-            <div className="grid grid-cols-[repeat(auto-fill,260px)] items-start gap-5 self-start">
+            <div className="grid grid-cols-[repeat(auto-fill,260px)] gap-5 self-start">
               {filtered.map((p) => (
                 <ProCard
                   key={p.name}

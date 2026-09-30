@@ -40,6 +40,7 @@ export function BookingForm({
   startsAt,
   cancellationFee,
   cancellationNoticeHours,
+  description,
 }: {
   slug: string;
   businessName: string;
@@ -48,6 +49,8 @@ export function BookingForm({
   startsAt: string;
   cancellationFee: string;
   cancellationNoticeHours: number;
+  /** What the customer searched for, to start the description from; empty when there was none. */
+  description?: string;
 }) {
   const [pending, startSending] = useTransition();
   const [failure, setFailure] = useState<Extract<Sent, { ok: false }> | null>(null);
@@ -126,6 +129,7 @@ export function BookingForm({
               required
               maxLength={2000}
               rows={4}
+              defaultValue={description}
               placeholder="No hot water since Tuesday. The boiler clicks but does not fire."
             />
             <p className="m-0 mt-1 text-[12.5px] text-faint">
