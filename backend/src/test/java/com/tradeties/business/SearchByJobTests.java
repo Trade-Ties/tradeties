@@ -81,13 +81,19 @@ class SearchByJobTests {
 	/**
 	 * The whole slice in one assertion: the business that lists the job comes first and says so,
 	 * the one that does not is still there and says that.
+	 *
+	 * <p>Narrowed to a name only these two carry. Unnarrowed, both had to be on the first page of
+	 * every plumber the suite had published in Denver by then — true or not depending on the order
+	 * the classes happened to run in, which is not the same on every machine.
 	 */
 	@Test
 	void whoListsTheJobComesFirstAndTheRestStillCome() throws Exception {
 		publishPlumber("user_job_lists", "job-lists", TOILET);
 		publishPlumber("user_job_silent", "job-silent", null);
+		jdbcTemplate.update(RENAME, "Quillmarsh Plumbing", "job-lists");
+		jdbcTemplate.update(RENAME, "Quillmarsh Pipe & Drain", "job-silent");
 
-		String body = mockMvc.perform(search().param("service", TOILET))
+		String body = mockMvc.perform(search().param("service", TOILET).param("name", "Quillmarsh"))
 				.andExpect(status().isOk())
 				.andExpect(jsonPath(at("job-lists") + ".offersThisJob").value(Matchers.contains(true)))
 				.andExpect(jsonPath(at("job-silent") + ".offersThisJob").value(Matchers.contains(false)))
@@ -105,8 +111,13 @@ class SearchByJobTests {
 	void whoListsTheJobNamesItsServiceForIt() throws Exception {
 		String listed = publishPlumber("user_job_names", "job-names", TOILET);
 		publishPlumber("user_job_nameless", "job-nameless", null);
+		// Narrowed for the reason above — and here it matters more: a business off the first page
+		// would pass "names no service" without being looked at.
+		jdbcTemplate.update(RENAME, "Vorlane Plumbing", "job-names");
+		jdbcTemplate.update(RENAME, "Vorlane Pipe & Drain", "job-nameless");
 
-		mockMvc.perform(search().param("service", TOILET))
+		mockMvc.perform(search().param("service", TOILET).param("name", "Vorlane"))
+				.andExpect(jsonPath("$.results.length()").value(2))
 				.andExpect(status().isOk())
 				.andExpect(jsonPath(at("job-names") + ".serviceId").value(Matchers.contains(listed)))
 				.andExpect(jsonPath(at("job-nameless") + ".serviceId").value(Matchers.empty()));
