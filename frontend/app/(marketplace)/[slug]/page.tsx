@@ -3,6 +3,7 @@ import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import Link from "next/link";
 
+import { DESCRIPTION_MAX } from "@/components/marketing/request-limits";
 import { SiteHeader } from "@/components/marketing/SiteHeader";
 import { SiteFooter } from "@/components/marketing/SiteFooter";
 import { BusinessProfile } from "@/components/marketing/BusinessProfile";
@@ -75,12 +76,14 @@ export default async function ProfilePage({
   // service above it, and the calendar follows.
   const service = profile.services.find((offered) => offered.id === asked) ?? profile.services[0] ?? null;
 
-  // A time chosen on a search card is shown on its own, ready to request; the whole calendar waits
-  // behind "Show all availability". Without a chosen time the calendar is the only way to one, so
-  // it is always there.
+  // A chosen time — from a search card, or from the calendar, which folds away once one is picked —
+  // is shown on its own, ready to request; the whole calendar waits behind "Show all availability".
+  // Without a chosen time the calendar is the only way to one, so it is always there.
   const calendarAsked = firstValue(query.calendar) === "1";
-  // What the customer searched for, to title the appointment and start the booking form with.
+  // What the customer searched for, to title the appointment and start the description with.
   const job = firstValue(query.job).trim().slice(0, 200) || null;
+  // What needs doing, when the booking page's "Change" brings it back.
+  const description = firstValue(query.description).trim().slice(0, DESCRIPTION_MAX) || null;
   const calendarShown = calendarAsked || !at;
 
   const wanted = firstValue(query.month);
@@ -102,6 +105,7 @@ export default async function ProfilePage({
         month={month}
         at={at}
         job={job}
+        description={description}
         calendarAsked={calendarAsked}
         calendar={
           service &&

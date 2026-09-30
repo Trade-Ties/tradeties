@@ -227,6 +227,26 @@ class PublicProfileTests {
 				.andExpect(jsonPath("$.services[0].tradeId").value(plumber));
 	}
 
+	/**
+	 * The week as it was declared: every day present, Monday first, a day off as an empty list
+	 * rather than a missing entry — so a client can print seven rows without reasoning about gaps.
+	 * The fixture works Mondays nine to five and nothing else.
+	 */
+	@Test
+	void theProfileStatesTheWorkingWeek() throws Exception {
+		publish("user_pub_hours", "pub-hours");
+
+		mockMvc.perform(get("/api/v1/businesses/pub-hours"))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.workingHours.length()").value(7))
+				.andExpect(jsonPath("$.workingHours[0].dayOfWeek").value(1))
+				.andExpect(jsonPath("$.workingHours[0].blocks.length()").value(1))
+				.andExpect(jsonPath("$.workingHours[0].blocks[0].startsAt").value("09:00"))
+				.andExpect(jsonPath("$.workingHours[0].blocks[0].endsAt").value("17:00"))
+				.andExpect(jsonPath("$.workingHours[6].dayOfWeek").value(7))
+				.andExpect(jsonPath("$.workingHours[6].blocks").isEmpty());
+	}
+
 	private RequestPostProcessor publish(String subject, String slug) throws Exception {
 		RequestPostProcessor token = BusinessFixtures.publishableBusinessFor(mockMvc, subject, slug);
 

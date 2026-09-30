@@ -527,7 +527,7 @@ interface AutocompleteControlProps {
  * caller swapping `SelectField` for this one changes nothing else. What is typed is a query and
  * is never stored: the kit puts the chosen label back in the box when the list closes.
  */
-function AutocompleteControl({
+export function AutocompleteControl({
   options,
   value,
   onValueChange,

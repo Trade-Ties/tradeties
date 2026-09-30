@@ -12,10 +12,12 @@ import { Calendar } from "@/components/ui/calendar";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Slider } from "@/components/ui/slider";
 import { rememberResults } from "@/components/marketing/BackToResults";
 import { FilterPill } from "@/components/marketing/FilterPill";
 import { ProCard, type ProCardSlot, type ProCardView } from "@/components/marketing/ProCard";
 import { amount, colorOf, initialsOf } from "@/components/marketing/business-format";
+import { updateSearch, type HeroSearchFields } from "@/components/marketing/search-memory";
 import {
   availabilityLabel,
   parseWhenParam,
@@ -29,6 +31,9 @@ import type { components } from "@/lib/api/schema";
 type SearchResults = components["schemas"]["BusinessSearchResults"];
 type SearchResult = components["schemas"]["BusinessSearchResult"];
 
+/** The distance filter's reach, the same as on the full browse page. */
+const MAX_RADIUS = 100;
+
 /**
  * What the hero search bar leads to: the businesses whose own service area reaches this postal
  * code, nearest first.
@@ -37,6 +42,10 @@ type SearchResult = components["schemas"]["BusinessSearchResult"];
  * rather than filtering in place. That is not a smaller version of filtering — the search reads a
  * description, matches it to a trade and measures a radius, none of which a browser can redo over
  * the twenty rows it happens to be holding.
+ *
+ * <p>Distance and hourly rate are the exception, and they narrow the rows in hand instead: the
+ * search can be asked for neither — the radius it applies is each business's own. So they reach one
+ * page of results, and belong on the server once there is a pager to reach the others.
  *
  * The `when` answer is carried and shown, and it deliberately does not narrow the list. Each
  * business reports its next three openings, which is not its calendar: a business free on Tuesday
@@ -69,13 +78,40 @@ export function JobSearchResults({
   const trades = found.matchedTrades ?? [];
   const picked = found.matchedService ?? null;
 
+  const [radius, setRadius] = useState(MAX_RADIUS);
+  const [priceFloor, setPriceFloor] = useState(0);
+  // Null for no upper limit, so the top of the range follows the dearest business of whichever
+  // search is on screen rather than staying at the last one's.
+  const [priceCap, setPriceCap] = useState<number | null>(null);
+
+  const maxRate = Math.ceil(Math.max(0, ...results.flatMap((r) => (r.hourlyRate ? [Number(r.hourlyRate)] : []))));
+  const priceTop = priceCap === null ? maxRate : Math.min(priceCap, maxRate);
+  const priceBottom = Math.min(priceFloor, priceTop);
+  const priceNarrowed = priceBottom > 0 || priceTop < maxRate;
+  const filtersActive = radius < MAX_RADIUS || priceNarrowed;
+
+  const resetFilters = () => {
+    setRadius(MAX_RADIUS);
+    setPriceFloor(0);
+    setPriceCap(null);
+  };
+
+  const visible = results.filter((r) => {
+    if (r.distanceMiles > radius) return false;
+    if (!priceNarrowed) return true;
+    // No rate on file cannot be said to fall inside a range, so a narrowed one leaves it out.
+    if (!r.hourlyRate) return false;
+    const rate = Number(r.hourlyRate);
+    return rate >= priceBottom && rate <= priceTop;
+  });
+
   /**
    * The backend orders every business that lists the picked job ahead of every one that does not,
    * so one split is enough and no second request is needed. Absent `offersThisJob` means no job
    * was picked — then there is nothing to divide and everything stays in one grid.
    */
-  const listing = results.filter((r) => r.offersThisJob === true);
-  const rest = results.filter((r) => r.offersThisJob === false);
+  const listing = visible.filter((r) => r.offersThisJob === true);
+  const rest = visible.filter((r) => r.offersThisJob === false);
   const divided = picked !== null && listing.length > 0 && rest.length > 0;
 
   // Drafts only. What is displayed is what the URL says, so there is no second copy of the search
@@ -105,6 +141,9 @@ export function JobSearchResults({
 
     const answer = whenParam(availabilityDraft, customDateDraft);
     if (answer) params.set("when", answer);
+
+    // No catalogue job: this box is plain text, and the search below goes without one.
+    updateSearch({ job: jobDraft.trim(), service: null, zip: zipDraft, ...heroWhen(availabilityDraft, customDateDraft) });
 
     setEditing(false);
     router.push(`/browse?${params}`);
@@ -309,13 +348,53 @@ export function JobSearchResults({
                   >
                     Edit search
                   </Button>
+                </div>
+              )}
 
-                  <div className="mt-5 border-t border-line pt-4 text-center text-[13px] text-muted-ink">
-                    Need more filters?{" "}
-                    <Link href="/browse" className="font-semibold text-brand-500 hover:underline">
-                      Browse all professionals
-                    </Link>
+              {results.length > 0 && (
+                <div className="mt-5 border-t border-line pt-4">
+                  <div className="mb-3 flex items-center justify-between">
+                    <h2 className="text-[12px] font-bold uppercase tracking-[0.04em] text-faint">Filters</h2>
+                    {filtersActive && (
+                      <button
+                        type="button"
+                        onClick={resetFilters}
+                        className="text-[12.5px] font-semibold text-brand-500 hover:underline"
+                      >
+                        Reset
+                      </button>
+                    )}
                   </div>
+
+                  <FilterRow label="Distance" value={`Within ${radius} mi`} />
+                  <Slider
+                    value={[radius]}
+                    onValueChange={(v) => setRadius(Array.isArray(v) ? v[0] : v)}
+                    min={0}
+                    max={MAX_RADIUS}
+                    step={1}
+                    getAriaLabel={() => "Maximum distance in miles"}
+                  />
+
+                  {/* Nothing to range over when no business in the results has published a rate. */}
+                  {maxRate > 0 && (
+                    <div className="mt-5">
+                      <FilterRow label="Hourly rate" value={`$${priceBottom} – $${priceTop}`} />
+                      <Slider
+                        value={[priceBottom, priceTop]}
+                        onValueChange={(v) => {
+                          if (!Array.isArray(v)) return;
+                          setPriceFloor(v[0]);
+                          setPriceCap(v[1] >= maxRate ? null : v[1]);
+                        }}
+                        min={0}
+                        max={maxRate}
+                        // Whole dollars: a coarser step would not land on a top rate that is not a multiple of it.
+                        step={1}
+                        getAriaLabel={(index) => (index === 0 ? "Minimum hourly rate" : "Maximum hourly rate")}
+                      />
+                    </div>
+                  )}
                 </div>
               )}
             </div>
@@ -335,10 +414,12 @@ export function JobSearchResults({
                     together with the pager.
                   */}
                   <p className="m-0 text-[15px] font-bold text-brand">
-                    {results.length} professional{results.length === 1 ? "" : "s"} whose area reaches you
+                    {filtersActive
+                      ? `${visible.length} of ${results.length} professionals match your filters`
+                      : `${results.length} professional${results.length === 1 ? "" : "s"} whose area reaches you`}
                   </p>
                   <p className="m-0 text-[13px] text-muted-ink">
-                    Nearest first. Each card shows that business&apos;s next openings.
+                    Each card shows that business&apos;s next openings.
                   </p>
                 </div>
               </div>
@@ -363,6 +444,13 @@ export function JobSearchResults({
                     has signed up, not in what you asked.
                   </>
                 )}
+              </p>
+            ) : visible.length === 0 ? (
+              <p className="rounded-2xl border border-dashed border-line bg-canvas px-5 py-14 text-center text-[14.5px] text-muted-ink">
+                No one in these results matches your filters.{" "}
+                <button type="button" onClick={resetFilters} className="font-semibold text-brand-500 hover:underline">
+                  Reset filters
+                </button>
               </p>
             ) : divided ? (
               /*
@@ -393,7 +481,7 @@ export function JobSearchResults({
               </div>
             ) : (
               <div className="grid grid-cols-[repeat(auto-fill,260px)] gap-5">
-                {results.map((result) => (
+                {visible.map((result) => (
                   <ProCard key={result.slug} view={viewOf(result, job)} />
                 ))}
               </div>
@@ -402,6 +490,15 @@ export function JobSearchResults({
         </div>
       </div>
     </section>
+  );
+}
+
+function FilterRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="mb-2.5 flex items-baseline justify-between gap-3 text-[13px]">
+      <span className="font-semibold text-brand">{label}</span>
+      <span className="text-muted-ink tabular-nums">{value}</span>
+    </div>
   );
 }
 
@@ -472,6 +569,20 @@ function whenParam(availability: AvailabilityFilter, customDate: Date | undefine
     default:
       return null;
   }
+}
+
+/** The same answer in the hero bar's terms, which has no "Any time" — "I'm flexible" is its nearest. */
+function heroWhen(
+  availability: AvailabilityFilter,
+  customDate: Date | undefined,
+): Pick<HeroSearchFields, "whenMode" | "customDate"> {
+  if (availability === "today" || availability === "tomorrow") {
+    return { whenMode: availability, customDate: undefined };
+  }
+  if (availability === "date" && customDate) {
+    return { whenMode: "custom", customDate };
+  }
+  return { whenMode: "flexible", customDate: undefined };
 }
 
 /**

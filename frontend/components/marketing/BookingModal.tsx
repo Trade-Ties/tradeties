@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useId, useRef, useState } from "react";
-import { ArrowRight, Calendar, Check, ChevronLeft, ChevronRight } from "lucide-react";
+import { flushSync } from "react-dom";
+import { ArrowRight, Calendar, Check, ChevronDown, ChevronLeft, ChevronRight } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -11,15 +12,18 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { AutocompleteControl, type AutocompleteOption } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Textarea } from "@/components/ui/textarea";
 import { sendRequest } from "@/app/(marketplace)/[slug]/book/actions";
 import { cn } from "@/lib/utils";
-import { loadOpenings, loadServices, type PopupService } from "./booking-popup-actions";
+import { DIALOG_CALENDAR_WEEKS } from "./availability";
+import { loadOpenings, loadServices, loadStates, type PopupService } from "./booking-popup-actions";
 import { opening } from "./JobSearchResults";
 import type { ProCardDay, ProCardSlot, ProCardView } from "./ProCard";
+import { forgetSearch } from "./search-memory";
 
 // Filters keystrokes rather than only checking the result afterward — the earlier version
 // relied on the native `pattern`/`maxLength` attributes reaching the underlying <input>
@@ -40,6 +44,8 @@ interface FormValues {
   email: string;
   street: string;
   number: string;
+  /** Flat, floor, entrance — the one address line nobody has to fill in. */
+  street2: string;
   city: string;
   state: string;
   zip: string;
@@ -52,6 +58,7 @@ const EMPTY_FORM: FormValues = {
   email: "",
   street: "",
   number: "",
+  street2: "",
   city: "",
   state: "",
   zip: "",
@@ -59,6 +66,20 @@ const EMPTY_FORM: FormValues = {
 };
 
 type FormErrors = Partial<Record<keyof FormValues, string>>;
+
+/**
+ * The states, read once per page rather than once per dialogue — the list is the same for every
+ * business. A failed read is not remembered, so the next dialogue asks again.
+ */
+let statesOnce: Promise<AutocompleteOption[] | null> | null = null;
+
+function statesList(): Promise<AutocompleteOption[] | null> {
+  statesOnce ??= loadStates().then((found) => {
+    if (!found) statesOnce = null;
+    return found;
+  });
+  return statesOnce;
+}
 
 function validate(values: FormValues): FormErrors {
   const errors: FormErrors = {};
@@ -68,7 +89,7 @@ function validate(values: FormValues): FormErrors {
   if (!values.street.trim()) errors.street = "Enter a street.";
   if (!values.number.trim()) errors.number = "Enter a house/street number.";
   if (!values.city.trim()) errors.city = "Enter a city.";
-  if (!values.state.trim()) errors.state = "Enter a state.";
+  if (!values.state.trim()) errors.state = "Choose a state.";
   if (!ZIP_PATTERN.test(values.zip.trim())) errors.zip = "Enter a 5-digit ZIP code.";
   if (!values.notes.trim()) errors.notes = "Let them know what you need done.";
   return errors;
@@ -77,8 +98,8 @@ function validate(values: FormValues): FormErrors {
 /**
  * The booking dialogue behind a card's times. Opened from one of them, it starts on that time with
  * the six nearest beside it and a way into the full calendar. Opened from the card itself or its
- * "View all available times", it starts on that calendar with nothing chosen, and the fields to
- * book appear under it once a time is picked.
+ * "View all available times", it starts on that calendar with nothing chosen. Picking a time folds
+ * the calendar away behind the time it chose, and the fields to book appear under that.
  *
  * For a real business (`view.booking`) it sends a real request, the same one the booking page
  * sends. A request names a service, so the dialogue asks for one when the business has several,
@@ -87,13 +108,29 @@ function validate(values: FormValues): FormErrors {
  */
 export function BookingModal({ view, initialSlot }: { view: ProCardView; initialSlot?: ProCardSlot }) {
   const [slot, setSlot] = useState(initialSlot);
-  const [showCalendar, setShowCalendar] = useState(!initialSlot);
-  const chosenRef = useRef<HTMLDivElement>(null);
+  // "near": the card's own times around the one it was opened on. "folded": the calendar closed
+  // behind the time picked from it.
+  const [picker, setPicker] = useState<"near" | "calendar" | "folded">(initialSlot ? "near" : "calendar");
+  const toggleRef = useRef<HTMLButtonElement>(null);
   const [status, setStatus] = useState<"form" | "sending" | "sent">("form");
   const [values, setValues] = useState<FormValues>(EMPTY_FORM);
   const [errors, setErrors] = useState<FormErrors>({});
   const [contact, setContact] = useState<"" | "phone" | "email">("");
   const [failure, setFailure] = useState<string | null>(null);
+  const contentRef = useRef<HTMLDivElement>(null);
+
+  // Undefined while the list is being read, null if it could not be.
+  const [states, setStates] = useState<AutocompleteOption[] | null | undefined>(undefined);
+
+  useEffect(() => {
+    let live = true;
+    statesList().then((found) => {
+      if (live) setStates(found);
+    });
+    return () => {
+      live = false;
+    };
+  }, []);
 
   // A real business only: its services, the one chosen, and that service's open times.
   const slug = view.booking?.slug;
@@ -158,11 +195,14 @@ export function BookingModal({ view, initialSlot }: { view: ProCardView; initial
   }
 
   function choose(next: ProCardSlot) {
-    // The first pick brings the fields in below the calendar; take the reader down to them.
-    if (!slot) {
-      requestAnimationFrame(() => chosenRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }));
-    }
-    setSlot(next);
+    // The time that was clicked goes away with the calendar, and focus with it. Handed on before
+    // this click is over: the dialogue sends focus it finds lost back to its own top, and it
+    // looks after this handler has run.
+    flushSync(() => {
+      setSlot(next);
+      setPicker("folded");
+    });
+    toggleRef.current?.focus();
   }
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
@@ -170,11 +210,19 @@ export function BookingModal({ view, initialSlot }: { view: ProCardView; initial
     const nextErrors = validate(values);
     if (Object.keys(nextErrors).length > 0) {
       setErrors(nextErrors);
+      // The description sits at the top, a scroll away from this button; a mistake there would
+      // otherwise go unseen.
+      requestAnimationFrame(() =>
+        contentRef.current?.querySelector<HTMLElement>('[aria-invalid="true"]')?.focus()
+      );
       return;
     }
     if (!slug) {
       setStatus("sending");
-      window.setTimeout(() => setStatus("sent"), 700);
+      window.setTimeout(() => {
+        setStatus("sent");
+        forgetSearch();
+      }, 700);
       return;
     }
     if (!slot || !serviceId) {
@@ -194,12 +242,15 @@ export function BookingModal({ view, initialSlot }: { view: ProCardView; initial
       ...(contact ? { preferredContact: contact === "phone" ? "PHONE" : "EMAIL" } : {}),
       description: values.notes.trim(),
       street1: `${values.number.trim()} ${values.street.trim()}`,
+      // Absent rather than empty, as the booking page sends it.
+      ...(values.street2.trim() ? { street2: values.street2.trim() } : {}),
       city: values.city.trim(),
       state: values.state.trim(),
       postalCode: values.zip.trim(),
     });
     if (answer.ok) {
       setStatus("sent");
+      forgetSearch();
     } else {
       setStatus("form");
       setFailure(answer.message);
@@ -207,7 +258,16 @@ export function BookingModal({ view, initialSlot }: { view: ProCardView; initial
   }
 
   return (
-    <DialogContent className={cn(showCalendar && "sm:max-w-xl")}>
+    // Half the screen once that is wide enough for a week of times, and the same width in every step,
+    // so folding the calendar away does not make the dialogue jump.
+    <DialogContent
+      ref={contentRef}
+      // The first field is the description, and focusing it on a touch screen would raise the
+      // keyboard over the calendar before anybody asked to type. There the dialogue itself takes
+      // focus; with a mouse, the description does, ready to type into.
+      initialFocus={() => (window.matchMedia("(pointer: coarse)").matches ? contentRef.current : true)}
+      className="p-4 sm:w-[max(50vw,36rem)] sm:max-w-[calc(100%-2rem)] sm:p-6"
+    >
       {status === "sent" && slot ? (
         <RequestSent view={view} slot={slot} real={!!slug} />
       ) : (
@@ -236,23 +296,40 @@ export function BookingModal({ view, initialSlot }: { view: ProCardView; initial
               </select>
             </div>
           )}
-          {slug && services?.length === 0 && (
+          {slug && services?.length === 0 ? (
             <p className="mb-5 rounded-2xl border border-dashed border-line px-4 py-3.5 text-center text-sm text-muted-ink">
               {view.title} can&apos;t be booked online right now.
             </p>
+          ) : (
+            // Beside the service, since both say what the job is, and outside the form below: the
+            // submit reads `values`, not the form's fields, so where this sits changes nothing it sends.
+            <div className="mb-5 flex flex-col gap-1.5">
+              <Label htmlFor="booking-notes" className="text-xs font-semibold text-muted-ink">
+                What do you need done?
+              </Label>
+              <Textarea
+                id="booking-notes"
+                rows={3}
+                value={values.notes}
+                onChange={(e) => set("notes", e.target.value.slice(0, 500))}
+                onBlur={() => checkOnBlur("notes")}
+                placeholder="Briefly describe the job..."
+                maxLength={500}
+                aria-invalid={!!errors.notes}
+                className={cn(fieldClassName, "min-h-20", errors.notes && errorFieldClassName)}
+              />
+              {errors.notes && <p className="text-xs text-destructive">{errors.notes}</p>}
+            </div>
           )}
 
-          {!showCalendar && slot ? (
+          {picker === "near" && slot ? (
             <>
-              <div className="mb-5 flex items-center gap-3 rounded-2xl border border-brand-100 bg-brand-50 px-4 py-3.5 text-[15px] font-semibold text-brand shadow-sm">
-                <Calendar className="size-4.5 shrink-0 text-brand-500" />
-                {slot.dateLabel} at {slot.timeLabel}
-              </div>
+              <ChosenTime slot={slot} />
               {nearSlots.length > 1 && <TimePicker slots={nearSlots} chosen={slot} onChoose={setSlot} />}
               {(slug || view.calendar) && (
                 <button
                   type="button"
-                  onClick={() => setShowCalendar(true)}
+                  onClick={() => setPicker("calendar")}
                   className="-mt-3 mb-6 inline-flex w-fit items-center gap-1 text-[13px] font-semibold text-brand-500 hover:underline"
                 >
                   View all available times
@@ -261,29 +338,46 @@ export function BookingModal({ view, initialSlot }: { view: ProCardView; initial
               )}
             </>
           ) : (
-            days ? (
-              <SlotCalendar key={serviceId} days={days} chosen={slot} onChoose={choose} />
-            ) : (
-              <p className="py-6 text-center text-sm text-muted-ink">Loading open times…</p>
-            )
-          )}
+            <>
+              {slot && (
+                <ChosenTime slot={slot}>
+                  <button
+                    ref={toggleRef}
+                    type="button"
+                    aria-expanded={picker === "calendar"}
+                    onClick={() => setPicker(picker === "calendar" ? "folded" : "calendar")}
+                    className="inline-flex shrink-0 items-center gap-1 rounded-md text-[13px] font-semibold text-brand-500 outline-none hover:underline focus-visible:ring-2 focus-visible:ring-ring"
+                  >
+                    {picker === "calendar" ? "Close" : "Change time"}
+                    <ChevronDown
+                      className={cn("size-4 transition-transform", picker === "calendar" && "rotate-180")}
+                      aria-hidden="true"
+                    />
+                  </button>
+                </ChosenTime>
+              )}
 
-          {!showCalendar ? null : slot ? (
-            <div
-              ref={chosenRef}
-              className="mt-6 mb-5 flex scroll-mt-4 items-center gap-3 rounded-2xl border border-brand-100 bg-brand-50 px-4 py-3.5 text-[15px] font-semibold text-brand shadow-sm"
-            >
-              <Calendar className="size-4.5 shrink-0 text-brand-500" />
-              {slot.dateLabel} at {slot.timeLabel}
-            </div>
-          ) : (
-            <p className="mt-5 rounded-2xl border border-dashed border-line px-4 py-3.5 text-center text-sm text-muted-ink">
-              Pick a time above to book it.
-            </p>
+              {picker === "calendar" &&
+                (days ? (
+                  <SlotCalendar key={serviceId} days={days} chosen={slot} onChoose={choose} />
+                ) : (
+                  <p className="py-6 text-center text-sm text-muted-ink">Loading open times…</p>
+                ))}
+
+              {!slot && (
+                <p className="mt-5 rounded-2xl border border-dashed border-line px-4 py-3.5 text-center text-sm text-muted-ink">
+                  Pick a time above to book it.
+                </p>
+              )}
+            </>
           )}
 
           {/* Kept mounted while hidden, so what was typed survives choosing another time. */}
-          <form onSubmit={handleSubmit} noValidate className={cn("flex flex-col gap-4", !slot && "hidden")}>
+          <form
+            onSubmit={handleSubmit}
+            noValidate
+            className={cn("flex flex-col gap-4", (!slot || picker === "calendar") && "hidden")}
+          >
             <TextField
               id="booking-name"
               label="Full name"
@@ -342,14 +436,25 @@ export function BookingModal({ view, initialSlot }: { view: ProCardView; initial
                   invalid={!!errors.number}
                   placeholder="No."
                   maxLength={10}
-                  className="w-20"
+                  // Short of the full width on a phone, where it would leave the street no wider.
+                  className="w-28 sm:w-40"
                 />
               </div>
               {(errors.street || errors.number) && (
                 <p className="text-xs text-destructive">{errors.street ?? errors.number}</p>
               )}
 
-              <div className="grid grid-cols-[1fr_4.5rem_5.5rem] gap-2">
+              <AddressInput
+                aria-label="Flat, floor, entrance"
+                value={values.street2}
+                onChange={(v) => set("street2", v)}
+                placeholder="Flat, floor, entrance (optional)"
+                autoComplete="address-line2"
+                maxLength={200}
+              />
+
+              {/* On a phone the city takes a line of its own; State and ZIP at these widths leave it none. */}
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-[1fr_9rem_11rem]">
                 <AddressInput
                   aria-label="City"
                   value={values.city}
@@ -358,16 +463,30 @@ export function BookingModal({ view, initialSlot }: { view: ProCardView; initial
                   invalid={!!errors.city}
                   placeholder="City"
                   maxLength={60}
+                  className="col-span-2 sm:col-span-1"
                 />
-                <AddressInput
-                  aria-label="State"
-                  value={values.state}
-                  onChange={(v) => set("state", v.toUpperCase().slice(0, 2))}
-                  onBlur={() => checkOnBlur("state")}
-                  invalid={!!errors.state}
-                  placeholder="State"
-                  maxLength={2}
-                />
+                {states ? (
+                  <AutocompleteControl
+                    aria-label="State"
+                    options={states}
+                    value={values.state}
+                    onValueChange={(code) => set("state", code)}
+                    placeholder="State"
+                    aria-invalid={!!errors.state}
+                    className={cn(fieldClassName, errors.state && errorFieldClassName)}
+                  />
+                ) : (
+                  // Until the list arrives, or if it cannot be read: the two letters, typed.
+                  <AddressInput
+                    aria-label="State"
+                    value={values.state}
+                    onChange={(v) => set("state", v.toUpperCase().slice(0, 2))}
+                    onBlur={() => checkOnBlur("state")}
+                    invalid={!!errors.state}
+                    placeholder="State"
+                    maxLength={2}
+                  />
+                )}
                 <AddressInput
                   aria-label="ZIP code"
                   value={values.zip}
@@ -382,24 +501,6 @@ export function BookingModal({ view, initialSlot }: { view: ProCardView; initial
               {(errors.city || errors.state || errors.zip) && (
                 <p className="text-xs text-destructive">{errors.city ?? errors.state ?? errors.zip}</p>
               )}
-            </div>
-
-            <div className="flex flex-col gap-1.5">
-              <Label htmlFor="booking-notes" className="text-xs font-semibold text-muted-ink">
-                What do you need done?
-              </Label>
-              <Textarea
-                id="booking-notes"
-                rows={3}
-                value={values.notes}
-                onChange={(e) => set("notes", e.target.value.slice(0, 500))}
-                onBlur={() => checkOnBlur("notes")}
-                placeholder="Briefly describe the job..."
-                maxLength={500}
-                aria-invalid={!!errors.notes}
-                className={cn(fieldClassName, "min-h-20", errors.notes && errorFieldClassName)}
-              />
-              {errors.notes && <p className="text-xs text-destructive">{errors.notes}</p>}
             </div>
 
             <div className="flex flex-col gap-1.5">
@@ -540,6 +641,19 @@ function RequestSent({ view, slot, real }: { view: ProCardView; slot: ProCardSlo
   );
 }
 
+/** The time picked, and — once it came from the calendar — the way back into it. */
+function ChosenTime({ slot, children }: { slot: ProCardSlot; children?: React.ReactNode }) {
+  return (
+    <div className="mb-5 flex items-center gap-3 rounded-2xl border border-brand-100 bg-brand-50 px-4 py-3.5 text-[15px] font-semibold text-brand shadow-sm">
+      <Calendar className="size-4.5 shrink-0 text-brand-500" />
+      <span className="min-w-0 flex-1">
+        {slot.dateLabel} at {slot.timeLabel}
+      </span>
+      {children}
+    </div>
+  );
+}
+
 /**
  * The card's own times, a row of equal chips per day under the day's name — so the eye reads down
  * the days and across the hours, rather than along one wrapped line where a day changes somewhere
@@ -612,18 +726,16 @@ function TimePicker({
   );
 }
 
-/** Five days side by side, as many as fit the dialogue with a time's full width under each. */
-const DAYS_PER_PAGE = 5;
-
-/** The starts a column shows before "+ more". */
-const TIMES_PER_DAY = 6;
+/** A week a page, Sunday first. Both calendars behind it start on a Sunday. */
+const DAYS_PER_PAGE = 7;
 
 /**
- * The listing's calendar: a page of days as columns, each with its open times stacked under it, and
- * arrows to the next days. It opens on the page holding the chosen time, or on the first one.
+ * The listing's calendar: a week of days as columns, each with every open time stacked under it,
+ * and arrows to the next weeks. It opens on the week holding the chosen time, or else on the first
+ * with a time left in it — late in a week, today's may have none.
  *
- * The chosen time is outlined rather than filled, so it does not outweigh the summary of it that
- * appears below.
+ * A busy day makes the dialogue longer rather than scrolling inside it: one scroll, the
+ * dialogue's own.
  */
 function SlotCalendar({
   days,
@@ -636,18 +748,12 @@ function SlotCalendar({
 }) {
   const pages = Math.max(1, Math.ceil(days.length / DAYS_PER_PAGE));
   const [page, setPage] = useState(() => {
-    const at = days.findIndex((day) => day.slots.some((slot) => slot.key === chosen?.key));
+    const chosenAt = days.findIndex((day) => day.slots.some((slot) => slot.key === chosen?.key));
+    const at = chosenAt >= 0 ? chosenAt : days.findIndex((day) => day.slots.length > 0);
     return at < 0 ? 0 : Math.floor(at / DAYS_PER_PAGE);
   });
-  // A day on a half-hour grid holds sixteen starts; six a column keeps the page to a glance, and
-  // "+ more" opens every column at once so the days stay level. Open from the start when the
-  // chosen time is one of those that would be folded away.
-  const [expanded, setExpanded] = useState(() =>
-    days.some((day) => day.slots.findIndex((slot) => slot.key === chosen?.key) >= TIMES_PER_DAY)
-  );
   const shown = days.slice(page * DAYS_PER_PAGE, (page + 1) * DAYS_PER_PAGE);
   if (shown.length === 0) return null;
-  const folds = shown.some((day) => day.slots.length > TIMES_PER_DAY);
 
   return (
     <div>
@@ -681,18 +787,34 @@ function SlotCalendar({
         </div>
       </div>
 
-      <div className="grid grid-cols-5 gap-1.5 sm:gap-2">
+      {/* On a phone a time takes two lines, "10:30" over "AM", since seven columns leave no width for one. */}
+      <div className="grid grid-cols-7 gap-1 sm:gap-2">
         {shown.map((day) => (
           <div key={day.key} className="flex min-w-0 flex-col gap-1.5">
-            <div className="mb-1 rounded-xl bg-brand-50 py-2 text-center">
-              <p className="m-0 text-[11px] font-semibold tracking-wide text-muted-ink uppercase">{day.weekday}</p>
-              <p className="m-0 text-[17px] leading-tight font-bold text-brand">{day.dayOfMonth}</p>
+            <div
+              className={cn(
+                "flex h-13 flex-col items-center justify-center rounded-xl",
+                day.past ? "bg-[#EEF1F5]" : "bg-brand-50"
+              )}
+            >
+              <p
+                className={cn(
+                  "m-0 text-[10px] font-semibold tracking-wide uppercase sm:text-[11px]",
+                  day.past ? "text-faint" : "text-muted-ink"
+                )}
+              >
+                {day.weekday}
+              </p>
+              <p className={cn("m-0 text-[17px] leading-tight font-bold", day.past ? "text-faint" : "text-brand")}>
+                {day.dayOfMonth}
+              </p>
             </div>
             {day.slots.length === 0 ? (
               <p className="m-0 py-2 text-center text-[12px] text-faint">—</p>
             ) : (
-              (expanded ? day.slots : day.slots.slice(0, TIMES_PER_DAY)).map((option) => {
+              day.slots.map((option) => {
                 const selected = option.key === chosen?.key;
+                const [time, meridiem] = option.timeLabel.split(/\s+/);
                 return (
                   <button
                     key={option.key}
@@ -701,54 +823,38 @@ function SlotCalendar({
                     aria-label={`${option.dateLabel}, ${option.timeLabel}`}
                     onClick={() => onChoose(option)}
                     className={cn(
-                      "rounded-lg border px-0.5 py-1.5 text-center text-[11.5px] whitespace-nowrap tabular-nums transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none sm:text-[13px]",
+                      "flex h-9 shrink-0 items-center justify-center rounded-lg border px-0.5 text-[11.5px] whitespace-nowrap tabular-nums transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none max-sm:flex-col max-sm:leading-none sm:h-8 sm:gap-[0.3em] sm:text-[13px]",
                       selected
                         ? "border-brand bg-brand-50 font-semibold text-brand ring-1 ring-brand"
                         : "border-line bg-white font-medium text-foreground hover:border-brand-100 hover:bg-brand-50/60"
                     )}
                   >
-                    {option.timeLabel}
+                    <span>{time}</span>
+                    {meridiem && <span className="max-sm:mt-0.5 max-sm:text-[9.5px]">{meridiem}</span>}
                   </button>
                 );
               })
             )}
-            {!expanded && day.slots.length > TIMES_PER_DAY && (
-              <button
-                type="button"
-                onClick={() => setExpanded(true)}
-                className="rounded-lg py-1.5 text-center text-[11.5px] font-semibold text-brand-500 hover:bg-brand-50 sm:text-[12.5px]"
-              >
-                + {day.slots.length - TIMES_PER_DAY} more
-              </button>
-            )}
           </div>
         ))}
       </div>
-
-      {expanded && folds && (
-        <button
-          type="button"
-          onClick={() => setExpanded(false)}
-          className="mx-auto mt-3 block text-[12.5px] font-semibold text-brand-500 hover:underline"
-        >
-          Show fewer times
-        </button>
-      )}
     </div>
   );
 }
 
 /**
- * A fortnight of days from today on the business's own calendar, each with the starts that fall on
- * it — the same columns the sample listings' calendar draws, built from real instants. The days are
- * the business's, not the reader's: a start at 11 PM in Denver is on Denver's Tuesday.
+ * Whole weeks from this week's Sunday on the business's own calendar, each day with the starts that
+ * fall on it — the same columns the sample listings' calendar draws, built from real instants. The
+ * days are the business's, not the reader's: a start at 11 PM in Denver is on Denver's Tuesday.
  */
 function calendarOf(instants: string[], timeZone: string): ProCardDay[] {
   const dayKey = (at: Date) =>
     new Intl.DateTimeFormat("en-CA", { timeZone, year: "numeric", month: "2-digit", day: "2-digit" }).format(at);
   const [year, month, day] = dayKey(new Date()).split("-").map(Number);
+  const todayInWeek = new Date(Date.UTC(year, month - 1, day, 12)).getUTCDay();
 
-  return Array.from({ length: 15 }, (_, offset) => {
+  return Array.from({ length: DIALOG_CALENDAR_WEEKS * 7 }, (_, index) => {
+    const offset = index - todayInWeek;
     // Noon UTC on that calendar day, printed in UTC, names the day without any zone shifting it.
     const noon = new Date(Date.UTC(year, month - 1, day + offset, 12));
     const key = noon.toISOString().slice(0, 10);
@@ -760,6 +866,7 @@ function calendarOf(instants: string[], timeZone: string): ProCardDay[] {
       weekday: offset === 0 ? "Today" : print({ weekday: "short" }),
       dayOfMonth: print({ day: "numeric" }),
       shortDate: print({ month: "short", day: "numeric" }),
+      past: offset < 0,
       slots: instants.filter((at) => dayKey(new Date(at)) === key).map((at) => opening(at, timeZone)),
     };
   });

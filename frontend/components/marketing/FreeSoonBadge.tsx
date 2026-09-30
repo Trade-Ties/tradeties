@@ -23,12 +23,12 @@ export async function FreeSoonBadge() {
     return null;
   }
 
-  const { freeWithinWindow: count, windowHours } = summary.data;
+  const count = summary.data.freeWithinWindow;
 
   return (
     <Badge className={BADGE_CLASS}>
       <span className="animate-tt-pulse size-[7px] rounded-full bg-go" />
-      {count} {count === 1 ? "tradesperson" : "tradespeople"} free in the next {windowHours} hours
+      {count} {count === 1 ? "tradesperson" : "tradespeople"} free
     </Badge>
   );
 }
@@ -38,7 +38,7 @@ export function FreeSoonBadgeFallback() {
   return (
     <Badge aria-hidden="true" className={cn(BADGE_CLASS, "invisible")}>
       <span className="size-[7px]" />
-      tradespeople free in the next hours
+      tradespeople free
     </Badge>
   );
 }

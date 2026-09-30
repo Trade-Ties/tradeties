@@ -12,14 +12,13 @@ import { Label } from "@/components/ui/label";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { DEFAULT_JOB_SUGGESTIONS } from "@/components/marketing/job-suggestions";
 import { JOB_INPUT_CLASS, JobSuggestBox } from "@/components/marketing/JobSuggestBox";
+import { updateSearch, useRememberedSearch, type WhenMode } from "@/components/marketing/search-memory";
 import { rememberZip } from "@/lib/zip-memory";
 
 // Computed at render time (client-only component) so this always reflects the
 // visitor's own local date rather than a hardcoded or server-clock value.
 const today = new Date(new Date().setHours(0, 0, 0, 0));
 const tomorrow = addDays(today, 1);
-
-type WhenMode = "today" | "tomorrow" | "flexible" | "custom";
 
 const WHEN_OPTIONS: { mode: Exclude<WhenMode, "custom">; label: string; sublabel: string }[] = [
   { mode: "today", label: "Today", sublabel: format(today, "EEE, MMM d") },
@@ -29,17 +28,8 @@ const WHEN_OPTIONS: { mode: Exclude<WhenMode, "custom">; label: string; sublabel
 
 export function HeroSearch() {
   const router = useRouter();
-  const [job, setJob] = useState("");
-  /**
-   * The catalogue job behind what is in the box, when the customer picked one rather than typing
-   * their own words. Sent alongside the text so the search narrows by the job itself instead of
-   * reading a trade out of prose — which is where "Toilet is leaking" used to reach roofers.
-   */
-  const [service, setService] = useState<string | null>(null);
-  const [zip, setZip] = useState("");
+  const { job, service, zip, whenMode, customDate } = useRememberedSearch();
 
-  const [whenMode, setWhenMode] = useState<WhenMode>("today");
-  const [customDate, setCustomDate] = useState<Date | undefined>(undefined);
   const [whenOpen, setWhenOpen] = useState(false);
   const [whenView, setWhenView] = useState<"options" | "calendar">("options");
 
@@ -55,7 +45,7 @@ export function HeroSearch() {
             : "Choose a date";
 
   const selectWhen = (mode: Exclude<WhenMode, "custom">) => {
-    setWhenMode(mode);
+    updateSearch({ whenMode: mode });
     setWhenOpen(false);
   };
 
@@ -107,8 +97,8 @@ export function HeroSearch() {
               <JobSuggestBox
                 id="job"
                 value={job}
-                onValueChange={setJob}
-                onPickedChange={setService}
+                onValueChange={(value) => updateSearch({ job: value })}
+                onPickedChange={(code) => updateSearch({ service: code })}
                 zip={zip}
                 maxLength={300}
                 placeholder={DEFAULT_JOB_SUGGESTIONS.placeholder}
@@ -129,7 +119,7 @@ export function HeroSearch() {
                 inputMode="numeric"
                 maxLength={5}
                 value={zip}
-                onChange={(e) => setZip(e.target.value.replace(/\D/g, ""))}
+                onChange={(e) => updateSearch({ zip: e.target.value.replace(/\D/g, "") })}
                 placeholder="80202"
                 className="h-auto w-full border-0 bg-transparent p-0 text-[15.5px] font-medium text-brand shadow-none outline-none placeholder:font-normal placeholder:text-faint focus-visible:ring-0"
               />
@@ -227,8 +217,7 @@ export function HeroSearch() {
                         defaultMonth={customDate ?? today}
                         onSelect={(d) => {
                           if (!d) return;
-                          setCustomDate(d);
-                          setWhenMode("custom");
+                          updateSearch({ whenMode: "custom", customDate: d });
                           setWhenOpen(false);
                         }}
                         disabled={{ before: today }}
@@ -260,7 +249,7 @@ export function HeroSearch() {
                 key={label}
                 type="button"
                 variant="outline"
-                onClick={() => setJob(label)}
+                onClick={() => updateSearch({ job: label, service: null })}
                 className="h-auto rounded-full border-line px-[15px] py-[7px] text-[13.5px] font-medium text-muted-ink hover:border-brand-100 hover:bg-brand-50 hover:text-brand"
               >
                 {label}

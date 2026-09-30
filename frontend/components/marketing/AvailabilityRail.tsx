@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, useTransition } from "react";
+import { useCallback, useEffect, useRef, useState, useTransition, type RefObject } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ChevronLeft, ChevronRight, MapPin, Pencil, Wrench } from "lucide-react";
@@ -52,18 +52,15 @@ export function AvailabilityRail({ zip, state }: { zip: string | null; state: Op
   const [booking, setBooking] = useState<{ view: ProCardView; slot?: ProCardSlot } | null>(null);
   const [bookingOpen, setBookingOpen] = useState(false);
 
+  // It is not drawn until a ZIP has found somebody.
+  const hasRail = results.length > 0;
+  const hasTabs = hasRail && trades.length > 1;
+
   const railRef = useRef<HTMLDivElement>(null);
-  const [canScrollLeft, setCanScrollLeft] = useState(false);
   // Guess "there's more to see" from the card count before the mount effect can
   // actually measure scrollWidth — avoids a one-frame flash of a disabled arrow.
-  const [canScrollRight, setCanScrollRight] = useState(filtered.length > 4);
-
-  const updateScrollState = () => {
-    const el = railRef.current;
-    if (!el) return;
-    setCanScrollLeft(el.scrollLeft > 4);
-    setCanScrollRight(el.scrollLeft < el.scrollWidth - el.clientWidth - 4);
-  };
+  const rail = useScrollEdges(railRef, hasRail, filtered.length > 4);
+  const measureRail = rail.measure;
 
   // Re-check after the card list changes (e.g. a trade filter click or a new ZIP resizes it),
   // and jump back to the start so the arrows don't get stuck mid-scroll.
@@ -71,27 +68,20 @@ export function AvailabilityRail({ zip, state }: { zip: string | null; state: Op
     const el = railRef.current;
     if (!el) return;
     el.scrollTo({ left: 0 });
-    const id = requestAnimationFrame(updateScrollState);
+    const id = requestAnimationFrame(measureRail);
     return () => cancelAnimationFrame(id);
-  }, [filtered.length, zip]);
+  }, [filtered.length, zip, measureRail]);
 
-  // Keyed on whether the rail exists: it is not drawn until a ZIP has found somebody.
-  const hasRail = results.length > 0;
+  const tabsRef = useRef<HTMLDivElement>(null);
+  const tabs = useScrollEdges(tabsRef, hasTabs, false);
+  const measureTabs = tabs.measure;
+
+  // A new ZIP can bring other trades, and with them another width.
+  const tradesKey = trades.join("\n");
   useEffect(() => {
-    const el = railRef.current;
-    if (!el) return;
-    updateScrollState();
-    el.addEventListener("scroll", updateScrollState, { passive: true });
-    window.addEventListener("resize", updateScrollState);
-    return () => {
-      el.removeEventListener("scroll", updateScrollState);
-      window.removeEventListener("resize", updateScrollState);
-    };
-  }, [hasRail]);
-
-  const page = (direction: 1 | -1) => {
-    railRef.current?.scrollBy({ left: direction * railRef.current.clientWidth, behavior: "smooth" });
-  };
+    const id = requestAnimationFrame(measureTabs);
+    return () => cancelAnimationFrame(id);
+  }, [tradesKey, measureTabs]);
 
   return (
     <section id="open-slots" className="border-t border-line bg-canvas pb-12 pt-12">
@@ -123,7 +113,8 @@ export function AvailabilityRail({ zip, state }: { zip: string | null; state: Op
           </div>
           <Button
             variant="link"
-            render={<Link href={zip ? `/browse?zip=${zip}` : "/browse"} />}
+            // No ZIP on it: with any search parameter /browse draws the results of a search instead.
+            render={<Link href="/browse" />}
             nativeButton={false}
             className="h-auto whitespace-nowrap p-0 text-[14.5px] font-semibold text-brand-500"
           >
@@ -163,30 +154,39 @@ export function AvailabilityRail({ zip, state }: { zip: string | null; state: Op
               broken between them by hand rather than wrapped: a wrapped line keeps the full width it
               was given, so the gap after "General Contractor" would come out wider than the rest.
             */}
-            {trades.length > 1 && (
-              <div className="rail-scroll mb-6 flex items-start gap-x-6 overflow-x-auto">
-                {[ALL, ...trades].map((t) => {
-                  const active = t === activeFilter;
-                  const Icon = TRADE_ICONS[t] ?? Wrench;
-                  return (
-                    <button
-                      key={t}
-                      type="button"
-                      onClick={() => setFilter(t)}
-                      className={cn(
-                        "flex min-w-8 flex-none flex-col items-center gap-2 self-stretch border-b-2 px-0.5 pb-3 pt-1 text-center",
-                        active
-                          ? "border-brand-500 text-brand-500"
-                          : "border-transparent text-muted-ink transition-colors hover:text-brand"
-                      )}
-                    >
-                      <Icon className="size-6 shrink-0" strokeWidth={1.75} aria-hidden="true" />
-                      <span className={cn("whitespace-pre text-[13px] leading-tight", active ? "font-semibold" : "font-medium")}>
-                        {t.replace(" ", "\n")}
-                      </span>
-                    </button>
-                  );
-                })}
+            {hasTabs && (
+              <div className="relative mb-6">
+                <div ref={tabsRef} className="rail-scroll flex items-start gap-x-6 overflow-x-auto">
+                  {[ALL, ...trades].map((t) => {
+                    const active = t === activeFilter;
+                    const Icon = TRADE_ICONS[t] ?? Wrench;
+                    return (
+                      <button
+                        key={t}
+                        type="button"
+                        onClick={() => setFilter(t)}
+                        className={cn(
+                          "flex min-w-8 flex-none flex-col items-center gap-2 self-stretch border-b-2 px-0.5 pb-3 pt-1 text-center",
+                          active
+                            ? "border-brand-500 text-brand-500"
+                            : "border-transparent text-muted-ink transition-colors hover:text-brand"
+                        )}
+                      >
+                        <Icon className="size-6 shrink-0" strokeWidth={1.75} aria-hidden="true" />
+                        <span className={cn("whitespace-pre text-[13px] leading-tight", active ? "font-semibold" : "font-medium")}>
+                          {t.replace(" ", "\n")}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+
+                {tabs.canScrollLeft && (
+                  <TabsArrow side="left" onClick={() => scrollPage(tabsRef.current, -1, TABS_STEP)} />
+                )}
+                {tabs.canScrollRight && (
+                  <TabsArrow side="right" onClick={() => scrollPage(tabsRef.current, 1, TABS_STEP)} />
+                )}
               </div>
             )}
 
@@ -215,8 +215,8 @@ export function AvailabilityRail({ zip, state }: { zip: string | null; state: Op
                 variant="outline"
                 size="icon"
                 aria-label="Previous professionals"
-                disabled={!canScrollLeft}
-                onClick={() => page(-1)}
+                disabled={!rail.canScrollLeft}
+                onClick={() => scrollPage(railRef.current, -1)}
                 className="size-9 rounded-full border-line text-muted-ink hover:border-brand-100 hover:bg-brand-50 hover:text-brand disabled:pointer-events-none disabled:opacity-30"
               >
                 <ChevronLeft className="size-4" />
@@ -225,8 +225,8 @@ export function AvailabilityRail({ zip, state }: { zip: string | null; state: Op
                 variant="outline"
                 size="icon"
                 aria-label="Next professionals"
-                disabled={!canScrollRight}
-                onClick={() => page(1)}
+                disabled={!rail.canScrollRight}
+                onClick={() => scrollPage(railRef.current, 1)}
                 className="size-9 rounded-full border-line text-muted-ink hover:border-brand-100 hover:bg-brand-50 hover:text-brand disabled:pointer-events-none disabled:opacity-30"
               >
                 <ChevronRight className="size-4" />
@@ -306,6 +306,73 @@ function ZipForm({ initial, onDone, className }: { initial: string; onDone?: () 
         </Button>
       )}
     </form>
+  );
+}
+
+/**
+ * Less than a full width, unlike the cards: the tabs do not snap, and a full page would carry a
+ * tab half-hidden under one arrow's fade straight to the other's.
+ */
+const TABS_STEP = 0.75;
+
+function scrollPage(el: HTMLElement | null, direction: 1 | -1, share = 1) {
+  el?.scrollBy({ left: direction * el.clientWidth * share, behavior: "smooth" });
+}
+
+/**
+ * Whether a sideways-scrolling row has more to show on either side, kept current as it scrolls and
+ * as the window resizes. `present` re-attaches the listeners once the row is actually drawn.
+ */
+function useScrollEdges(ref: RefObject<HTMLDivElement | null>, present: boolean, guessMore: boolean) {
+  const [canScrollLeft, setCanScrollLeft] = useState(false);
+  const [canScrollRight, setCanScrollRight] = useState(guessMore);
+
+  const measure = useCallback(() => {
+    const el = ref.current;
+    if (!el) return;
+    setCanScrollLeft(el.scrollLeft > 4);
+    setCanScrollRight(el.scrollLeft < el.scrollWidth - el.clientWidth - 4);
+  }, [ref]);
+
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    measure();
+    el.addEventListener("scroll", measure, { passive: true });
+    window.addEventListener("resize", measure);
+    return () => {
+      el.removeEventListener("scroll", measure);
+      window.removeEventListener("resize", measure);
+    };
+  }, [ref, present, measure]);
+
+  return { canScrollLeft, canScrollRight, measure };
+}
+
+/**
+ * Over a fade into the section's background, which is what says there are more trades that way.
+ * The fade lets clicks through to the tabs under it; only the button takes them.
+ */
+function TabsArrow({ side, onClick }: { side: "left" | "right"; onClick: () => void }) {
+  const Chevron = side === "left" ? ChevronLeft : ChevronRight;
+
+  return (
+    <div
+      className={cn(
+        "pointer-events-none absolute inset-y-0 flex w-20 items-center from-canvas from-45% to-transparent",
+        side === "left" ? "left-0 justify-start bg-linear-to-r" : "right-0 justify-end bg-linear-to-l"
+      )}
+    >
+      <Button
+        variant="outline"
+        size="icon"
+        aria-label={side === "left" ? "Previous trades" : "More trades"}
+        onClick={onClick}
+        className="pointer-events-auto size-8 rounded-full border-line bg-white text-muted-ink shadow-sm hover:border-brand-100 hover:bg-brand-50 hover:text-brand"
+      >
+        <Chevron className="size-4" />
+      </Button>
+    </div>
   );
 }
 

@@ -1,6 +1,8 @@
 package com.tradeties.business;
 
+import java.time.DayOfWeek;
 import java.util.List;
+import java.util.Map;
 
 /**
  * One business as a customer sees it — the same company as {@link BusinessDetails}, and
@@ -25,6 +27,8 @@ import java.util.List;
  *                 cancellation fee when it is sent
  * @param licenses only those that have not expired. A licence is a statement about today, and an
  *                 expired one is not a weaker version of it
+ * @param hours    the working week as the business declared it, all seven days — a business's
+ *                 opening hours, the way a shop door states them, and nothing about who works them
  */
 public record PublicProfile(
 		String slug,
@@ -37,10 +41,12 @@ public record PublicProfile(
 		TradeSelection trades,
 		List<ServiceDetails> services,
 		PricingTerms pricing,
-		List<LicenseDetails> licenses) {
+		List<LicenseDetails> licenses,
+		Map<DayOfWeek, List<OpeningHours.Stretch>> hours) {
 
 	public PublicProfile {
 		services = services == null ? List.of() : List.copyOf(services);
 		licenses = licenses == null ? List.of() : List.copyOf(licenses);
+		hours = hours == null ? Map.of() : Map.copyOf(hours);
 	}
 }

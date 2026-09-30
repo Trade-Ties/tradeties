@@ -1,14 +1,16 @@
 import Link from "next/link";
-import { addDays, format, isSameDay } from "date-fns";
+import { addDays, differenceInCalendarDays, format, isSameDay, startOfWeek } from "date-fns";
 import { ArrowRight, BadgeCheck, Check, MapPin } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { Dialog, DialogContent, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { PreviewCard, PreviewCardContent, PreviewCardTrigger } from "@/components/ui/preview-card";
 import { cn } from "@/lib/utils";
-import { CALENDAR_DAYS, scheduleFor, type Pro, type ProSlot } from "@/components/marketing/pros-data";
-import { ProfilePreviewCard } from "./ProfilePreviewCard";
+import { DIALOG_CALENDAR_WEEKS } from "@/components/marketing/availability";
+import { scheduleFor, type Pro, type ProSlot } from "@/components/marketing/pros-data";
+import { BusinessOverview } from "./BusinessOverview";
 
 const today = new Date(new Date().setHours(0, 0, 0, 0));
 
@@ -71,6 +73,8 @@ export interface ProCardDay {
   dayOfMonth: string;
   /** "Sep 30", for the range above the columns. */
   shortDate: string;
+  /** Earlier in this week than today — drawn greyed out, so the week reads whole. */
+  past: boolean;
   slots: ProCardSlot[];
 }
 
@@ -142,13 +146,15 @@ export function proCardView(pro: Pro): ProCardView {
     website: pro.website,
     services: pro.services,
     slots: schedule.slice(0, SLOTS_SHOWN).map(sampleSlot),
-    calendar: Array.from({ length: CALENDAR_DAYS }, (_, offset) => {
-      const date = addDays(today, offset);
+    calendar: Array.from({ length: DIALOG_CALENDAR_WEEKS * 7 }, (_, index) => {
+      const date = addDays(startOfWeek(today), index);
+      const offset = differenceInCalendarDays(date, today);
       return {
         key: date.toISOString(),
         weekday: offset === 0 ? "Today" : format(date, "EEE"),
         dayOfMonth: format(date, "d"),
         shortDate: format(date, "MMM d"),
+        past: offset < 0,
         slots: schedule.filter((slot) => isSameDay(slot.date, date)).map(sampleSlot),
       };
     }),
@@ -187,7 +193,7 @@ export function ProCard({
 }) {
   const bookFromCard = onBook
     ? (e: React.MouseEvent<HTMLDivElement>) => {
-        // React bubbles clicks out of portals, so the hover preview would count as the card.
+        // React bubbles clicks out of portals, so the profile dialogue would count as the card.
         if (e.currentTarget.contains(e.target as Node)) onBook();
       }
     : undefined;
@@ -208,38 +214,39 @@ export function ProCard({
         height across cards instead of shifting up for the shorter ones.
       */}
       {/*
-        Above the card-wide link below, which would otherwise take the hover the preview opens on.
-        Being a link itself keeps a click on the name or the initials going where the rest of the
-        card goes.
+        Above the card-wide link below, which would otherwise take the click. Kept from reaching
+        the card as well, whose own click opens the booking dialogue instead of the profile.
       */}
-      <PreviewCard>
-        <PreviewCardTrigger
-          render={
-            view.href ? (
-              <Link
-                href={view.href}
-                className="relative z-10 mb-4 flex min-h-16 w-fit items-center gap-3 text-brand no-underline hover:text-brand-500"
-              />
-            ) : (
-              <div className={cn("mb-4 flex min-h-16 w-fit items-center gap-3", !bookFromCard && "cursor-default")} />
-            )
-          }
+      <Dialog>
+        <DialogTrigger
+          onClick={(e) => e.stopPropagation()}
+          className="relative z-10 mb-4 flex min-h-16 w-fit cursor-pointer items-center gap-3 rounded-2xl text-left text-brand outline-none hover:text-brand-500 focus-visible:ring-2 focus-visible:ring-ring"
         >
-          <div
+          <span
             className="grid size-[46px] shrink-0 place-items-center rounded-full text-base font-bold tracking-[-0.02em] text-white"
             style={{ background: view.color }}
           >
             {view.initials}
-          </div>
-          <div>
-            <p className="m-0 text-[16.5px] font-bold leading-tight tracking-[-0.02em]">{view.title}</p>
-            <p className="m-0 text-[13.5px] text-muted-ink">{view.subtitle}</p>
-          </div>
-        </PreviewCardTrigger>
-        <PreviewCardContent>
-          <ProfilePreviewCard view={view} />
-        </PreviewCardContent>
-      </PreviewCard>
+          </span>
+          <span>
+            <span className="block text-[16.5px] font-bold leading-tight tracking-[-0.02em]">{view.title}</span>
+            <span className="block text-[13.5px] text-muted-ink">{view.subtitle}</span>
+          </span>
+        </DialogTrigger>
+        <DialogContent className="sm:max-w-lg">
+          {/* The overview below names them again, in the size it gives them. */}
+          <DialogTitle className="sr-only">{view.title}</DialogTitle>
+          <BusinessOverview view={view} />
+          {view.href && (
+            <Link
+              href={view.href}
+              className={cn(buttonVariants(), "mt-5 h-10 w-full rounded-full text-sm font-semibold no-underline")}
+            >
+              View full profile
+            </Link>
+          )}
+        </DialogContent>
+      </Dialog>
 
       {view.trade && (
         <Badge className="mb-3.5 h-auto w-fit self-start rounded-full border-transparent bg-brand-50 px-3 py-1 text-[11.5px] font-semibold text-brand-500">
@@ -249,7 +256,7 @@ export function ProCard({
 
       {/*
         Where they are and how far. Only the first part of the place — "Capitol Hill", not "Capitol
-        Hill, Denver, CO" — so it fits beside the distance; the hover preview has it in full. A real
+        Hill, Denver, CO" — so it fits beside the distance; the profile dialogue has it in full. A real
         result's town is already the line under its name, so it is not said twice here.
       */}
       <div className="flex min-w-0 items-center gap-1.5 text-[13.5px] text-muted-ink">

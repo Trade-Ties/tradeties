@@ -6,8 +6,9 @@ import { Calendar, Pencil } from "lucide-react";
 import { SiteHeader } from "@/components/marketing/SiteHeader";
 import { SiteFooter } from "@/components/marketing/SiteFooter";
 import { BookingForm } from "@/components/marketing/BookingForm";
+import { DESCRIPTION_MAX } from "@/components/marketing/request-limits";
 import { dayLabel, dayOf, instantOf, spanLabel } from "@/components/marketing/availability";
-import { getBusiness } from "@/lib/api/marketplace";
+import { getBusiness, listUsStates } from "@/lib/api/marketplace";
 import { proPath } from "@/lib/routes";
 
 function firstValue(value: string | string[] | undefined): string {
@@ -53,8 +54,13 @@ export default async function BookPage({
   // that when the request is sent, against the walk that offered it — a second check here would
   // be a second answer to the same question, taken a moment earlier and no more true for it.
   const startsAt = instantOf(firstValue(query.at));
-  // What the customer searched for, carried here so the description starts from it.
+  // What the customer searched for, carried on so "Change" can title the appointment with it again.
   const job = firstValue(query.job).trim().slice(0, 200);
+  // What needs doing, written beside the appointment on the business's page.
+  const description = firstValue(query.description).trim().slice(0, DESCRIPTION_MAX);
+  const back = new URLSearchParams({ service: service?.id ?? "", at: startsAt ?? "" });
+  if (job) back.set("job", job);
+  if (description) back.set("description", description);
 
   // Arriving without a service or without a time is not an error, it is an unfinished step —
   // reached by a bookmark, or by an address somebody trimmed. The calendar is where both are
@@ -68,6 +74,23 @@ export default async function BookPage({
       </>
     );
   }
+
+  // The same kind of unfinished step: the appointment on the business's page is where it is asked,
+  // and it will not send anyone on without it, so only a trimmed address arrives here without one.
+  if (!description) {
+    return (
+      <>
+        <SiteHeader />
+        <Undescribed href={`${proPath(slug)}?${back}`} name={profile.displayName} />
+        <SiteFooter />
+      </>
+    );
+  }
+
+  // The list the wizard's state field reads, so a customer's address is picked from the same one.
+  // Null when it cannot be read, and the form then takes the two letters typed.
+  const listed = await listUsStates();
+  const states = listed.ok ? listed.data.map((state) => ({ value: state.code, label: state.name })) : null;
 
   return (
     <>
@@ -99,9 +122,11 @@ export default async function BookPage({
               <p className="m-0 mt-0.5 text-[13px] text-muted-ink">
                 {service.name} with {profile.displayName} · times are {profile.timeZone}
               </p>
+              <p className="m-0 mt-2 line-clamp-3 whitespace-pre-line text-[13.5px] text-brand">{description}</p>
             </div>
             <Link
-              href={`${proPath(slug)}?${new URLSearchParams({ service: service.id, at: startsAt, calendar: "1", ...(job ? { job } : {}) })}#when`}
+              // Opened at the top rather than at the calendar: the description is in the appointment above it.
+              href={`${proPath(slug)}?${back}&calendar=1`}
               className="inline-flex items-center gap-1 rounded-full border border-line bg-white px-3 py-1 text-[13px] font-semibold text-brand-500 no-underline transition-colors hover:border-brand-100 hover:bg-brand-50"
             >
               <Pencil className="size-3.5" aria-hidden="true" />
@@ -114,11 +139,11 @@ export default async function BookPage({
               slug={slug}
               businessName={profile.displayName}
               serviceId={service.id}
-              serviceName={service.name}
               startsAt={startsAt}
               cancellationFee={profile.pricing.cancellationFee}
               cancellationNoticeHours={profile.pricing.cancellationNoticeHours}
-              description={job}
+              description={description}
+              states={states}
             />
           </div>
         </div>
@@ -158,6 +183,25 @@ function Incomplete({ slug, name }: { slug: string; name: string }) {
           className="mt-7 inline-block rounded-2xl bg-brand px-6 py-3 text-[15px] font-semibold text-white"
         >
           Open their calendar
+        </Link>
+      </div>
+    </section>
+  );
+}
+
+function Undescribed({ href, name }: { href: string; name: string }) {
+  return (
+    <section className="pb-20 pt-8">
+      <div className="mx-auto max-w-[540px] px-6 py-16 text-center">
+        <h1 className="text-[26px] font-semibold tracking-tight text-brand">
+          Tell them what needs doing first.
+        </h1>
+        <p className="mt-3 text-[15px] leading-relaxed text-muted-ink">
+          The description is what {name} reads to judge whether the estimate holds, and it is asked
+          beside the appointment.
+        </p>
+        <Link href={href} className="mt-7 inline-block rounded-2xl bg-brand px-6 py-3 text-[15px] font-semibold text-white">
+          Back to the appointment
         </Link>
       </div>
     </section>

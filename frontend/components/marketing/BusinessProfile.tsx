@@ -1,11 +1,11 @@
-import { BadgeCheck, Calendar, CalendarDays, Globe, MapPin } from "lucide-react";
-import Link from "next/link";
+import { BadgeCheck, Calendar, Globe, MapPin } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
+import { AppointmentRequest } from "@/components/marketing/AppointmentRequest";
 import { BackToResults } from "@/components/marketing/BackToResults";
 import { ServiceSelect } from "@/components/marketing/ServiceSelect";
 import { dayLabel, dayOf, spanLabel } from "@/components/marketing/availability";
-import { amount, colorOf, duration, initialsOf, money, priceOf } from "@/components/marketing/business-format";
+import { amount, cancellation, colorOf, duration, initialsOf, money, priceOf } from "@/components/marketing/business-format";
 import { proPath } from "@/lib/routes";
 import type { PublicBusinessProfile, PublicService } from "@/lib/api/marketplace";
 
@@ -28,6 +28,7 @@ export function BusinessProfile({
   month,
   at,
   job,
+  description,
   calendarAsked,
   calendar,
 }: {
@@ -40,6 +41,8 @@ export function BusinessProfile({
   at: string | null;
   /** What the customer typed into the search, or null when they came some other way. */
   job: string | null;
+  /** What needs doing, as the booking page's "Change" brings it back, or null. */
+  description: string | null;
   /** Whether "Show all availability" was pressed, or the page was opened on the calendar. */
   calendarAsked: boolean;
   calendar: React.ReactNode;
@@ -139,9 +142,11 @@ export function BusinessProfile({
         {at && pickedService && (
           <ChosenTime
             slug={profile.slug}
+            businessName={profile.displayName}
             service={pickedService}
             at={at}
             job={job}
+            description={description}
             timeZone={profile.timeZone}
             calendarAsked={calendarAsked}
             select={
@@ -219,30 +224,34 @@ export function BusinessProfile({
 }
 
 /**
- * The time picked on a search card, said plainly under the business it is with, with the two
- * things to do about it: request it, or open the whole calendar to choose another. The calendar
- * stays closed until asked for, so the page reads as "this appointment" rather than a diary.
+ * The time picked — on a search card or in the calendar — said plainly under the business it is
+ * with, with what needs doing and the two things to do about it: request it, or open the whole
+ * calendar to choose another. The calendar stays closed until asked for, so the page reads as
+ * "this appointment" rather than a diary.
  */
 function ChosenTime({
   slug,
+  businessName,
   service,
   at,
   job,
+  description,
   timeZone,
   calendarAsked,
   select,
 }: {
   slug: string;
+  businessName: string;
   service: PublicService;
   at: string;
   job: string | null;
+  description: string | null;
   timeZone: string;
   calendarAsked: boolean;
   /** The service dropdown, or nothing when there is only one service to book. */
   select: React.ReactNode;
 }) {
-  const carried: Record<string, string> = job ? { job } : {};
-  const calendar = new URLSearchParams({ service: service.id, at, calendar: "1", ...carried });
+  const calendar = new URLSearchParams({ service: service.id, at, calendar: "1", ...(job ? { job } : {}) });
 
   return (
     <div className="mb-9 rounded-3xl border border-brand-100 bg-brand-50 px-6 py-5 shadow-card">
@@ -259,23 +268,16 @@ function ChosenTime({
       </div>
       <p className="m-0 mt-1 text-[12.5px] text-muted-ink">Times are {timeZone}, the tradesperson&apos;s own clock.</p>
 
-      <div className="mt-4 flex flex-wrap gap-2">
-        {!calendarAsked && (
-          <Link
-            href={`${proPath(slug)}?${calendar}#when`}
-            className="inline-flex items-center gap-1.5 rounded-full border border-line bg-white px-4 py-2 text-[13.5px] font-semibold text-brand-500 no-underline transition-colors hover:border-brand-100"
-          >
-            <CalendarDays className="size-4" aria-hidden="true" />
-            Show all availability
-          </Link>
-        )}
-        <Link
-          href={`${proPath(slug)}/book?${new URLSearchParams({ service: service.id, at, ...carried })}`}
-          className="inline-flex items-center rounded-full bg-brand px-4 py-2 text-[13.5px] font-semibold text-white no-underline"
-        >
-          Request this appointment
-        </Link>
-      </div>
+      <AppointmentRequest
+        slug={slug}
+        serviceId={service.id}
+        serviceName={service.name}
+        businessName={businessName}
+        at={at}
+        job={job}
+        description={description}
+        calendarHref={calendarAsked ? null : `${proPath(slug)}?${calendar}#when`}
+      />
     </div>
   );
 }
@@ -379,21 +381,6 @@ function materials(pricing: Pricing): string {
     case "NOT_PROVIDED":
       return "You supply the materials";
   }
-}
-
-/**
- * Hours rather than "the day before", because that is what the contract stores and what a
- * subtraction can answer. A fee of nothing is said as free — printing $0 makes a reader look for
- * the catch.
- */
-function cancellation(pricing: Pricing): string {
-  if (Number(pricing.cancellationFee) === 0) {
-    return "Free to cancel";
-  }
-
-  return pricing.cancellationNoticeHours > 0
-    ? `${money(pricing.cancellationFee)} within ${pricing.cancellationNoticeHours} hours of the appointment`
-    : `${money(pricing.cancellationFee)} to cancel`;
 }
 
 /**

@@ -2777,7 +2777,7 @@ components:
 
         Everything here is either something the business published about itself or something
         TradeTies checked. Nothing is about a person.
-      required: [slug, displayName, city, state, timeZone, trades, services, pricing, licenses]
+      required: [slug, displayName, city, state, timeZone, trades, services, pricing, licenses, workingHours]
       properties:
         slug:
           $ref: "#/components/schemas/Slug"
@@ -2853,6 +2853,23 @@ components:
             today, and an expired one is not a weaker version of it.
           items:
             $ref: "#/components/schemas/PublicLicense"
+        workingHours:
+          type: array
+          description: |
+            The working week as the business declared it: all seven days, Monday first, each
+            exactly once, on the wall clock of `timeZone`. The same shape the owner edits it in.
+
+            **Declared, not free.** Time off and accepted appointments are not subtracted —
+            "Mondays 08:00–17:00" says when this business works, and which of those hours can
+            still be booked is what the availability operation answers.
+
+            Opening hours in the sense a shop door states them, and nothing about a person: they
+            are the business's, and the free starts the availability operation already
+            publishes fall inside them anyway.
+          minItems: 7
+          maxItems: 7
+          items:
+            $ref: "#/components/schemas/WorkingDay"
 
     PublicService:
       type: object

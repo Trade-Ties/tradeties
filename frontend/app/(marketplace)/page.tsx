@@ -1,5 +1,4 @@
 import { Suspense } from "react";
-import Link from "next/link";
 
 import { SiteHeader } from "@/components/marketing/SiteHeader";
 import { SiteFooter } from "@/components/marketing/SiteFooter";
@@ -9,6 +8,7 @@ import { OpenSlots } from "@/components/marketing/OpenSlots";
 import { FreeSoonBadge, FreeSoonBadgeFallback } from "@/components/marketing/FreeSoonBadge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { PORTAL_SIGN_UP_PATH } from "@/lib/routes";
 
 const STEPS = [
   {
@@ -181,9 +181,10 @@ export default function MarketplaceLandingPage() {
                 Set your hours, rates and service area. Get booked by customers who need your work - without chasing quotes or callbacks.
               </p>
             </div>
+            {/* A plain <a>: the sign-up is a route handler that redirects off the site, which the client router cannot follow. */}
             <Button
               variant="secondary"
-              render={<Link href="/profile/create" />}
+              render={<a href={PORTAL_SIGN_UP_PATH} />}
               nativeButton={false}
               className="relative z-10 h-auto whitespace-nowrap rounded-full px-8 py-4 text-base font-bold text-brand hover:bg-brand-50"
             >

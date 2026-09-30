@@ -10,6 +10,12 @@
  * stand.
  */
 
+/**
+ * How far the booking dialogue's calendar reaches: this week and the two after it, each drawn whole
+ * from Sunday, the way a US calendar prints a week.
+ */
+export const DIALOG_CALENDAR_WEEKS = 3;
+
 /** A month as it travels in the URL. */
 export type Month = string;
 

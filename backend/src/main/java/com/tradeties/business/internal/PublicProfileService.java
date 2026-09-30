@@ -7,6 +7,7 @@ import java.util.Optional;
 import java.util.UUID;
 
 import com.tradeties.business.LicenseDetails;
+import com.tradeties.business.OpeningHours;
 import com.tradeties.business.PublicProfile;
 import com.tradeties.business.ServiceDetails;
 
@@ -21,10 +22,10 @@ import org.springframework.transaction.annotation.Transactional;
  * but on the same side of the same rule: no token, no owner, and nothing in the answer that
  * identifies a person.
  *
- * <p><strong>Five reads and no join.</strong> The profile, its trades, its services, its terms
- * and its licences are five queries for one page, which is what a page of one business can
- * afford. The search does the opposite for the opposite reason: fifty businesses at a time make
- * anything per-row a hundred and fifty round trips.
+ * <p><strong>Six reads and no join.</strong> The profile, its trades, its services, its terms,
+ * its licences and its working week are six queries for one page, which is what a page of one
+ * business can afford. The search does the opposite for the opposite reason: fifty businesses at a
+ * time make anything per-row a hundred and fifty round trips.
  */
 @Service
 public class PublicProfileService {
@@ -34,18 +35,21 @@ public class PublicProfileService {
 	private final ServiceOfferingRepository services;
 	private final BusinessPricingRepository pricing;
 	private final BusinessLicenseRepository licenses;
+	private final OpeningHours hours;
 
 	PublicProfileService(BusinessSearchRepository businesses,
 			TradeSelectionService trades,
 			ServiceOfferingRepository services,
 			BusinessPricingRepository pricing,
-			BusinessLicenseRepository licenses) {
+			BusinessLicenseRepository licenses,
+			OpeningHours hours) {
 
 		this.businesses = businesses;
 		this.trades = trades;
 		this.services = services;
 		this.pricing = pricing;
 		this.licenses = licenses;
+		this.hours = hours;
 	}
 
 	/**
@@ -71,7 +75,8 @@ public class PublicProfileService {
 				trades.findByBusinessId(businessId),
 				offered,
 				pricing.findById(businessId).map(BusinessPricing::toTerms).orElse(null),
-				valid(businessId, business.timeZone()));
+				valid(businessId, business.timeZone()),
+				hours.weekOf(businessId));
 	}
 
 	/**

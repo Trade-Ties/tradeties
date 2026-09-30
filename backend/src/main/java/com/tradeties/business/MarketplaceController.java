@@ -2,9 +2,11 @@ package com.tradeties.business;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.time.DayOfWeek;
 import java.time.LocalDate;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.UUID;
 
@@ -20,6 +22,8 @@ import com.tradeties.generated.model.PublicBusinessProfile;
 import com.tradeties.generated.model.PublicLicense;
 import com.tradeties.generated.model.PublicPricing;
 import com.tradeties.generated.model.PublicService;
+import com.tradeties.generated.model.TimeBlock;
+import com.tradeties.generated.model.WorkingDay;
 
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -36,7 +40,8 @@ import org.springframework.web.server.ResponseStatusException;
  * anonymous surface is one small class one can read end to end.
  *
  * <p>Nothing it returns identifies a person: a business name, a town, a distance, a slug, what
- * the work costs, what each service takes, the licences on file and a handful of start times.
+ * the work costs, what each service takes, the licences on file, the opening hours and a handful
+ * of start times.
  * The list has grown again and the property has not, which is the only thing about it worth
  * checking when it grows next. What has never been on it is the part that matters — no street,
  * no coordinates, no legal name, no phone and no email.
@@ -184,7 +189,21 @@ class MarketplaceController implements MarketplaceApi {
 				.primaryTradeId(trades.primary() == null ? null : trades.primary().id())
 				.services(profile.services().stream().map(MarketplaceController::toWire).toList())
 				.pricing(toWire(profile.pricing()))
-				.licenses(profile.licenses().stream().map(MarketplaceController::toWire).toList());
+				.licenses(profile.licenses().stream().map(MarketplaceController::toWire).toList())
+				.workingHours(Arrays.stream(DayOfWeek.values())
+						.map(day -> new WorkingDay()
+								.dayOfWeek(day.getValue())
+								.blocks(profile.hours().getOrDefault(day, List.of()).stream()
+										.map(stretch -> new TimeBlock()
+												.startsAt(wallClock(stretch.startsAtMinutes()))
+												.endsAt(wallClock(stretch.endsAtMinutes())))
+										.toList()))
+						.toList());
+	}
+
+	/** {@code HH:mm}, which the contract's pattern requires; a day that runs to midnight ends at "24:00". */
+	private static String wallClock(int minutes) {
+		return "%02d:%02d".formatted(minutes / 60, minutes % 60);
 	}
 
 	/**

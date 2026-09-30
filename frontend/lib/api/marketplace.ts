@@ -12,6 +12,7 @@ export type PublicService = components["schemas"]["PublicService"];
 export type BusinessAvailability = components["schemas"]["BusinessAvailability"];
 export type ServiceSuggestion = components["schemas"]["ServiceSuggestion"];
 export type MarketplaceSummary = components["schemas"]["MarketplaceSummary"];
+export type UsState = components["schemas"]["UsState"];
 
 /**
  * Counts across the whole marketplace, for the landing page's headline.
@@ -22,6 +23,11 @@ export function getMarketplaceSummary(): Promise<ApiResult<MarketplaceSummary>> 
   return attempt("GET /api/v1/marketplace-summary", () =>
     publicApiClient().GET("/api/v1/marketplace-summary"),
   );
+}
+
+/** The 50 states and DC, alphabetically by name — the list a customer's address is checked against. */
+export function listUsStates(): Promise<ApiResult<UsState[]>> {
+  return attempt("GET /api/v1/us-states", () => publicApiClient().GET("/api/v1/us-states"));
 }
 
 /**
