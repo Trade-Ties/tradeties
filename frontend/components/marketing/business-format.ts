@@ -1,5 +1,7 @@
 import type { PublicBusinessProfile, PublicService } from "@/lib/api/marketplace";
 
+type PublicPricing = PublicBusinessProfile["pricing"];
+
 /**
  * How a real business is drawn, wherever it is drawn.
  *
@@ -67,7 +69,7 @@ export function duration(minutes: number): string {
  * an emergency call-out at a higher tariff is. Absent on both is a question nobody has answered
  * rather than work given away, so it says so instead of printing a zero.
  */
-export function priceOf(service: PublicService, pricing: PublicBusinessProfile["pricing"]): string {
+export function priceOf(service: PublicService, pricing: PublicPricing): string {
   switch (service.pricingMode) {
     case "FLAT":
       return service.price ? money(service.price) : "Price on request";
@@ -80,4 +82,19 @@ export function priceOf(service: PublicService, pricing: PublicBusinessProfile["
     case "QUOTE_ONLY":
       return "Quoted after a look";
   }
+}
+
+/**
+ * Hours rather than "the day before", because that is what the contract stores and what a
+ * subtraction can answer. A fee of nothing is said as free — printing $0 makes a reader look for
+ * the catch.
+ */
+export function cancellation(pricing: PublicPricing): string {
+  if (Number(pricing.cancellationFee) === 0) {
+    return "Free to cancel";
+  }
+
+  return pricing.cancellationNoticeHours > 0
+    ? `${money(pricing.cancellationFee)} within ${pricing.cancellationNoticeHours} hours of the appointment`
+    : `${money(pricing.cancellationFee)} to cancel`;
 }

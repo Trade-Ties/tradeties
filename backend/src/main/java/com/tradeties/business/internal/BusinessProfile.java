@@ -1,8 +1,10 @@
 package com.tradeties.business.internal;
 
 import java.math.BigDecimal;
+import java.time.DayOfWeek;
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
 
@@ -12,6 +14,7 @@ import com.tradeties.business.BusinessStatus;
 import com.tradeties.business.GeoPoint;
 import com.tradeties.business.LicenseDetails;
 import com.tradeties.business.OnboardingStep;
+import com.tradeties.business.OpeningHours;
 import com.tradeties.business.PostalAddress;
 import com.tradeties.business.PricingTerms;
 import com.tradeties.business.ProfileSuspendedException;
@@ -432,13 +435,14 @@ class BusinessProfile {
 	 * published one, so the field could say nothing a caller does not already know.
 	 *
 	 * <p>What a customer reads that is not a column of this row — the trades, the services, the
-	 * terms and the licences — arrives as arguments rather than being fetched. An entity that
-	 * reached four more tables would be a query path invisible at the call site.
+	 * terms, the licences and the working week — arrives as arguments rather than being fetched.
+	 * An entity that reached five more tables would be a query path invisible at the call site.
 	 */
 	PublicProfile toPublicProfile(TradeSelection trades,
 			List<ServiceDetails> services,
 			PricingTerms pricing,
-			List<LicenseDetails> licenses) {
+			List<LicenseDetails> licenses,
+			Map<DayOfWeek, List<OpeningHours.Stretch>> hours) {
 
 		return new PublicProfile(
 				slug,
@@ -451,6 +455,7 @@ class BusinessProfile {
 				trades,
 				services,
 				pricing,
-				licenses);
+				licenses,
+				hours);
 	}
 }

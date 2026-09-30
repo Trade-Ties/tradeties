@@ -1,4 +1,5 @@
 import { addDays, differenceInCalendarDays } from "date-fns";
+import { DIALOG_CALENDAR_WEEKS } from "@/components/marketing/availability";
 import {
   BrickWall,
   Brush,
@@ -255,8 +256,8 @@ export const PROS: Pro[] = [
   },
 ];
 
-/** How far ahead a listing's full calendar reaches: three pages of five days. */
-export const CALENDAR_DAYS = 15;
+/** Every day ahead of today that the booking dialogue's weeks can reach, whichever weekday today is. */
+export const CALENDAR_DAYS = DIALOG_CALENDAR_WEEKS * 7;
 
 const DAY_TIMES = ["8:00 AM", "9:00 AM", "10:30 AM", "12:00 PM", "1:30 PM", "3:00 PM", "4:30 PM"];
 

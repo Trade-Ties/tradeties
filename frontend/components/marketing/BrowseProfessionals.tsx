@@ -39,8 +39,10 @@ const SORT_OPTIONS = [
   { value: "distance", label: "Distance" },
 ];
 
-const MAX_RADIUS = 50;
-const MAX_RATE = 150;
+const MAX_RADIUS = 100;
+
+/** The dearest listing's hourly rate, so the range starts out covering every business and ends at the last one. */
+const MAX_RATE = Math.max(0, ...PROS.map((p) => p.rateFrom));
 
 function matchesAvailability(pro: Pro, availability: AvailabilityFilter, customDate: Date | undefined) {
   return pro.slots.some((s) => dateMatchesAvailability(s.date, availability, customDate));
@@ -258,7 +260,7 @@ export function BrowseProfessionals() {
                 <Slider
                   value={[radius]}
                   onValueChange={(v) => setRadius(Array.isArray(v) ? v[0] : v)}
-                  min={1}
+                  min={0}
                   max={MAX_RADIUS}
                   step={1}
                 />
@@ -411,7 +413,8 @@ export function BrowseProfessionals() {
                   onValueChange={(v) => Array.isArray(v) && setPriceRange(v)}
                   min={0}
                   max={MAX_RATE}
-                  step={5}
+                  // Whole dollars: a coarser step would not land on a top rate that is not a multiple of it.
+                  step={1}
                 />
               </div>
             </div>

@@ -1,7 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
-import Link from "next/link";
+import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 
@@ -15,7 +14,6 @@ import {
   monthLabel,
   monthWindow,
   shiftMonth,
-  spanLabel,
   timeLabel,
   weekdayOf,
 } from "@/components/marketing/availability";
@@ -29,9 +27,10 @@ const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
  * One month of this business's openings for the chosen service.
  *
  * <p>The month is in the URL and paging it is a navigation, for the reason the service is: the
- * page is readable from its address alone. The chosen **time** deliberately is not — it is
- * fleeting, and the booking page is where it becomes a place you can link to. The one exception
- * is the way in: a time picked on a search result arrives as `at` and starts out chosen here.
+ * page is readable from its address alone. Picking a time is one too: it becomes `at`, which folds
+ * this calendar away behind the appointment above — the same view a time picked on a search card
+ * opens, so there is one way to request a time, not two. A time already in `at` starts out
+ * chosen here.
  *
  * <p><strong>Nothing drawn here is held.</strong> These are the starts that were free when the
  * page was rendered; the same slot stays on offer to everybody else until the tradesperson
@@ -76,16 +75,13 @@ export function ServiceCalendar({
   const [pickedDay, setPickedDay] = useState<string | null>(() =>
     preset ? dayOf(preset, timeZone) : (days.keys().next().value ?? null),
   );
-  const [pickedTime, setPickedTime] = useState<string | null>(preset);
 
-  // Somebody who picked a time on a search result came here to send it, and the confirmation is
-  // below the whole service list.
-  const confirmation = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    if (preset) {
-      confirmation.current?.scrollIntoView({ block: "center" });
-    }
-  }, [preset]);
+  // From the top, as a time picked on a search card opens the page: the appointment is up there.
+  const choose = (slot: string) => {
+    const params = new URLSearchParams({ service: serviceId, at: slot });
+    if (job) params.set("job", job);
+    router.push(`${proPath(slug)}?${params}`);
+  };
 
   const goTo = (target: string) => {
     // Where the reader already is: a new month is the same calendar, not a new page to start at the top of.
@@ -96,7 +92,6 @@ export function ServiceCalendar({
 
   const pickDay = (day: string) => {
     setPickedDay(day);
-    setPickedTime(null);
   };
 
   // No `closed` guard on either: both rules already answer a closed window correctly, and adding
@@ -218,10 +213,10 @@ export function ServiceCalendar({
                   <button
                     key={slot}
                     type="button"
-                    aria-pressed={slot === pickedTime}
-                    onClick={() => setPickedTime(slot)}
+                    aria-pressed={slot === preset}
+                    onClick={() => choose(slot)}
                     className={
-                      slot === pickedTime
+                      slot === preset
                         ? "rounded-xl border border-brand bg-brand-50 px-2 py-2 text-center text-[13px] font-semibold tabular-nums text-brand ring-1 ring-brand"
                         : "rounded-xl border border-line bg-white px-2 py-2 text-center text-[13px] font-medium tabular-nums text-foreground transition-colors hover:border-brand-100 hover:bg-brand-50/60"
                     }
@@ -230,32 +225,6 @@ export function ServiceCalendar({
                   </button>
                 ))}
               </div>
-
-              {pickedTime && (
-                <div ref={confirmation} className="mt-5 rounded-2xl bg-canvas p-5">
-                  <p className="m-0 text-[14.5px] font-semibold text-brand">
-                    {dayLabel(dayOf(pickedTime, timeZone))} ·{" "}
-                    {spanLabel(pickedTime, appointmentMinutes, timeZone)}
-                  </p>
-
-                  {/*
-                    A link and not a form. The booking page takes its whole input from the address
-                    — the business, the service and this instant — which is what lets somebody
-                    reload it, come back to it, or send it to whoever actually owns the boiler.
-                  */}
-                  <Link
-                    href={`${proPath(slug)}/book?${new URLSearchParams({ service: serviceId, at: pickedTime, ...(job ? { job } : {}) })}`}
-                    className="mt-3 block w-full rounded-2xl bg-brand px-6 py-3 text-center text-[15px] font-semibold text-white no-underline"
-                  >
-                    Request this appointment
-                  </Link>
-
-                  <p className="m-0 mt-2.5 text-[13px] leading-relaxed text-muted-ink">
-                    Nothing on this page is held for you — the same time stays on offer to
-                    everybody until the tradesperson accepts a request for it.
-                  </p>
-                </div>
-              )}
             </div>
           )}
         </>

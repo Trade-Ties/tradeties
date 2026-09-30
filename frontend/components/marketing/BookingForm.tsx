@@ -5,21 +5,15 @@ import Link from "next/link";
 import { AlertCircle, CheckCircle2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import { AutocompleteControl, type AutocompleteOption } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
 import { dayLabel, dayOf, spanLabel } from "@/components/marketing/availability";
 import { money } from "@/components/marketing/business-format";
+import { forgetSearch } from "@/components/marketing/search-memory";
 import { sendRequest, type Sent } from "@/app/(marketplace)/[slug]/book/actions";
 import { proPath } from "@/lib/routes";
 import type { CreatedJob } from "@/lib/api/marketplace";
-
-const STATES = [
-  "AL", "AK", "AZ", "AR", "CA", "CO", "CT", "DE", "DC", "FL", "GA", "HI", "ID", "IL", "IN", "IA",
-  "KS", "KY", "LA", "ME", "MD", "MA", "MI", "MN", "MS", "MO", "MT", "NE", "NV", "NH", "NJ", "NM",
-  "NY", "NC", "ND", "OH", "OK", "OR", "PA", "RI", "SC", "SD", "TN", "TX", "UT", "VT", "VA", "WA",
-  "WV", "WI", "WY",
-];
 
 /**
  * The nine fields, and what comes back when they are sent.
@@ -36,30 +30,41 @@ export function BookingForm({
   slug,
   businessName,
   serviceId,
-  serviceName,
   startsAt,
   cancellationFee,
   cancellationNoticeHours,
   description,
+  states,
 }: {
   slug: string;
   businessName: string;
   serviceId: string;
-  serviceName: string;
   startsAt: string;
   cancellationFee: string;
   cancellationNoticeHours: number;
-  /** What the customer searched for, to start the description from; empty when there was none. */
-  description?: string;
+  /** What needs doing, as written beside the appointment on the business's page. */
+  description: string;
+  /** The states to pick from, or null when the list could not be read. */
+  states: AutocompleteOption[] | null;
 }) {
   const [pending, startSending] = useTransition();
   const [failure, setFailure] = useState<Extract<Sent, { ok: false }> | null>(null);
   const [created, setCreated] = useState<CreatedJob | null>(null);
+  // Held here rather than read from the form: the dropdown keeps the code in its own state, and has
+  // no field of the form's for `required` to check.
+  const [state, setState] = useState("");
+  const [stateMissing, setStateMissing] = useState(false);
 
   const submit = (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
     const text = (name: string) => String(form.get(name) ?? "").trim();
+
+    if (states && !state) {
+      setStateMissing(true);
+      document.getElementById("state")?.focus();
+      return;
+    }
 
     setFailure(null);
 
@@ -73,16 +78,17 @@ export function BookingForm({
         // Absent rather than empty: the column means "no number given", and a blank string would
         // read as one that happens to have no digits.
         ...(text("customerPhone") ? { customerPhone: text("customerPhone") } : {}),
-        description: text("description"),
+        description,
         street1: text("street1"),
         ...(text("street2") ? { street2: text("street2") } : {}),
         city: text("city"),
-        state: text("state"),
+        state: states ? state : text("state").toUpperCase(),
         postalCode: text("postalCode"),
       });
 
       if (answer.ok) {
         setCreated(answer.created);
+        forgetSearch();
       } else {
         setFailure(answer);
       }
@@ -118,27 +124,6 @@ export function BookingForm({
           />
         </Group>
 
-        <Group title="What needs doing?">
-          <div>
-            <Label htmlFor="description" className="mb-1 block text-[13px] font-semibold text-brand">
-              Describe the job
-            </Label>
-            <Textarea
-              id="description"
-              name="description"
-              required
-              maxLength={2000}
-              rows={4}
-              defaultValue={description}
-              placeholder="No hot water since Tuesday. The boiler clicks but does not fire."
-            />
-            <p className="m-0 mt-1 text-[12.5px] text-faint">
-              Not the service name — {businessName} already knows you picked {serviceName}. This is
-              what they read to judge whether the estimate holds.
-            </p>
-          </div>
-        </Group>
-
         <Group title="Where is the job?">
           <Field name="street1" label="Street address" required maxLength={200} autoComplete="address-line1" />
           <Field
@@ -148,28 +133,40 @@ export function BookingForm({
             autoComplete="address-line2"
             hint="Optional."
           />
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-[1fr_120px_140px]">
+          {/* The state column is wide enough for "Massachusetts" beside the dropdown's arrow. */}
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-[1fr_170px_140px]">
             <Field name="city" label="City" required maxLength={100} autoComplete="address-level2" />
             <div>
               <Label htmlFor="state" className="mb-1 block text-[13px] font-semibold text-brand">
                 State
               </Label>
-              <select
-                id="state"
-                name="state"
-                required
-                defaultValue=""
-                className="h-9 w-full rounded-lg border border-line bg-white px-2.5 text-[14px] text-brand"
-              >
-                <option value="" disabled>
-                  —
-                </option>
-                {STATES.map((code) => (
-                  <option key={code} value={code}>
-                    {code}
-                  </option>
-                ))}
-              </select>
+              {states ? (
+                <AutocompleteControl
+                  id="state"
+                  options={states}
+                  value={state}
+                  onValueChange={(code) => {
+                    setState(code);
+                    setStateMissing(false);
+                  }}
+                  placeholder="Search"
+                  aria-required
+                  aria-invalid={stateMissing}
+                  // The height of the fields beside it; the kit's own is taller.
+                  className="h-8"
+                />
+              ) : (
+                <Input
+                  id="state"
+                  name="state"
+                  required
+                  maxLength={2}
+                  pattern="[A-Za-z]{2}"
+                  placeholder="CO"
+                  autoComplete="address-level1"
+                />
+              )}
+              {stateMissing && <p className="m-0 mt-1 text-[12.5px] text-destructive">Choose a state.</p>}
             </div>
             <Field
               name="postalCode"
