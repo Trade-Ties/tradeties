@@ -43,6 +43,7 @@ export function ServiceCalendar({
   serviceName,
   month,
   at,
+  job,
   availability,
 }: {
   slug: string;
@@ -51,6 +52,8 @@ export function ServiceCalendar({
   month: string;
   /** A time picked before this calendar was drawn, or null. */
   at: string | null;
+  /** What the customer searched for, carried on to the booking form. */
+  job: string | null;
   availability: BusinessAvailability;
 }) {
   const router = useRouter();
@@ -85,7 +88,10 @@ export function ServiceCalendar({
   }, [preset]);
 
   const goTo = (target: string) => {
-    router.push(`${proPath(slug)}?${new URLSearchParams({ service: serviceId, month: target })}`);
+    // Where the reader already is: a new month is the same calendar, not a new page to start at the top of.
+    const params = new URLSearchParams({ service: serviceId, month: target, calendar: "1" });
+    if (job) params.set("job", job);
+    router.push(`${proPath(slug)}?${params}`, { scroll: false });
   };
 
   const pickDay = (day: string) => {
@@ -100,7 +106,7 @@ export function ServiceCalendar({
   const times = pickedDay ? (days.get(pickedDay) ?? []) : [];
 
   return (
-    <div className="rounded-3xl border border-line bg-white p-6">
+    <div className="rounded-3xl border border-line bg-white p-6 shadow-card">
       <div className="mb-5 flex items-center justify-between gap-4">
         <div>
           <p className="m-0 text-[17px] font-bold tracking-[-0.02em] text-brand">{monthLabel(month)}</p>
@@ -167,8 +173,10 @@ export function ServiceCalendar({
                   aria-label={`${dayLabel(day)}, ${open} opening${open === 1 ? "" : "s"}`}
                   onClick={() => pickDay(day)}
                   className={
+                    // Tinted, so the days with openings stand out from the greyed ones at a glance;
+                    // the chosen one a shade deeper, with the dialogue's brand outline.
                     day === pickedDay
-                      ? "rounded-xl bg-brand py-2.5 text-center text-[14px] font-bold text-white"
+                      ? "rounded-xl border border-brand bg-brand-100 py-2.5 text-center text-[14px] font-bold text-brand ring-1 ring-brand"
                       : "rounded-xl border border-brand-100 bg-brand-50 py-2.5 text-center text-[14px] font-semibold text-brand transition-colors hover:border-brand"
                   }
                 >
@@ -204,7 +212,8 @@ export function ServiceCalendar({
                 This job runs {duration(appointmentMinutes)} from whichever time you pick.
               </p>
 
-              <div className="flex flex-wrap gap-2">
+              {/* Equal chips in a grid, as in the booking dialogue, rather than pills of every width. */}
+              <div className="grid grid-cols-3 gap-1.5 sm:grid-cols-6">
                 {times.map((slot) => (
                   <button
                     key={slot}
@@ -213,8 +222,8 @@ export function ServiceCalendar({
                     onClick={() => setPickedTime(slot)}
                     className={
                       slot === pickedTime
-                        ? "rounded-full bg-brand px-3.5 py-2 text-[13.5px] font-semibold text-white"
-                        : "rounded-full border border-line bg-white px-3.5 py-2 text-[13.5px] font-medium text-brand transition-colors hover:border-brand-100 hover:bg-brand-50"
+                        ? "rounded-xl border border-brand bg-brand-50 px-2 py-2 text-center text-[13px] font-semibold tabular-nums text-brand ring-1 ring-brand"
+                        : "rounded-xl border border-line bg-white px-2 py-2 text-center text-[13px] font-medium tabular-nums text-foreground transition-colors hover:border-brand-100 hover:bg-brand-50/60"
                     }
                   >
                     {timeLabel(slot, timeZone)}
@@ -235,7 +244,7 @@ export function ServiceCalendar({
                     reload it, come back to it, or send it to whoever actually owns the boiler.
                   */}
                   <Link
-                    href={`${proPath(slug)}/book?${new URLSearchParams({ service: serviceId, at: pickedTime })}`}
+                    href={`${proPath(slug)}/book?${new URLSearchParams({ service: serviceId, at: pickedTime, ...(job ? { job } : {}) })}`}
                     className="mt-3 block w-full rounded-2xl bg-brand px-6 py-3 text-center text-[15px] font-semibold text-white no-underline"
                   >
                     Request this appointment

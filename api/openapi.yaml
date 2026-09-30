@@ -2634,7 +2634,7 @@ components:
         **What is absent is absent for a reason.** There is no rating, no completed-job
         count and no photograph, because this marketplace has none of those — not because
         they were left out of the response.
-      required: [slug, displayName, city, state, distanceMiles, timeZone, licensed, licenseVerified, nextSlots]
+      required: [slug, displayName, city, state, distanceMiles, timeZone, licensed, licenseVerified, services, nextSlots]
       properties:
         slug:
           $ref: "#/components/schemas/Slug"
@@ -2729,6 +2729,20 @@ components:
             they usually stand, and it is the tradesperson's working day being described.
           maxLength: 64
           examples: ["America/Denver"]
+        services:
+          type: array
+          description: |
+            The names of up to five of the services this business offers, in the order its
+            profile lists them — except that the job picked as `service`, when this business
+            lists it, comes first. Enough to tell a plumber who does drains from one who does
+            boilers at a glance; the profile has the rest, with their prices.
+
+            Only services that can be booked: a retired one is not offered. Empty for a
+            business that has not listed any yet.
+          maxItems: 5
+          items:
+            type: string
+            maxLength: 200
         nextSlots:
           type: array
           description: |

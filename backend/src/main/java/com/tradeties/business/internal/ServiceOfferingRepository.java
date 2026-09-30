@@ -47,6 +47,38 @@ interface ServiceOfferingRepository extends JpaRepository<ServiceOffering, UUID>
 	List<ServiceOffering> findByBusinessIdAndActiveTrueOrderBySortOrderAscCreatedAtAsc(UUID businessId);
 
 	/**
+	 * The first {@code perBusiness} bookable services of each business, by name, for a page of search
+	 * results — one query for the page rather than one a card.
+	 *
+	 * <p>In each business's own order, except that a service in {@code first} leads its business's
+	 * list: that is the job the customer searched for, and the card should say so before anything
+	 * else. {@code first} is never empty — PostgreSQL rejects {@code IN ()} — so a caller with
+	 * nothing to put first passes a UUID no row has.
+	 *
+	 * <p>Native, so it states the soft delete itself.
+	 */
+	@Query(value = """
+			SELECT business_id AS businessId, name
+			FROM (
+			    SELECT business_id, name,
+			           row_number() OVER (PARTITION BY business_id
+			                              ORDER BY (id IN (:first)) DESC, sort_order, created_at) AS position
+			    FROM business_service
+			    WHERE business_id IN (:businessIds) AND active AND deleted_at IS NULL
+			) ranked
+			WHERE position <= :perBusiness
+			ORDER BY business_id, position
+			""", nativeQuery = true)
+	List<LeadingService> findLeadingNames(@Param("businessIds") Collection<UUID> businessIds,
+			@Param("first") Collection<UUID> first, @Param("perBusiness") int perBusiness);
+
+	interface LeadingService {
+		UUID getBusinessId();
+
+		String getName();
+	}
+
+	/**
 	 * The id alone would be enough to find the row — taking the business too is what makes
 	 * someone else's service indistinguishable from a missing one, without anybody having to
 	 * remember an ownership check.

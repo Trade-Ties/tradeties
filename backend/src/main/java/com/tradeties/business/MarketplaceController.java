@@ -312,6 +312,7 @@ class MarketplaceController implements MarketplaceApi {
 				.serviceId(result.serviceId())
 				.licensed(result.licensed())
 				.licenseVerified(result.licenseVerified())
+				.services(result.services())
 				.nextSlots(result.nextSlots().stream().map(slot -> slot.atOffset(ZoneOffset.UTC)).toList());
 	}
 

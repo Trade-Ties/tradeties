@@ -1,3 +1,5 @@
+import type { PublicBusinessProfile, PublicService } from "@/lib/api/marketplace";
+
 /**
  * How a real business is drawn, wherever it is drawn.
  *
@@ -56,4 +58,26 @@ export function duration(minutes: number): string {
   const whole = `${hours} hr${hours === 1 ? "" : "s"}`;
 
   return rest === 0 ? whole : `${whole} ${rest} min`;
+}
+
+/**
+ * What one service costs, in its own mode.
+ *
+ * An hourly service may carry a rate of its own, and it overrides the general one — that is what
+ * an emergency call-out at a higher tariff is. Absent on both is a question nobody has answered
+ * rather than work given away, so it says so instead of printing a zero.
+ */
+export function priceOf(service: PublicService, pricing: PublicBusinessProfile["pricing"]): string {
+  switch (service.pricingMode) {
+    case "FLAT":
+      return service.price ? money(service.price) : "Price on request";
+    case "STARTING_AT":
+      return service.price ? `From ${money(service.price)}` : "Price on request";
+    case "HOURLY": {
+      const rate = service.price ?? pricing.hourlyRate;
+      return rate ? `${money(rate)}/hr` : "Hourly rate on request";
+    }
+    case "QUOTE_ONLY":
+      return "Quoted after a look";
+  }
 }

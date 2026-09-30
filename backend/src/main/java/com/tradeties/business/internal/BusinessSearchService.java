@@ -4,6 +4,7 @@ import java.time.Instant;
 import java.time.ZoneId;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
@@ -58,6 +59,12 @@ public class BusinessSearchService {
 	 */
 	private static final int SLOTS_PER_RESULT = 6;
 
+	/**
+	 * Enough to tell two businesses of one trade apart — the card shows three and the rest on
+	 * hover; the profile lists them all.
+	 */
+	private static final int SERVICES_PER_RESULT = 5;
+
 	/** Stands in for the picked job when none was. Never read — the flag beside it is false. */
 	private static final UUID NOTHING_PICKED = new UUID(0, 0);
 
@@ -68,6 +75,7 @@ public class BusinessSearchService {
 	private final BusinessSearchRepository businesses;
 	private final CatalogGaps gaps;
 	private final NextAvailability availability;
+	private final ServiceOfferingRepository offerings;
 	private final int pageSize;
 	private final int maxResults;
 
@@ -85,6 +93,7 @@ public class BusinessSearchService {
 			BusinessSearchRepository businesses,
 			CatalogGaps gaps,
 			NextAvailability availability,
+			ServiceOfferingRepository offerings,
 			@Value("${tradeties.search.page-size}") int pageSize,
 			@Value("${tradeties.search.max-results}") int maxResults) {
 
@@ -95,6 +104,7 @@ public class BusinessSearchService {
 		this.businesses = businesses;
 		this.gaps = gaps;
 		this.availability = availability;
+		this.offerings = offerings;
 		this.pageSize = pageSize;
 		this.maxResults = maxResults;
 	}
@@ -165,14 +175,36 @@ public class BusinessSearchService {
 								ZoneId.of(row.getTimeZone()), row.getServiceMinutes()))),
 				SLOTS_PER_RESULT);
 
+		Map<UUID, List<String>> services = leadingServices(rows);
+
 		List<BusinessSearchResult> results = rows.stream()
 				.map(row -> new BusinessSearchResult(row.getSlug(), row.getDisplayName(), row.getCity(),
 						row.getState(), row.getPrimaryTrade(), row.getDistanceMiles(), row.getTimeZone(),
 						row.getHourlyRate(), row.getOffersThisJob(), row.getServiceId(), row.getLicensed(),
-						row.getLicenseVerified(), slots.getOrDefault(row.getId(), List.of())))
+						row.getLicenseVerified(), slots.getOrDefault(row.getId(), List.of()),
+						services.getOrDefault(row.getId(), List.of())))
 				.toList();
 
 		return new BusinessSearchResults(picked, matched, results, page, pageSize, total, totalCapped);
+	}
+
+	/**
+	 * The first few services of every business on the page, the picked job's first where a
+	 * business lists it — in one query, and keyed by business so each card takes its own.
+	 */
+	private Map<UUID, List<String>> leadingServices(List<BusinessSearchRepository.SearchRow> rows) {
+		List<UUID> picked = rows.stream()
+				.map(BusinessSearchRepository.SearchRow::getServiceId)
+				.filter(Objects::nonNull)
+				.toList();
+
+		return offerings.findLeadingNames(
+						rows.stream().map(BusinessSearchRepository.SearchRow::getId).toList(),
+						picked.isEmpty() ? List.of(NOTHING_PICKED) : picked,
+						SERVICES_PER_RESULT)
+				.stream()
+				.collect(Collectors.groupingBy(ServiceOfferingRepository.LeadingService::getBusinessId,
+						Collectors.mapping(ServiceOfferingRepository.LeadingService::getName, Collectors.toList())));
 	}
 
 	/**

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { format } from "date-fns";
@@ -12,6 +12,7 @@ import { Calendar } from "@/components/ui/calendar";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { rememberResults } from "@/components/marketing/BackToResults";
 import { FilterPill } from "@/components/marketing/FilterPill";
 import { ProCard, type ProCardSlot, type ProCardView } from "@/components/marketing/ProCard";
 import { amount, colorOf, initialsOf } from "@/components/marketing/business-format";
@@ -55,6 +56,11 @@ export function JobSearchResults({
   found: SearchResults;
 }) {
   const router = useRouter();
+
+  // So a business's page opened from here can lead back to exactly this list.
+  useEffect(() => {
+    rememberResults();
+  }, [job, zip, when, found]);
 
   const asked = parseWhenParam(when);
   const whenLabel = availabilityLabel(asked.availability, asked.customDate);
@@ -367,9 +373,9 @@ export function JobSearchResults({
                 the emptier one.
               */
               <div className="space-y-8">
-                <div className="grid grid-cols-[repeat(auto-fill,260px)] items-start gap-5">
+                <div className="grid grid-cols-[repeat(auto-fill,260px)] gap-5">
                   {listing.map((result) => (
-                    <ProCard key={result.slug} view={viewOf(result)} />
+                    <ProCard key={result.slug} view={viewOf(result, job)} />
                   ))}
                 </div>
 
@@ -378,17 +384,17 @@ export function JobSearchResults({
                     <span className="font-medium text-brand">Also nearby</span> — these do the trade
                     but have not listed this job. Worth asking.
                   </p>
-                  <div className="grid grid-cols-[repeat(auto-fill,260px)] items-start gap-5">
+                  <div className="grid grid-cols-[repeat(auto-fill,260px)] gap-5">
                     {rest.map((result) => (
-                      <ProCard key={result.slug} view={viewOf(result)} />
+                      <ProCard key={result.slug} view={viewOf(result, job)} />
                     ))}
                   </div>
                 </div>
               </div>
             ) : (
-              <div className="grid grid-cols-[repeat(auto-fill,260px)] items-start gap-5">
+              <div className="grid grid-cols-[repeat(auto-fill,260px)] gap-5">
                 {results.map((result) => (
-                  <ProCard key={result.slug} view={viewOf(result)} />
+                  <ProCard key={result.slug} view={viewOf(result, job)} />
                 ))}
               </div>
             )}
@@ -472,7 +478,7 @@ function whenParam(availability: AvailabilityFilter, customDate: Date | undefine
  * One search result in the card's own terms, with nothing invented to fill a gap. The landing
  * page's open slots draw their cards with it too.
  */
-export function viewOf(result: SearchResult): ProCardView {
+export function viewOf(result: SearchResult, job?: string): ProCardView {
   // Whether a licence is on file, and no more: nothing checks it with the state yet, so the card
   // does not claim it was.
   const badges = result.licensed ? ["Licensed"] : [];
@@ -484,6 +490,9 @@ export function viewOf(result: SearchResult): ProCardView {
     const query = new URLSearchParams();
     if (result.serviceId) query.set("service", result.serviceId);
     if (at) query.set("at", at);
+    // What the customer typed, so the business's page can title the appointment with it and the
+    // booking form can start from it rather than ask again.
+    if (job?.trim()) query.set("job", job.trim());
 
     return query.size === 0 ? proPath(result.slug) : `${proPath(result.slug)}?${query}`;
   };
@@ -498,8 +507,12 @@ export function viewOf(result: SearchResult): ProCardView {
     rateFrom: result.hourlyRate ? amount(result.hourlyRate) : undefined,
     badges,
     location: `${result.city}, ${result.state}`,
+    services: result.services,
+    // The search puts the picked job first in a business's services whenever it lists it.
+    offers: result.offersThisJob ? result.services[0] : undefined,
     slots: (result.nextSlots ?? []).map((slot) => ({
       ...opening(slot, result.timeZone),
+      // The business's page, from its top, with this time already chosen.
       href: page(slot),
     })),
     href: page(),
