@@ -49,8 +49,10 @@ export default async function SettingsPage() {
 
       {/*
         Two rows, each pair level top and bottom: the account beside the notifications, then the
-        week — the tallest card — beside time off and the booking rules, which share its height half
-        and half. Whichever side grows, the other stretches with it, so the pair stays level.
+        week beside time off and the booking rules, which share its height half and half. Whichever
+        side grows, the other stretches with it, so the pair stays level — and neither half ever
+        shrinks below its own content (`min-h-fit`; the card clips what overflows), so with nothing
+        set up yet the week grows to meet them instead.
       */}
       <div className="flex flex-col gap-4">
         <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
@@ -127,7 +129,7 @@ export default async function SettingsPage() {
           </Card>
 
           <div className="flex flex-col gap-4">
-            <Card className="gap-4 rounded-3xl border border-line bg-white py-0 shadow-card flex-1 basis-0">
+            <Card className="gap-4 rounded-3xl border border-line bg-white py-0 shadow-card min-h-fit flex-1 basis-0">
               <CardHeader className="flex flex-row items-center justify-between px-5 pt-5">
                 <CardTitle className="flex items-center gap-2 text-base font-semibold">
                   <Palmtree className="size-4 text-brand-500" />
@@ -154,7 +156,7 @@ export default async function SettingsPage() {
                 )}
               </CardContent>
             </Card>
-            <Card className="gap-4 rounded-3xl border border-line bg-white py-0 shadow-card flex-1 basis-0">
+            <Card className="gap-4 rounded-3xl border border-line bg-white py-0 shadow-card min-h-fit flex-1 basis-0">
               <CardHeader className="flex flex-row items-center justify-between px-5 pt-5">
                 <CardTitle className="flex items-center gap-2 text-base font-semibold">
                   <CalendarClock className="size-4 text-brand-500" />
