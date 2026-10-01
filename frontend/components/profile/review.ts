@@ -2,7 +2,7 @@ import type { ReferenceData } from "@/lib/api/reference";
 import {
   CANCELLATION_POLICIES,
   MATERIAL_PRICING_MODES,
-  MINIMUM_NOTICE_OPTIONS,
+  noticeLabel,
   TRAVEL_FEE_MODES,
 } from "./options";
 import { licenseHeading, timeZoneName, tradeName } from "./reference";
@@ -115,9 +115,7 @@ export function buildReview(d: ProfileFormData, reference: ReferenceData): Revie
   const policy = CANCELLATION_POLICIES.find((p) => p.value === d.ui.cancellationPolicy);
   const travel = TRAVEL_FEE_MODES.find((m) => m.value === d.pricing.travelFeeMode);
   const material = MATERIAL_PRICING_MODES.find((m) => m.value === d.pricing.materialPricingMode);
-  const notice = MINIMUM_NOTICE_OPTIONS.find(
-    (o) => o.value === d.bookingPolicy.minLeadTimeHours
-  );
+
   const days = openDays(d.workingHours);
 
   return [
@@ -216,7 +214,7 @@ export function buildReview(d: ProfileFormData, reference: ReferenceData): Revie
           ? `${d.bookingPolicy.bookingHorizonDays} days`
           : "",
       },
-      { label: "Minimum notice", value: notice?.label ?? "" },
+      { label: "Minimum notice", value: noticeLabel(d.bookingPolicy.minLeadTimeHours) },
       {
         label: "Jobs a day",
         value: d.bookingPolicy.maxAcceptedAppointmentsPerDay.trim() || "Unlimited",

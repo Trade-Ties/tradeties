@@ -71,13 +71,19 @@ export const MATERIAL_PRICING_MODES: {
   { value: "NOT_PROVIDED", label: "No materials", desc: "You don't supply materials" },
 ];
 
-export const MINIMUM_NOTICE_OPTIONS: { value: number; label: string }[] = [
-  { value: 0, label: "Immediately" },
-  { value: 2, label: "2 hours" },
-  { value: 4, label: "4 hours" },
-  { value: 24, label: "24 hours" },
-  { value: 48, label: "48 hours" },
-];
+/** "Immediately", "1 hour", "36 hours" — a preset's label, and how a custom figure reads too. */
+export function noticeLabel(hours: number): string {
+  if (hours === 0) return "Immediately";
+  return hours === 1 ? "1 hour" : `${hours} hours`;
+}
+
+/** "None", "45 minutes" — the same for travel time. */
+export function travelTimeLabel(minutes: number): string {
+  return minutes === 0 ? "None" : `${minutes} minutes`;
+}
+
+/** The common answers; anything else is the step's "Custom…". */
+export const MINIMUM_NOTICE_PRESETS = [0, 1, 4, 24, 48];
 
 export const START_TIME_GRID_OPTIONS: SlotGranularity[] = [15, 30, 60];
 

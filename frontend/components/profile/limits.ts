@@ -36,3 +36,12 @@ export const PERCENT_MAX = 6;
  */
 export const BOOKING_HORIZON_MIN = 1;
 export const BOOKING_HORIZON_MAX = 730;
+
+/** `min_lead_time_hours`' CHECK: a year at most. */
+export const NOTICE_HOURS_MAX = 8760;
+
+/**
+ * The contract only says travel time cannot be negative. A working day is the sensible ceiling: a
+ * gap longer than that between two jobs is a different day, not a drive.
+ */
+export const TRAVEL_MINUTES_MAX = 480;
