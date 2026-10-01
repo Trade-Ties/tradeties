@@ -86,7 +86,10 @@ function SelectContent({
         align={align}
         alignOffset={alignOffset}
         alignItemWithTrigger={alignItemWithTrigger}
-        collisionAvoidance={{ side: "none", align: "shift" }}
+        // Opens upwards when the list does not fit below — a field near the bottom of the window
+        // otherwise gets a list cut off at the window's edge, and an open select locks the page,
+        // so it cannot be scrolled into view either.
+        collisionAvoidance={{ side: "flip", align: "shift", fallbackAxisSide: "none" }}
         className="isolate z-50"
       >
         {/* `flex flex-col` is load-bearing. This is the frame and the list below is the
