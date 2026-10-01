@@ -13,9 +13,10 @@ export const DROPDOWN_ROW_HEIGHT = "h-9";
  * Ten rows, then scroll: `2.25rem` a row (`DROPDOWN_ROW_HEIGHT`) plus the list's own `p-1` at
  * each end, so the tenth row lands on the fold rather than near it.
  *
- * Then capped by `--available-height`, the room the kit measured under the field, since the
- * list is pinned below and cannot flip up to find space. The floor of four rows is for a field
- * opened near the bottom of the window, where a list squeezed to one row would be unusable.
+ * Then capped by `--available-height`, the room the kit measured on the side the list opened
+ * on. The floor of four rows is for a field near the bottom of the window, where a list squeezed
+ * to one row would be unusable: a select's list then no longer fits below and opens upwards
+ * instead; an autocomplete's stays below, so the list does not jump while it is typed into.
  */
 export const DROPDOWN_LIST_MAX_HEIGHT =
   "max-h-[min(23rem,max(var(--available-height),9.5rem))]";
