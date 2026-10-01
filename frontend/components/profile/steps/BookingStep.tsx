@@ -1,18 +1,18 @@
 import { FieldGrid, SelectField, toOptions } from "@/components/ui/field";
 import { CountField } from "../AmountField";
-import { BOOKING_HORIZON_MAX, BOOKING_HORIZON_MIN } from "../limits";
+import { BOOKING_HORIZON_MAX, BOOKING_HORIZON_MIN, NOTICE_HOURS_MAX, TRAVEL_MINUTES_MAX } from "../limits";
 import {
   BUFFER_OPTIONS,
-  MINIMUM_NOTICE_OPTIONS,
+  MINIMUM_NOTICE_PRESETS,
+  noticeLabel,
   START_TIME_GRID_OPTIONS,
+  travelTimeLabel,
 } from "../options";
+import { PresetOrCustomField } from "../PresetOrCustomField";
 import type { BookingPolicyForm, StepProps } from "../types";
 import { FocusTarget } from "../focusTarget";
 
 const GRID_OPTIONS = toOptions(START_TIME_GRID_OPTIONS, (m) => `${m} minutes`);
-const TRAVEL_TIME_OPTIONS = toOptions(BUFFER_OPTIONS, (m) =>
-  m === 0 ? "None" : `${m} minutes`
-);
 
 export function BookingStep({ data, update }: StepProps<BookingPolicyForm>) {
   return (
@@ -43,11 +43,13 @@ export function BookingStep({ data, update }: StepProps<BookingPolicyForm>) {
           }}
         />
 
-        <SelectField
+        <PresetOrCustomField
           label="Minimum notice"
-          required
           hint="Shortest warning you'll take a job on."
-          options={MINIMUM_NOTICE_OPTIONS}
+          unit="hours"
+          max={NOTICE_HOURS_MAX}
+          presets={MINIMUM_NOTICE_PRESETS}
+          format={noticeLabel}
           value={data.minLeadTimeHours}
           onValueChange={(minLeadTimeHours) => update({ ...data, minLeadTimeHours })}
         />
@@ -65,11 +67,13 @@ export function BookingStep({ data, update }: StepProps<BookingPolicyForm>) {
       </FieldGrid>
 
       <FieldGrid columns={3}>
-        <SelectField
+        <PresetOrCustomField
           label="Travel time"
-          required
           hint="Held open between two jobs."
-          options={TRAVEL_TIME_OPTIONS}
+          unit="minutes"
+          max={TRAVEL_MINUTES_MAX}
+          presets={BUFFER_OPTIONS}
+          format={travelTimeLabel}
           value={data.appointmentBufferMinutes}
           onValueChange={(appointmentBufferMinutes) =>
             update({ ...data, appointmentBufferMinutes })

@@ -10,6 +10,7 @@ import { localDay, localMoment } from "../wallClock";
 import { ChangePassword } from "./ChangePassword";
 import { WeekHours } from "./WeekHours";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { noticeLabel, travelTimeLabel } from "@/components/profile/options";
 import { fetchMyBookingPolicy, fetchMyWorkingHours } from "@/lib/api/business";
 import { fetchMyTimeOff } from "@/lib/api/calendar";
 import { portalSession, portalToken } from "@/lib/portal/session";
@@ -170,12 +171,12 @@ export default async function SettingsPage() {
                 {bookingPolicy.ok && bookingPolicy.data ? (
                   <dl className="grid grid-cols-1 gap-3 text-sm min-[560px]:grid-cols-2">
                     <Row label="Booking horizon">{bookingPolicy.data.bookingHorizonDays} days ahead</Row>
-                    <Row label="Minimum lead time">{bookingPolicy.data.minLeadTimeHours} hours</Row>
+                    <Row label="Minimum lead time">{noticeLabel(bookingPolicy.data.minLeadTimeHours)}</Row>
                     <Row label="Daily booking limit">
                       {bookingPolicy.data.maxAcceptedAppointmentsPerDay ?? "No limit"}
                     </Row>
                     <Row label="Slot length">{bookingPolicy.data.slotGranularityMinutes} minutes</Row>
-                    <Row label="Buffer between jobs">{bookingPolicy.data.appointmentBufferMinutes} minutes</Row>
+                    <Row label="Buffer between jobs">{travelTimeLabel(bookingPolicy.data.appointmentBufferMinutes)}</Row>
                   </dl>
                 ) : (
                   <p className="text-sm text-muted-ink">
