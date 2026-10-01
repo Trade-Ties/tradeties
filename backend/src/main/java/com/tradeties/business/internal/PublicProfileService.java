@@ -76,7 +76,8 @@ public class PublicProfileService {
 				offered,
 				pricing.findById(businessId).map(BusinessPricing::toTerms).orElse(null),
 				valid(businessId, business.timeZone()),
-				hours.weekOf(businessId));
+				hours.weekOf(businessId),
+				hours.bookingOf(businessId));
 	}
 
 	/**

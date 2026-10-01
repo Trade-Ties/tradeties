@@ -155,7 +155,7 @@ public class ConversationService {
 		mail.enqueue(ConversationMail.toCustomer(
 				job.customerEmail(),
 				job.customerName(),
-				name == null ? "The tradesperson" : name.displayName(),
+				name == null ? "The professional" : name.displayName(),
 				text,
 				requestLink(name, link.token()),
 				link.expiresAt(),

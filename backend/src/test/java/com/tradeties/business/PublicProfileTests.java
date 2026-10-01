@@ -91,6 +91,23 @@ class PublicProfileTests {
 	}
 
 	/** A draft is nobody's to find, and nobody's to open by typing its address either. */
+	/**
+	 * What the profile says that the overview card does not: how far the business travels, since
+	 * when it has been here, and how far ahead it can be booked. Each one a number about the
+	 * business, none about a person — the radius names no address, the date no account.
+	 */
+	@Test
+	void theProfileSaysHowFarItTravelsSinceWhenAndHowFarAheadItBooks() throws Exception {
+		publish("user_pub_more", "pub-more");
+
+		mockMvc.perform(get("/api/v1/businesses/pub-more"))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.serviceRadiusMiles").value(Matchers.greaterThan(0)))
+				.andExpect(jsonPath("$.onTradeTiesSince").value(LocalDate.now(ZoneId.of("America/Denver")).toString()))
+				.andExpect(jsonPath("$.booking.minNoticeHours").value(Matchers.greaterThanOrEqualTo(0)))
+				.andExpect(jsonPath("$.booking.horizonDays").value(Matchers.greaterThan(0)));
+	}
+
 	@Test
 	void aDraftIsNotThere() throws Exception {
 		BusinessFixtures.publishableBusinessFor(mockMvc, "user_pub_draft", "pub-draft");

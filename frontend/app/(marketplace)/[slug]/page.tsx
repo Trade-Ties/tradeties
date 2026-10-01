@@ -78,13 +78,14 @@ export default async function ProfilePage({
 
   // A chosen time — from a search card, or from the calendar, which folds away once one is picked —
   // is shown on its own, ready to request; the whole calendar waits behind "Show all availability".
-  // Without a chosen time the calendar is the only way to one, so it is always there.
+  // "View all available times" asks for the calendar outright. Anything else — "View full
+  // profile", a shared link — is the profile, with a way into the calendar from it.
   const calendarAsked = firstValue(query.calendar) === "1";
   // What the customer searched for, to title the appointment and start the description with.
   const job = firstValue(query.job).trim().slice(0, 200) || null;
   // What needs doing, when the booking page's "Change" brings it back.
   const description = firstValue(query.description).trim().slice(0, DESCRIPTION_MAX) || null;
-  const calendarShown = calendarAsked || !at;
+  const calendarShown = calendarAsked;
 
   const wanted = firstValue(query.month);
   const month = isMonth(wanted) ? wanted : null;
@@ -96,11 +97,17 @@ export default async function ProfilePage({
     ? monthIn(profile.timeZone, new Date(at))
     : (month ?? monthIn(profile.timeZone, new Date()));
 
+  // The profile's booking card shows the chosen service's next few open times, so the page answers
+  // "when could they come?" before anybody opens the calendar. Two weeks is far enough to find six.
+  const upcoming =
+    service && !at && !calendarAsked ? await nextOpenings(slug, service.id) : null;
+
   return (
     <>
       <SiteHeader />
       <BusinessProfile
         profile={profile}
+        upcoming={upcoming}
         picked={service?.id ?? null}
         month={month}
         at={at}
@@ -183,6 +190,14 @@ async function Diary({
       availability={result.data}
     />
   );
+}
+
+async function nextOpenings(slug: string, serviceId: string): Promise<string[] | null> {
+  const today = new Date();
+  const later = new Date(today.getTime() + 14 * 24 * 60 * 60 * 1000);
+  const day = (date: Date) => date.toISOString().slice(0, 10);
+  const found = await getAvailability(slug, serviceId, day(today), day(later));
+  return found.ok && found.data ? (found.data.slots ?? []).slice(0, 6) : null;
 }
 
 function Reading() {

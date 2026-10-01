@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { format } from "date-fns";
@@ -26,26 +26,35 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Slider } from "@/components/ui/slider";
 import { Button } from "@/components/ui/button";
 import { FilterPill } from "@/components/marketing/FilterPill";
+import { LicensedOnly } from "@/components/marketing/LicensedOnly";
 import { BookingModal } from "@/components/marketing/BookingModal";
-import { ProCard, proCardView, type ProCardSlot, type ProCardView } from "@/components/marketing/ProCard";
-import { PROS, SERVICES_BY_TRADE, TRADE_ICONS, TRADE_LIST, type Pro } from "@/components/marketing/pros-data";
-import { dateMatchesAvailability, parseWhenParam, today, type AvailabilityFilter } from "@/components/marketing/when-filter";
+import { ProCard, type ProCardSlot, type ProCardView } from "@/components/marketing/ProCard";
+import { viewOf } from "@/components/marketing/JobSearchResults";
+import { TRADE_ICONS } from "@/components/marketing/pros-data";
+import { browseBusinesses, type Browsed } from "@/components/marketing/browse-actions";
+import { parseWhenParam, today, type AvailabilityFilter } from "@/components/marketing/when-filter";
+import { SORT_OPTIONS, sortResults } from "@/components/marketing/sort-results";
+import { rememberZip } from "@/lib/zip-memory";
 
 
-const SORT_OPTIONS = [
-  { value: "recommended", label: "Recommended" },
-  { value: "low to high", label: "Price: low to high" },
-  { value: "high to low", label: "Price: high to low" },
-  { value: "distance", label: "Distance" },
-];
 
 const MAX_RADIUS = 100;
 
-/** The dearest listing's hourly rate, so the range starts out covering every business and ends at the last one. */
-const MAX_RATE = Math.max(0, ...PROS.map((p) => p.rateFrom));
-
-function matchesAvailability(pro: Pro, availability: AvailabilityFilter, customDate: Date | undefined) {
-  return pro.slots.some((s) => dateMatchesAvailability(s.date, availability, customDate));
+/**
+ * The availability filter in the search's words, or null for "any time". The search answers it
+ * against each business's whole calendar, which the six times on a card could not.
+ */
+function whenOf(availability: AvailabilityFilter, customDate: Date | undefined): string | null {
+  switch (availability) {
+    case "today":
+    case "tomorrow":
+    case "week":
+      return availability;
+    case "date":
+      return customDate ? format(customDate, "yyyy-MM-dd") : null;
+    default:
+      return null;
+  }
 }
 
 function FilterLabel({ icon: Icon, children }: { icon: typeof MapPin; children: React.ReactNode }) {
@@ -57,7 +66,14 @@ function FilterLabel({ icon: Icon, children }: { icon: typeof MapPin; children: 
   );
 }
 
-export function BrowseProfessionals() {
+/**
+ * Every professional who reaches a ZIP code, with the filters in the browser.
+ *
+ * <p>The list is the real search's — every page of it, fetched for the ZIP in the filters and
+ * fetched again when that ZIP or the availability changes. The other filters and the sort run over
+ * it here, instantly.
+ */
+export function BrowseProfessionals({ initialZip }: { initialZip: string }) {
   // Carried over from the hero search bar's "See who's free" — only ever
   // read to seed initial state below, not kept in sync afterward, same as
   // any other bookmarkable-URL-as-starting-point page.
@@ -66,9 +82,8 @@ export function BrowseProfessionals() {
   const initialWhen = parseWhenParam(searchParams.get("when"));
 
   const [companySearch, setCompanySearch] = useState("");
-  const [zip, setZip] = useState(searchParams.get("zip") || "80202");
-  // The same demo dialogue the homepage rail opens: these are the same sample listings, and a time
-  // on one of them should do the same thing wherever the card is shown.
+  const [zip, setZip] = useState(searchParams.get("zip") || initialZip);
+  // The same dialogue the homepage rail opens, so a time does the same thing wherever a card is.
   const [booking, setBooking] = useState<{ view: ProCardView; slot?: ProCardSlot } | null>(null);
   const [bookingOpen, setBookingOpen] = useState(false);
   const [radius, setRadius] = useState(MAX_RADIUS);
@@ -76,11 +91,47 @@ export function BrowseProfessionals() {
   const [tradeMenuOpen, setTradeMenuOpen] = useState(false);
   const [services, setServices] = useState<string[]>([]);
   const [serviceMenuOpen, setServiceMenuOpen] = useState(false);
-  const [priceRange, setPriceRange] = useState<number[]>([0, MAX_RATE]);
+  const [licensedOnly, setLicensedOnly] = useState(false);
+  const [priceFloor, setPriceFloor] = useState(0);
+  // Null for no upper limit, so the top of the range follows the dearest business in the list.
+  const [priceCap, setPriceCap] = useState<number | null>(null);
   const [availability, setAvailability] = useState<AvailabilityFilter>(initialWhen.availability);
   const [customDate, setCustomDate] = useState<Date | undefined>(initialWhen.customDate);
   const [dateCalendarOpen, setDateCalendarOpen] = useState(false);
-  const [sort, setSort] = useState("Recommended");
+  const [sort, setSort] = useState("recommended");
+
+  // The list for this ZIP and window. Keyed by what was asked, so a reply that arrives after the
+  // question changed is told apart from the current one rather than shown under it.
+  const when = whenOf(availability, customDate);
+  const asked = zip.length === 5 ? `${zip}|${when ?? ""}` : null;
+  const [found, setFound] = useState<{ asked: string; answer: Browsed } | null>(null);
+
+  useEffect(() => {
+    if (!asked) return;
+    let live = true;
+    browseBusinesses(zip, when).then((answer) => {
+      if (!live) return;
+      setFound({ asked, answer });
+      if (answer.ok) rememberZip(zip);
+    });
+    return () => {
+      live = false;
+    };
+  }, [asked, zip, when]);
+
+  const loading = asked !== null && found?.asked !== asked;
+  const answer = !loading && asked !== null ? found?.answer : undefined;
+  const all = useMemo(() => (answer?.ok ? answer.results : []), [answer]);
+
+  // The trades and services actually in the list, so no filter offers something that finds nobody.
+  const tradeList = useMemo(
+    () => Array.from(new Set(all.flatMap((r) => (r.primaryTrade ? [r.primaryTrade] : [])))).sort((a, b) => a.localeCompare(b)),
+    [all]
+  );
+  const maxRate = Math.ceil(Math.max(0, ...all.flatMap((r) => (r.hourlyRate ? [Number(r.hourlyRate)] : []))));
+  const priceTop = priceCap === null ? maxRate : Math.min(priceCap, maxRate);
+  const priceBottom = Math.min(priceFloor, priceTop);
+  const priceNarrowed = priceBottom > 0 || priceTop < maxRate;
 
   const toggleTrade = (trade: string, checked: boolean) => {
     setTrades((prev) => (checked ? [...prev, trade] : prev.filter((t) => t !== trade)));
@@ -94,9 +145,9 @@ export function BrowseProfessionals() {
   // hidden until then) — narrowed to whichever trade(s) are selected.
   const availableServices = useMemo(() => {
     const set = new Set<string>();
-    trades.forEach((t) => SERVICES_BY_TRADE[t]?.forEach((s) => set.add(s)));
-    return Array.from(set);
-  }, [trades]);
+    all.filter((r) => r.primaryTrade && trades.includes(r.primaryTrade)).forEach((r) => r.services.forEach((s) => set.add(s)));
+    return Array.from(set).sort((a, b) => a.localeCompare(b));
+  }, [all, trades]);
 
   const toggleService = (svc: string, checked: boolean) => {
     setServices((prev) => (checked ? [...prev, svc] : prev.filter((s) => s !== svc)));
@@ -115,53 +166,45 @@ export function BrowseProfessionals() {
   };
 
   const resetFilters = () => {
+    setLicensedOnly(false);
     setCompanySearch("");
     setRadius(MAX_RADIUS);
     setTrades([]);
     setServices([]);
-    setPriceRange([0, MAX_RATE]);
+    setPriceFloor(0);
+    setPriceCap(null);
     setAvailability("any");
     setCustomDate(undefined);
     setDateCalendarOpen(false);
   };
 
   const hasActiveFilters =
+    licensedOnly ||
     companySearch.trim() !== "" ||
     radius < MAX_RADIUS ||
     trades.length > 0 ||
     effectiveServices.length > 0 ||
-    priceRange[0] > 0 ||
-    priceRange[1] < MAX_RATE ||
+    priceNarrowed ||
     availability !== "any";
 
   const filtered = useMemo(() => {
     const query = companySearch.trim().toLowerCase();
-    const results = PROS.filter((p) => {
-      if (query && !p.business.toLowerCase().includes(query)) return false;
-      if (p.miles > radius) return false;
-      if (trades.length > 0 && !trades.includes(p.trade)) return false;
-      if (effectiveServices.length > 0 && !effectiveServices.some((s) => p.services.includes(s))) return false;
-      if (p.rateFrom < priceRange[0] || p.rateFrom > priceRange[1]) return false;
-      if (!matchesAvailability(p, availability, customDate)) return false;
+    const results = all.filter((r) => {
+      if (query && !r.displayName.toLowerCase().includes(query)) return false;
+      if (r.distanceMiles > radius) return false;
+      if (trades.length > 0 && !(r.primaryTrade && trades.includes(r.primaryTrade))) return false;
+      if (effectiveServices.length > 0 && !effectiveServices.some((s) => r.services.includes(s))) return false;
+      if (licensedOnly && !r.licensed) return false;
+      // No rate on file cannot be said to fall inside a range, so a narrowed one leaves it out.
+      if (priceNarrowed && (!r.hourlyRate || Number(r.hourlyRate) < priceBottom || Number(r.hourlyRate) > priceTop))
+        return false;
+      // Asked about a day, the search said who has a time in it.
+      if (r.freeInWindow === false) return false;
       return true;
     });
 
-    const sorted = [...results];
-    switch (sort) {
-      case "low to high":
-        sorted.sort((a, b) => a.rateFrom - b.rateFrom);
-        break;
-      case "high to low":
-        sorted.sort((a, b) => b.rateFrom - a.rateFrom);
-        break;
-      case "distance":
-        sorted.sort((a, b) => a.miles - b.miles);
-        break;
-      default:
-        break;
-    }
-    return sorted;
-  }, [companySearch, radius, trades, effectiveServices, priceRange, availability, customDate, sort]);
+    return sortResults(results, sort);
+  }, [all, licensedOnly, companySearch, radius, trades, effectiveServices, priceNarrowed, priceBottom, priceTop, sort]);
 
   return (
     <section className="pb-20 pt-10">
@@ -182,7 +225,9 @@ export function BrowseProfessionals() {
               Browse professionals{zip ? ` near ${zip}` : ""}
             </h1>
             <p className="text-[14.5px] text-muted-ink">
-              {filtered.length} {filtered.length === 1 ? "professional matches" : "professionals match"} your filters.
+              {loading
+                ? "Finding professionals…"
+                : `${filtered.length} ${filtered.length === 1 ? "professional matches" : "professionals match"} your filters.`}
               {job && (
                 <>
                   {" "}
@@ -193,7 +238,7 @@ export function BrowseProfessionals() {
           </div>
           <div className="flex items-center gap-2">
             <Label className="text-[13.5px] font-medium text-muted-ink">Sort by</Label>
-            <Select value={sort} onValueChange={(v) => setSort(v ?? "Recommended")}>
+            <Select items={SORT_OPTIONS} value={sort} onValueChange={(v) => setSort(v ?? "recommended")}>
               <SelectTrigger className="w-[190px]">
                 <SelectValue />
               </SelectTrigger>
@@ -286,8 +331,8 @@ export function BrowseProfessionals() {
                     className="w-[240px] rounded-2xl border border-line bg-white p-2 shadow-lift ring-0"
                   >
                     <div className="flex flex-col gap-0.5">
-                      {TRADE_LIST.map((t) => {
-                        const Icon = TRADE_ICONS[t];
+                      {tradeList.map((t) => {
+                        const Icon = TRADE_ICONS[t] ?? Wrench;
                         return (
                           <label
                             key={t}
@@ -406,17 +451,23 @@ export function BrowseProfessionals() {
               {/* Price range */}
               <div className="">
                 <Label className="mb-2.5 block text-[13.5px] font-semibold text-brand">
-                  ${priceRange[0]} – ${priceRange[1]}/hr
+                  ${priceBottom} – ${priceTop}/hr
                 </Label>
                 <Slider
-                  value={priceRange}
-                  onValueChange={(v) => Array.isArray(v) && setPriceRange(v)}
+                  value={[priceBottom, priceTop]}
+                  onValueChange={(v) => {
+                    if (!Array.isArray(v)) return;
+                    setPriceFloor(v[0]);
+                    setPriceCap(v[1] >= maxRate ? null : v[1]);
+                  }}
                   min={0}
-                  max={MAX_RATE}
+                  max={Math.max(maxRate, 1)}
                   // Whole dollars: a coarser step would not land on a top rate that is not a multiple of it.
                   step={1}
                 />
               </div>
+
+              <LicensedOnly checked={licensedOnly} onChange={setLicensedOnly} className="mt-6" />
             </div>
           </div>
 
@@ -430,9 +481,23 @@ export function BrowseProfessionals() {
             opts this column out of that stretch and back to its own
             natural content height.
           */}
-          {filtered.length === 0 ? (
+          {asked === null ? (
             <p className="self-start rounded-2xl border border-dashed border-line bg-canvas px-5 py-14 text-center text-[14.5px] text-muted-ink">
-              No professionals match your filters.{" "}
+              Enter your ZIP code under Location to see the professionals who travel to you.
+            </p>
+          ) : loading ? (
+            <p className="self-start rounded-2xl border border-line bg-white px-5 py-14 text-center text-[14.5px] text-muted-ink">
+              Finding professionals near {zip}…
+            </p>
+          ) : answer && !answer.ok ? (
+            <p className="self-start rounded-2xl border border-dashed border-line bg-canvas px-5 py-14 text-center text-[14.5px] text-muted-ink">
+              {answer.unknownZip
+                ? `We don't know the ZIP code ${zip}. Check the five digits and try again.`
+                : "We couldn't load professionals just now. Reloading the page usually works."}
+            </p>
+          ) : filtered.length === 0 ? (
+            <p className="self-start rounded-2xl border border-dashed border-line bg-canvas px-5 py-14 text-center text-[14.5px] text-muted-ink">
+              {all.length === 0 ? `No professional travels to ${zip} yet.` : "No professionals match your filters."}{" "}
               <button
                 type="button"
                 onClick={resetFilters}
@@ -453,16 +518,19 @@ export function BrowseProfessionals() {
             // at the page's max content width — so a full row of 3 lines
             // up flush with the right edge, same as the Sort control above.
             <div className="grid grid-cols-[repeat(auto-fill,260px)] gap-5 self-start">
-              {filtered.map((p) => (
-                <ProCard
-                  key={p.name}
-                  view={proCardView(p)}
-                  onBook={(slot) => {
-                    setBooking({ view: proCardView(p), slot });
-                    setBookingOpen(true);
-                  }}
-                />
-              ))}
+              {filtered.map((result) => {
+                const view = viewOf(result);
+                return (
+                  <ProCard
+                    key={result.slug}
+                    view={view}
+                    onBook={(slot) => {
+                      setBooking({ view, slot });
+                      setBookingOpen(true);
+                    }}
+                  />
+                );
+              })}
             </div>
           )}
         </div>

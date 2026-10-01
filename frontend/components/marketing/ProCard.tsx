@@ -42,7 +42,7 @@ export interface ProCardSlot {
   key: string;
   label: string;
   /**
-   * The weekday alone, "Wed" — or empty for a time today, which says so by its colour instead.
+   * The weekday alone, "Wed" — or empty for a time today, which the line above the times says instead.
    * Drawn in a column of its own beside `timeLabel`, so the days and the times of a card each
    * line up rather than a centred "Wed 9:00 AM" sitting a character off "Sat 10:15 AM".
    */
@@ -55,7 +55,7 @@ export interface ProCardSlot {
    */
   dateLabel: string;
   timeLabel: string;
-  /** Draws the slot in the "go" colour, for an opening the reader can still take today. */
+  /** An opening the reader can still take today; the card then carries a live "Available today" badge. */
   today: boolean;
   /**
    * The business's page with this time already chosen. Absent for the sample listings, whose
@@ -141,7 +141,7 @@ export function proCardView(pro: Pro): ProCardView {
     trade: pro.trade,
     distance: `${pro.miles} mi`,
     rateFrom: String(pro.rateFrom),
-    badges: ["Licensed"],
+    badges: pro.licensed ? ["Licensed"] : [],
     location: pro.location,
     website: pro.website,
     services: pro.services,
@@ -191,6 +191,7 @@ export function ProCard({
   className?: string;
   onBook?: (slot?: ProCardSlot) => void;
 }) {
+  const availableToday = view.slots.some((slot) => slot.today);
   const bookFromCard = onBook
     ? (e: React.MouseEvent<HTMLDivElement>) => {
         // React bubbles clicks out of portals, so the profile dialogue would count as the card.
@@ -303,14 +304,31 @@ export function ProCard({
       </div>
 
       <div className="mt-auto border-t border-line pt-3.5">
-        <p className="mb-2 text-xs font-semibold text-faint">
+        {/*
+          "Next available", or — when one of the times is today — a live "Available today" in its
+          place: the landing page's "free" badge in small, the same green and pulse, with the same
+          dot on each of today's times below. One fixed height either way, so the line, the divider
+          above it and the times below sit level across a row whichever a card says.
+        */}
+        <p className="mb-2 flex h-5 items-center gap-1 text-xs font-semibold whitespace-nowrap text-faint">
+          {/* One piece of text, so the line's gap falls after the dot rather than inside the price. */}
           {view.rateFrom !== undefined && (
-            <>
-              From <span className="font-bold text-brand">${view.rateFrom}</span>/hr ·{" "}
-            </>
+            <span>
+              From <span className="font-bold text-brand">${view.rateFrom}</span>/hr ·
+            </span>
           )}
-          {view.slots.length === 0 ? "No openings listed" : "Next available"}
+          {view.slots.length === 0 ? (
+            "No openings listed"
+          ) : availableToday ? (
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-go-bg px-2 py-0.5 text-[11.5px] font-semibold text-[#07734F]">
+              <span aria-hidden="true" className="animate-tt-pulse size-1.5 rounded-full bg-go" />
+              Available today
+            </span>
+          ) : (
+            <span className="text-foreground">Next available</span>
+          )}
         </p>
+
         {/*
           A fixed two-column grid rather than flex-wrap: with wrap, how many times
           shared a row depended on how wide that pro's labels happened to be
@@ -323,9 +341,10 @@ export function ProCard({
           {view.slots.slice(0, SLOTS_SHOWN).map((slot) => {
             // Tighter than a full-width row: two to a line leaves about 110px each, which
             // "Fri 10:30 AM" in the mono face fills. The word "Book" is in the accessible name.
-            const slotClassName = slot.today
-              ? "h-auto min-w-0 rounded-[10px] border-[#BFEBD8] bg-go-bg px-1.5 py-2 font-mono text-[12px] font-medium text-[#07734F] hover:border-go hover:bg-go hover:text-white"
-              : // Tinted like the calendar's open days, so a time reads as something to press.
+            // One look for every time, tinted like the calendar's open days so it reads as something to
+            // press. Today is said in words above them rather than in a colour of its own: green beside
+            // blue reads as "available" beside "not", and red-green is the pair colour blindness loses.
+            const slotClassName =
               "h-auto min-w-0 rounded-[10px] border-brand-100 bg-brand-50 px-1.5 py-2 font-mono text-[12px] font-medium text-brand hover:border-brand hover:bg-brand hover:text-white";
 
             if (onBook) {
@@ -425,7 +444,10 @@ function SlotText({ slot }: { slot: ProCardSlot }) {
           <span className="text-right">{slot.timeLabel}</span>
         </>
       ) : (
-        <span className="col-span-2 text-center">{slot.timeLabel}</span>
+        <span className="col-span-2 inline-flex items-center justify-center gap-1.5">
+          <span aria-hidden="true" className="animate-tt-pulse size-1.5 shrink-0 rounded-full bg-go" />
+          {slot.timeLabel}
+        </span>
       )}
     </span>
   );

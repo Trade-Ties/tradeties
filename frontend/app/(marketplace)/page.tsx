@@ -20,7 +20,7 @@ const STEPS = [
   },
   {
     title: "Pick a time",
-    body: "See real available slots from local tradespeople and choose your slot.",
+    body: "See real available slots from local professionals and choose your slot.",
     icon: (
       <>
         <rect x="3" y="4.5" width="14" height="12.5" rx="2.4" stroke="#fff" strokeWidth="1.8" />

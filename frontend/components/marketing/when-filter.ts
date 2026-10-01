@@ -1,4 +1,4 @@
-import { addDays, format, isSameDay, isValid, parse } from "date-fns";
+import { addDays, endOfWeek, format, isSameDay, isValid, parse } from "date-fns";
 
 // Shared by /browse's full filter panel and the simplified search-results
 // page — both need to turn a day-ish filter (and the hero search bar's
@@ -6,7 +6,8 @@ import { addDays, format, isSameDay, isValid, parse } from "date-fns";
 // "today" both pages already compute independently.
 export const today = new Date(new Date().setHours(0, 0, 0, 0));
 export const tomorrow = addDays(today, 1);
-export const weekCutoff = addDays(today, 6);
+// The rest of this week, through Sunday — the same reading the search gives "this week".
+export const weekCutoff = endOfWeek(today, { weekStartsOn: 1 });
 
 export type AvailabilityFilter = "any" | "today" | "tomorrow" | "week" | "date";
 

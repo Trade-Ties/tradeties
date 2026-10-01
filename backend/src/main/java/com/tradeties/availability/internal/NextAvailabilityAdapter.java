@@ -85,12 +85,25 @@ class NextAvailabilityAdapter implements NextAvailability {
 						unavailable(away.get(businessId), booked.get(businessId), theirs),
 						asked.zone(),
 						now,
+						from(asked, now),
 						asked.appointmentMinutes(),
 						perBusiness));
 			}
 		});
 
 		return slots;
+	}
+
+	/**
+	 * Where the walk starts: the start of the day asked for, on the business's own clock, or now
+	 * when that day has already begun — or none was asked for.
+	 */
+	private static Instant from(Asked asked, Instant now) {
+		if (asked.startingOn() == null) {
+			return now;
+		}
+		Instant dayStarts = asked.startingOn().atStartOfDay(asked.zone()).toInstant();
+		return dayStarts.isAfter(now) ? dayStarts : now;
 	}
 
 	/**

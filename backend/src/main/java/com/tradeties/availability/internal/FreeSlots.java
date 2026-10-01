@@ -172,9 +172,26 @@ final class FreeSlots {
 			Integer lengthMinutes,
 			int wanted) {
 
+		return upcoming(week, rules, absences, zone, now, now, lengthMinutes, wanted);
+	}
+
+	/**
+	 * The first few openings from {@code from} on — a day the customer named, rather than now.
+	 * The notice and the horizon are still measured from {@code now}: they are about when the
+	 * request is made, not about which day it is for.
+	 */
+	static List<Instant> upcoming(Map<DayOfWeek, List<HoursBlock>> week,
+			BookingRules rules,
+			List<Absence> absences,
+			ZoneId zone,
+			Instant now,
+			Instant from,
+			Integer lengthMinutes,
+			int wanted) {
+
 		int length = lengthMinutes == null ? rules.slotGranularityMinutes() : lengthMinutes;
 
-		return within(week, rules, absences, zone, now, new Window(now, null, length, wanted));
+		return within(week, rules, absences, zone, now, new Window(from, null, length, wanted));
 	}
 
 	/**

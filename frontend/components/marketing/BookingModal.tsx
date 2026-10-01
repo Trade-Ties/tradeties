@@ -116,6 +116,7 @@ export function BookingModal({ view, initialSlot }: { view: ProCardView; initial
   const [values, setValues] = useState<FormValues>(EMPTY_FORM);
   const [errors, setErrors] = useState<FormErrors>({});
   const [contact, setContact] = useState<"" | "phone" | "email">("");
+  const [contactMissing, setContactMissing] = useState(false);
   const [failure, setFailure] = useState<string | null>(null);
   const contentRef = useRef<HTMLDivElement>(null);
 
@@ -208,7 +209,9 @@ export function BookingModal({ view, initialSlot }: { view: ProCardView; initial
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     const nextErrors = validate(values);
-    if (Object.keys(nextErrors).length > 0) {
+    // Asked like every other field: the professional needs to know whether to ring or write.
+    setContactMissing(!contact);
+    if (Object.keys(nextErrors).length > 0 || !contact) {
       setErrors(nextErrors);
       // The description sits at the top, a scroll away from this button; a mistake there would
       // otherwise go unseen.
@@ -504,15 +507,20 @@ export function BookingModal({ view, initialSlot }: { view: ProCardView; initial
             </div>
 
             <div className="flex flex-col gap-1.5">
-              <Label className="text-xs font-semibold text-muted-ink">Preferred contact method (optional)</Label>
+              <Label className="text-xs font-semibold text-muted-ink">Preferred contact method</Label>
               <RadioGroup
                 value={contact}
-                onValueChange={(value) => setContact(value as "phone" | "email")}
+                onValueChange={(value) => {
+                  setContact(value as "phone" | "email");
+                  setContactMissing(false);
+                }}
+                aria-invalid={contactMissing}
                 className="grid-cols-2 gap-2"
               >
                 <ContactOption value="phone" label="Phone" />
                 <ContactOption value="email" label="Email" />
               </RadioGroup>
+              {contactMissing && <p className="text-xs text-destructive">Choose how they should reach you.</p>}
             </div>
 
             {failure && (

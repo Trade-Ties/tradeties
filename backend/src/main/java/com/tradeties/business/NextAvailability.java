@@ -1,6 +1,7 @@
 package com.tradeties.business;
 
 import java.time.Instant;
+import java.time.LocalDate;
 import java.time.ZoneId;
 import java.util.List;
 import java.util.Map;
@@ -30,8 +31,15 @@ public interface NextAvailability {
 	 *        lists, or null when there is no job to measure by. Given, the openings are the ones
 	 *        that service's own calendar offers, so a time taken off a result card is still on
 	 *        offer on the other side of the click
+	 * @param startingOn the first day to look on, on the business's own calendar, or null to look
+	 *        from now. A day already past is read as now
 	 */
-	record Asked(ZoneId zone, Integer appointmentMinutes) {
+	record Asked(ZoneId zone, Integer appointmentMinutes, LocalDate startingOn) {
+
+		/** From now: the question every caller asked before a customer could name a day. */
+		public Asked(ZoneId zone, Integer appointmentMinutes) {
+			this(zone, appointmentMinutes, null);
+		}
 	}
 
 	/**

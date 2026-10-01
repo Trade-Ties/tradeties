@@ -39,6 +39,9 @@ import java.util.UUID;
  *                        about the licence rather than about the person holding it
  * @param nextSlots the soonest start times this business is free, earliest first. Empty is an
  *                  ordinary answer, and nothing here is held or reserved
+ * @param freeInWindow whether one of {@code nextSlots} falls inside the days the customer asked
+ *                     for, or null when they asked for none. Null and false differ the way they do
+ *                     for {@code offersThisJob}
  * @param services up to five of its bookable services by name, in its own order — with the picked
  *                 job first when it lists that job. Empty for a business that has listed none
  */
@@ -56,7 +59,8 @@ public record BusinessSearchResult(
 		boolean licensed,
 		boolean licenseVerified,
 		List<Instant> nextSlots,
-		List<String> services) {
+		List<String> services,
+		Boolean freeInWindow) {
 
 	public BusinessSearchResult {
 		nextSlots = nextSlots == null ? List.of() : List.copyOf(nextSlots);

@@ -16,6 +16,7 @@ import java.time.LocalTime;
 import java.time.OffsetDateTime;
 import java.time.ZoneId;
 import java.time.ZonedDateTime;
+import java.time.temporal.TemporalAdjusters;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -342,13 +343,6 @@ class BusinessSearchTests {
 	}
 
 	/**
-	 * One search result, read as a map.
-	 *
-	 * <p>Filtered in JSONPath but asserted in Java, rather than the other way round: a null field
-	 * is dropped by a JSONPath filter expression, so "the rate is absent" and "the business is
-	 * absent" would otherwise be the same green.
-	 */
-	/**
 	 * Five services and no more, in the order the business lists them — enough for the card to
 	 * say what kind of plumber this is, with the rest left to the profile.
 	 */
@@ -379,6 +373,67 @@ class BusinessSearchTests {
 		assertEquals(List.of("Clog removal", "Leak detection"), result(DENVER, "find-retired").get("services"));
 	}
 
+	/**
+	 * A day named by the customer moves where the openings start. The fixture works Mondays with a
+	 * day's notice, so a Monday at least a week out is free and the Tuesday after it is not — its
+	 * openings are the next Monday's, and the result says it is not free in the window.
+	 *
+	 * <p>Narrowed to a name nobody else carries, so the business is on the first page whatever the
+	 * rest of the suite has published in Denver.
+	 */
+	@Test
+	void aWindowStartsTheOpeningsAndSaysWhoIsFreeInIt() throws Exception {
+		publish("user_find_window", "find-window", DENVER, "PLUMBER");
+		renameTo("find-window", "Ostrava Window Plumbing");
+		LocalDate monday = LocalDate.now(MOUNTAIN).plusWeeks(1).with(TemporalAdjusters.next(DayOfWeek.MONDAY));
+
+		Map<String, Object> onMonday = inWindow("Ostrava", monday.toString());
+		assertEquals(true, onMonday.get("freeInWindow"));
+		assertEquals(monday, dayOf(slotsOf(onMonday).getFirst()));
+
+		Map<String, Object> onTuesday = inWindow("Ostrava", monday.plusDays(1).toString());
+		assertEquals(false, onTuesday.get("freeInWindow"));
+		assertEquals(monday.plusWeeks(1), dayOf(slotsOf(onTuesday).getFirst()),
+				"not free in the window, and its next openings are still shown");
+	}
+
+	/** No window asked, no answer about one — absent, not false. */
+	@Test
+	void withoutAWindowNobodyIsAskedAboutOne() throws Exception {
+		publish("user_find_nowindow", "find-nowindow", DENVER, "PLUMBER");
+
+		assertNull(result(DENVER, "find-nowindow").get("freeInWindow"));
+	}
+
+	/** A word the contract does not know is a client's mistake, and said so. */
+	@Test
+	void aWhenNobodyCanReadIsRefused() throws Exception {
+		mockMvc.perform(get("/api/v1/businesses").param("zip", DENVER).param("when", "someday"))
+				.andExpect(status().isBadRequest());
+	}
+
+	/** The one result a search by name narrowed to, asked about a window of days. */
+	private Map<String, Object> inWindow(String name, String when) throws Exception {
+		String body = mockMvc.perform(get("/api/v1/businesses").param("zip", DENVER).param("name", name)
+						.param("when", when))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.results.length()").value(1))
+				.andReturn().getResponse().getContentAsString();
+
+		return JsonPath.read(body, "$.results[0]");
+	}
+
+	private static LocalDate dayOf(String slot) {
+		return OffsetDateTime.parse(slot).atZoneSameInstant(MOUNTAIN).toLocalDate();
+	}
+
+	/**
+	 * One search result, read as a map.
+	 *
+	 * <p>Filtered in JSONPath but asserted in Java, rather than the other way round: a null field
+	 * is dropped by a JSONPath filter expression, so "the rate is absent" and "the business is
+	 * absent" would otherwise be the same green.
+	 */
 	private Map<String, Object> result(String zip, String slug) throws Exception {
 		String body = mockMvc.perform(get("/api/v1/businesses").param("zip", zip))
 				.andExpect(status().isOk())

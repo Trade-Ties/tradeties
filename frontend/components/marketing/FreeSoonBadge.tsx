@@ -23,12 +23,14 @@ export async function FreeSoonBadge() {
     return null;
   }
 
-  const count = summary.data.freeWithinWindow;
+  // "Free today" when anybody is: the stronger headline, and the one a visitor in a hurry wants.
+  const { freeWithinWindow, freeToday } = summary.data;
+  const count = freeToday > 0 ? freeToday : freeWithinWindow;
 
   return (
     <Badge className={BADGE_CLASS}>
       <span className="animate-tt-pulse size-[7px] rounded-full bg-go" />
-      {count} {count === 1 ? "tradesperson" : "tradespeople"} free
+      {count} {count === 1 ? "professional" : "professionals"} free{freeToday > 0 && " today"}
     </Badge>
   );
 }
@@ -38,7 +40,7 @@ export function FreeSoonBadgeFallback() {
   return (
     <Badge aria-hidden="true" className={cn(BADGE_CLASS, "invisible")}>
       <span className="size-[7px]" />
-      tradespeople free
+      professionals free today
     </Badge>
   );
 }
