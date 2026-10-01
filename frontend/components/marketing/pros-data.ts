@@ -47,6 +47,8 @@ export interface Pro {
   miles: number;
   /** Hourly starting rate, in USD — what the profile lists as its base rate. */
   rateFrom: number;
+  /** Whether a licence is on file — false for trades that often need none, so the filter has something to do. */
+  licensed: boolean;
   /** Display only — no site sits behind it, so it is never rendered as a link. */
   website: string;
   /** Neighborhood/city, not an address — the same imprecision `miles` already has, worded instead of measured. */
@@ -59,7 +61,7 @@ export interface Pro {
 export const PROS: Pro[] = [
   {
     initials: "MW", color: "#1E4E82", name: "Marcus Webb", business: "Webb Plumbing Co.",
-    trade: "Plumber", miles: 2.4, rateFrom: 85,
+    trade: "Plumber", miles: 2.4, rateFrom: 85, licensed: true,
     website: "webbplumbingco.com", location: "Capitol Hill, Denver, CO",
     services: ["Leaking faucet", "Clogged drain"],
     slots: [
@@ -73,7 +75,7 @@ export const PROS: Pro[] = [
   },
   {
     initials: "DA", color: "#0E9F6E", name: "Denise Alvarez", business: "Front Range Electric",
-    trade: "Electrician", miles: 3.1, rateFrom: 95,
+    trade: "Electrician", miles: 3.1, rateFrom: 95, licensed: true,
     website: "frontrangeelectric.com", location: "Highlands, Denver, CO",
     services: ["Outlet not working", "Panel upgrade"],
     slots: [
@@ -87,7 +89,7 @@ export const PROS: Pro[] = [
   },
   {
     initials: "RO", color: "#B4530A", name: "Ray Okonkwo", business: "Okonkwo Heating & Air",
-    trade: "HVAC", miles: 5.7, rateFrom: 110,
+    trade: "HVAC", miles: 5.7, rateFrom: 110, licensed: true,
     website: "okonkwoheatingair.com", location: "Aurora, CO",
     services: ["Furnace won't start", "Annual tune-up"],
     slots: [
@@ -101,7 +103,7 @@ export const PROS: Pro[] = [
   },
   {
     initials: "TB", color: "#0A2F5C", name: "Tom Brennan", business: "Brennan Carpentry",
-    trade: "Carpenter", miles: 4.2, rateFrom: 75,
+    trade: "Carpenter", miles: 4.2, rateFrom: 75, licensed: true,
     website: "brennancarpentry.com", location: "Washington Park, Denver, CO",
     services: ["Deck repair", "Shelving install"],
     slots: [
@@ -115,7 +117,7 @@ export const PROS: Pro[] = [
   },
   {
     initials: "AP", color: "#6D3FA8", name: "Ana Petrova", business: "Keystone Lock & Key",
-    trade: "Locksmith", miles: 1.8, rateFrom: 65,
+    trade: "Locksmith", miles: 1.8, rateFrom: 65, licensed: true,
     website: "keystonelockkey.com", location: "LoDo, Denver, CO",
     services: ["Door won't lock", "Locked out"],
     slots: [
@@ -129,7 +131,7 @@ export const PROS: Pro[] = [
   },
   {
     initials: "LR", color: "#B91C1C", name: "Luis Ramirez", business: "Ramirez Home Repair",
-    trade: "Handyman", miles: 3.6, rateFrom: 60,
+    trade: "Handyman", miles: 3.6, rateFrom: 60, licensed: false,
     website: "ramirezhomerepair.com", location: "Five Points, Denver, CO",
     services: ["Furniture assembly", "Small repairs"],
     slots: [
@@ -143,7 +145,7 @@ export const PROS: Pro[] = [
   },
   {
     initials: "SK", color: "#CA8A04", name: "Sofia Kim", business: "Kim & Sons Painting",
-    trade: "Painter", miles: 2.9, rateFrom: 55,
+    trade: "Painter", miles: 2.9, rateFrom: 55, licensed: false,
     website: "kimandsonspainting.com", location: "Cherry Creek, Denver, CO",
     services: ["Interior room repaint", "Cabinet refinishing"],
     // Deliberately outside the 7-day window — the only listing "This week" should exclude.
@@ -158,7 +160,7 @@ export const PROS: Pro[] = [
   },
   {
     initials: "PN", color: "#C2410C", name: "Priya Nair", business: "Nair Roofing & Exteriors",
-    trade: "Roofer", miles: 6.3, rateFrom: 90,
+    trade: "Roofer", miles: 6.3, rateFrom: 90, licensed: true,
     website: "nairroofing.com", location: "Lakewood, CO",
     services: ["Roof leak", "Gutter repair"],
     slots: [
@@ -172,7 +174,7 @@ export const PROS: Pro[] = [
   },
   {
     initials: "JS", color: "#4D7C0F", name: "Jake Sullivan", business: "Sullivan Lawn & Landscape",
-    trade: "Landscaper", miles: 4.8, rateFrom: 50,
+    trade: "Landscaper", miles: 4.8, rateFrom: 50, licensed: false,
     website: "sullivanlawnlandscape.com", location: "Littleton, CO",
     services: ["Lawn mowing", "Tree trimming"],
     slots: [
@@ -186,7 +188,7 @@ export const PROS: Pro[] = [
   },
   {
     initials: "MG", color: "#0D9488", name: "Maria Gutierrez", business: "Gutierrez General Contracting",
-    trade: "General Contractor", miles: 5.1, rateFrom: 120,
+    trade: "General Contractor", miles: 5.1, rateFrom: 120, licensed: true,
     website: "gutierrezgc.com", location: "Westminster, CO",
     services: ["Kitchen remodel", "Room addition"],
     slots: [
@@ -200,7 +202,7 @@ export const PROS: Pro[] = [
   },
   {
     initials: "CP", color: "#1D4ED8", name: "Chris Palmer", business: "Palmer Plumbing",
-    trade: "Plumber", miles: 7.2, rateFrom: 70,
+    trade: "Plumber", miles: 7.2, rateFrom: 70, licensed: true,
     website: "palmerplumbing.com", location: "Englewood, CO",
     services: ["No hot water", "Running toilet"],
     slots: [
@@ -214,7 +216,7 @@ export const PROS: Pro[] = [
   },
   {
     initials: "EZ", color: "#BE185D", name: "Emily Zhao", business: "Zhao Electric Co.",
-    trade: "Electrician", miles: 2.1, rateFrom: 100,
+    trade: "Electrician", miles: 2.1, rateFrom: 100, licensed: true,
     website: "zhaoelectricco.com", location: "Congress Park, Denver, CO",
     services: ["Breaker keeps tripping", "Flickering lights"],
     slots: [
@@ -228,7 +230,7 @@ export const PROS: Pro[] = [
   },
   {
     initials: "DO", color: "#0369A1", name: "Daniel Osei", business: "Osei HVAC Solutions",
-    trade: "HVAC", miles: 3.9, rateFrom: 105,
+    trade: "HVAC", miles: 3.9, rateFrom: 105, licensed: true,
     website: "oseihvac.com", location: "Stapleton, Denver, CO",
     services: ["AC not cooling", "Thermostat not responding"],
     slots: [
@@ -242,7 +244,7 @@ export const PROS: Pro[] = [
   },
   {
     initials: "HW", color: "#7C3AED", name: "Hannah Wright", business: "Wright Carpentry & Trim",
-    trade: "Carpenter", miles: 1.5, rateFrom: 80,
+    trade: "Carpenter", miles: 1.5, rateFrom: 80, licensed: true,
     website: "wrightcarpentrytrim.com", location: "Berkeley, Denver, CO",
     services: ["Broken cabinet hinge", "Trim work"],
     slots: [

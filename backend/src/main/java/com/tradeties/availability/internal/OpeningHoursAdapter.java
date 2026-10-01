@@ -8,6 +8,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
+import com.tradeties.availability.BookingRules;
 import com.tradeties.availability.HoursBlock;
 import com.tradeties.business.OpeningHours;
 
@@ -23,9 +24,20 @@ import org.springframework.transaction.annotation.Transactional;
 class OpeningHoursAdapter implements OpeningHours {
 
 	private final WorkingHoursRepository hours;
+	private final BookingPolicyRepository policies;
 
-	OpeningHoursAdapter(WorkingHoursRepository hours) {
+	OpeningHoursAdapter(WorkingHoursRepository hours, BookingPolicyRepository policies) {
 		this.hours = hours;
+		this.policies = policies;
+	}
+
+	@Override
+	@Transactional(readOnly = true)
+	public BookingTerms bookingOf(UUID businessId) {
+		// The defaults are what the calendar walks with when no row was written, so they are the
+		// true answer for such a business rather than a guess.
+		BookingRules rules = policies.findById(businessId).map(BookingPolicyRow::toRules).orElse(BookingRules.defaults());
+		return new BookingTerms(rules.minLeadTimeHours(), rules.bookingHorizonDays());
 	}
 
 	@Override

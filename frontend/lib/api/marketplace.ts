@@ -81,12 +81,15 @@ export function suggestServices(
  *        hiding the rest
  * @param page which page to ask for, or null for the first. Omitted rather than sent as 1, so the
  *        default lives in one place — the contract — instead of being asserted from here too
+ * @param when when the work is wanted — `today`, `tomorrow`, `week` or a date — read by the
+ *        backend on each business's own calendar; null for "from now"
  */
 export function searchBusinesses(
   zip: string,
   job: string | null,
   service: string | null,
   page: number | null,
+  when: string | null = null,
 ): Promise<ApiResult<BusinessSearchResults>> {
   return attempt("GET /api/v1/businesses", () =>
     publicApiClient().GET("/api/v1/businesses", {
@@ -96,6 +99,7 @@ export function searchBusinesses(
           ...(job?.trim() ? { job: job.trim() } : {}),
           ...(service ? { service } : {}),
           ...(page ? { page } : {}),
+          ...(when ? { when } : {}),
         },
       },
     }),

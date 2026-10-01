@@ -45,7 +45,6 @@ export function BusinessOverview({ view }: { view: ProCardView }) {
 
   const loading = profile === undefined;
   const trades = profile ? tradesOf(profile) : view.trade ? [view.trade] : [];
-  const verified = profile?.licenses.some((license) => license.verified) ?? false;
   const next = view.slots[0];
 
   return (
@@ -111,7 +110,6 @@ export function BusinessOverview({ view }: { view: ProCardView }) {
         {view.badges.map((badge) => (
           <Fact key={badge} icon={BadgeCheck} iconClassName="text-go">
             {badge}
-            {verified && badge === "Licensed" && " · checked with the state"}
           </Fact>
         ))}
         {next && (

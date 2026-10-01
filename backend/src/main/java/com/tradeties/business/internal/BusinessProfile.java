@@ -3,6 +3,8 @@ package com.tradeties.business.internal;
 import java.math.BigDecimal;
 import java.time.DayOfWeek;
 import java.time.Instant;
+import java.time.ZoneId;
+import java.time.LocalDate;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -442,7 +444,8 @@ class BusinessProfile {
 			List<ServiceDetails> services,
 			PricingTerms pricing,
 			List<LicenseDetails> licenses,
-			Map<DayOfWeek, List<OpeningHours.Stretch>> hours) {
+			Map<DayOfWeek, List<OpeningHours.Stretch>> hours,
+			OpeningHours.BookingTerms booking) {
 
 		return new PublicProfile(
 				slug,
@@ -456,6 +459,11 @@ class BusinessProfile {
 				services,
 				pricing,
 				licenses,
-				hours);
+				hours,
+				serviceRadiusMiles,
+				// The day it went live on the business's own calendar; null only for a profile the
+				// repository would not have handed out, since only published ones are public.
+				firstPublishedAt == null ? null : LocalDate.ofInstant(firstPublishedAt, ZoneId.of(timeZone)),
+				booking);
 	}
 }

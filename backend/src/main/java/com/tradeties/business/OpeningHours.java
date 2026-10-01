@@ -32,4 +32,14 @@ public interface OpeningHours {
 	 *         to a customer
 	 */
 	Map<DayOfWeek, List<Stretch>> weekOf(UUID businessId);
+
+	/**
+	 * How far ahead a business can be booked: the notice it needs and the furthest day it takes
+	 * bookings for. The rules the calendar applies, said in words on the profile.
+	 */
+	record BookingTerms(int minNoticeHours, int horizonDays) {
+	}
+
+	/** @return the business's own terms, or the defaults a business that never set them books on */
+	BookingTerms bookingOf(UUID businessId);
 }

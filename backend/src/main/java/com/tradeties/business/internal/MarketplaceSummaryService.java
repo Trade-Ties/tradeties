@@ -2,6 +2,7 @@ package com.tradeties.business.internal;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.time.LocalDate;
 import java.time.ZoneId;
 import java.util.List;
 import java.util.Map;
@@ -34,8 +35,12 @@ public class MarketplaceSummaryService {
 	 */
 	private static final Duration WINDOW = Duration.ofHours(48);
 
-	/** @param freeWithinWindow how many businesses have a start within {@link #WINDOW} of now */
-	public record Summary(int freeWithinWindow, Duration window) {
+	/**
+	 * @param freeWithinWindow how many businesses have a start within {@link #WINDOW} of now
+	 * @param freeToday how many have a start later today, on their own calendars — the stronger
+	 *        headline when there is one to make
+	 */
+	public record Summary(int freeWithinWindow, Duration window, int freeToday) {
 	}
 
 	private record Counted(Summary summary, Instant at) {
@@ -72,11 +77,26 @@ public class MarketplaceSummaryService {
 				.collect(Collectors.toMap(BusinessSearchRepository.ZoneRow::getId,
 						row -> new NextAvailability.Asked(ZoneId.of(row.getTimeZone()), null)));
 
-		// One start is enough: the soonest one either falls inside the window or nothing does.
-		Summary counted = new Summary(freeBefore(availability.nextSlots(asked, 1), now.plus(WINDOW)), WINDOW);
+		// One start is enough: the soonest one either falls inside the window or nothing does — and
+		// is either today or nothing is.
+		Map<UUID, List<Instant>> soonest = availability.nextSlots(asked, 1);
+		Map<UUID, ZoneId> zones = asked.entrySet().stream()
+				.collect(Collectors.toMap(Map.Entry::getKey, entry -> entry.getValue().zone()));
+		Summary counted = new Summary(freeBefore(soonest, now.plus(WINDOW)), WINDOW, freeToday(soonest, zones, now));
 		last = new Counted(counted, now);
 
 		return counted;
+	}
+
+	/** How many of these businesses have their soonest start on today's date where they work. */
+	static int freeToday(Map<UUID, List<Instant>> soonest, Map<UUID, ZoneId> zones, Instant now) {
+		return (int) soonest.entrySet().stream()
+				.filter(entry -> !entry.getValue().isEmpty() && zones.containsKey(entry.getKey()))
+				.filter(entry -> {
+					ZoneId zone = zones.get(entry.getKey());
+					return LocalDate.ofInstant(entry.getValue().getFirst(), zone).equals(LocalDate.ofInstant(now, zone));
+				})
+				.count();
 	}
 
 	/** How many of these businesses have their soonest start before {@code until}. */

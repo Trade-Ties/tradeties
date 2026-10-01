@@ -96,7 +96,7 @@ export default async function BookPage({
     <>
       <SiteHeader />
       <section className="bg-canvas pb-20 pt-8">
-        <div className="mx-auto max-w-[680px] px-6">
+        <div className="mx-auto max-w-[860px] px-6">
           <Link
             href={`${proPath(slug)}?service=${service.id}`}
             className="mb-6 inline-block text-[14px] font-semibold text-brand-500 no-underline"
@@ -179,7 +179,7 @@ function Incomplete({ slug, name }: { slug: string; name: string }) {
           A request is for one job at one time, so {name} needs both before you can send one.
         </p>
         <Link
-          href={proPath(slug)}
+          href={`${proPath(slug)}?calendar=1#when`}
           className="mt-7 inline-block rounded-2xl bg-brand px-6 py-3 text-[15px] font-semibold text-white"
         >
           Open their calendar

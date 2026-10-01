@@ -18,6 +18,7 @@ import com.tradeties.business.internal.ServiceSuggestionService;
 import com.tradeties.generated.api.MarketplaceApi;
 import com.tradeties.generated.model.BusinessAvailability;
 import com.tradeties.generated.model.MarketplaceSummary;
+import com.tradeties.generated.model.PublicBookingTerms;
 import com.tradeties.generated.model.PublicBusinessProfile;
 import com.tradeties.generated.model.PublicLicense;
 import com.tradeties.generated.model.PublicPricing;
@@ -87,9 +88,9 @@ class MarketplaceController implements MarketplaceApi {
 	 */
 	@Override
 	public ResponseEntity<com.tradeties.generated.model.BusinessSearchResults> searchBusinesses(
-			String zip, String job, String service, String name, Integer page) {
+			String zip, String job, String service, String name, Integer page, String when) {
 
-		return ResponseEntity.ok(toWire(search.search(zip, job, service, name, page)));
+		return ResponseEntity.ok(toWire(search.search(zip, job, service, name, page, when)));
 	}
 
 	/**
@@ -157,7 +158,8 @@ class MarketplaceController implements MarketplaceApi {
 
 		return ResponseEntity.ok(new MarketplaceSummary()
 				.freeWithinWindow(counted.freeWithinWindow())
-				.windowHours((int) counted.window().toHours()));
+				.windowHours((int) counted.window().toHours())
+				.freeToday(counted.freeToday()));
 	}
 
 	private static ResponseStatusException noSuchProfile() {
@@ -198,7 +200,12 @@ class MarketplaceController implements MarketplaceApi {
 												.startsAt(wallClock(stretch.startsAtMinutes()))
 												.endsAt(wallClock(stretch.endsAtMinutes())))
 										.toList()))
-						.toList());
+						.toList())
+				.serviceRadiusMiles(profile.serviceRadiusMiles())
+				.onTradeTiesSince(profile.onTradeTiesSince())
+				.booking(new PublicBookingTerms()
+						.minNoticeHours(profile.booking().minNoticeHours())
+						.horizonDays(profile.booking().horizonDays()));
 	}
 
 	/** {@code HH:mm}, which the contract's pattern requires; a day that runs to midnight ends at "24:00". */
@@ -332,6 +339,8 @@ class MarketplaceController implements MarketplaceApi {
 				.licensed(result.licensed())
 				.licenseVerified(result.licenseVerified())
 				.services(result.services())
+				// Passed through including its absence, like offersThisJob: no window asked, no answer.
+				.freeInWindow(result.freeInWindow())
 				.nextSlots(result.nextSlots().stream().map(slot -> slot.atOffset(ZoneOffset.UTC)).toList());
 	}
 

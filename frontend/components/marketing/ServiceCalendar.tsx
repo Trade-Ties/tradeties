@@ -106,7 +106,7 @@ export function ServiceCalendar({
         <div>
           <p className="m-0 text-[17px] font-bold tracking-[-0.02em] text-brand">{monthLabel(month)}</p>
           <p className="m-0 mt-0.5 text-[13px] text-muted-ink">
-            {serviceName} · times are {timeZone}, the tradesperson&apos;s own clock
+            {serviceName} · times are {timeZone}, the professional&apos;s own clock
           </p>
         </div>
 

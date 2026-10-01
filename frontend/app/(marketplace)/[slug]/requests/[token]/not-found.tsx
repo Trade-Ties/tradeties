@@ -24,7 +24,7 @@ export default function RequestNotFound() {
             href="/"
             className="mt-7 inline-block rounded-2xl bg-brand px-6 py-3 text-[15px] font-semibold text-white"
           >
-            Find a tradesperson
+            Find a professional
           </Link>
         </div>
       </section>

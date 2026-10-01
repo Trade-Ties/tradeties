@@ -14,7 +14,10 @@ import { Label } from "@/components/ui/label";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Slider } from "@/components/ui/slider";
 import { rememberResults } from "@/components/marketing/BackToResults";
+import { SORT_OPTIONS, sortResults } from "@/components/marketing/sort-results";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { FilterPill } from "@/components/marketing/FilterPill";
+import { LicensedOnly } from "@/components/marketing/LicensedOnly";
 import { ProCard, type ProCardSlot, type ProCardView } from "@/components/marketing/ProCard";
 import { amount, colorOf, initialsOf } from "@/components/marketing/business-format";
 import { updateSearch, type HeroSearchFields } from "@/components/marketing/search-memory";
@@ -47,11 +50,9 @@ const MAX_RADIUS = 100;
  * search can be asked for neither — the radius it applies is each business's own. So they reach one
  * page of results, and belong on the server once there is a pager to reach the others.
  *
- * The `when` answer is carried and shown, and it deliberately does not narrow the list. Each
- * business reports its next three openings, which is not its calendar: a business free on Tuesday
- * may well have its next three on Monday, so hiding it from a Tuesday filter would be a claim the
- * data cannot make. The customer's answer travels to the profile, where the day is chosen against
- * the whole diary.
+ * The `when` answer is asked of the search, which starts each card's openings at that day and says
+ * whether the business has a time inside it. It sorts rather than hides: a business busy that day
+ * is listed after the ones that are free, with its next openings, under a line that says so.
  */
 export function JobSearchResults({
   job,
@@ -73,6 +74,15 @@ export function JobSearchResults({
 
   const asked = parseWhenParam(when);
   const whenLabel = availabilityLabel(asked.availability, asked.customDate);
+  // "today", "this week", "on Sun, Oct 4" — the chosen window as it reads inside a sentence.
+  const whenPhrase =
+    asked.availability === "date" && asked.customDate
+      ? `on ${format(asked.customDate, "EEE, MMM d")}`
+      : asked.availability === "week"
+        ? "this week"
+        : asked.availability === "any"
+          ? null
+          : asked.availability;
 
   const results = found.results ?? [];
   const trades = found.matchedTrades ?? [];
@@ -88,16 +98,20 @@ export function JobSearchResults({
   const priceTop = priceCap === null ? maxRate : Math.min(priceCap, maxRate);
   const priceBottom = Math.min(priceFloor, priceTop);
   const priceNarrowed = priceBottom > 0 || priceTop < maxRate;
-  const filtersActive = radius < MAX_RADIUS || priceNarrowed;
+  const [licensedOnly, setLicensedOnly] = useState(false);
+  const filtersActive = radius < MAX_RADIUS || priceNarrowed || licensedOnly;
 
   const resetFilters = () => {
+    setLicensedOnly(false);
     setRadius(MAX_RADIUS);
     setPriceFloor(0);
     setPriceCap(null);
   };
 
-  const visible = results.filter((r) => {
+  const [sort, setSort] = useState("recommended");
+  const visible = sortResults(results, sort).filter((r) => {
     if (r.distanceMiles > radius) return false;
+    if (licensedOnly && !r.licensed) return false;
     if (!priceNarrowed) return true;
     // No rate on file cannot be said to fall inside a range, so a narrowed one leaves it out.
     if (!r.hourlyRate) return false;
@@ -168,39 +182,60 @@ export function JobSearchResults({
           Back to search
         </Button>
 
-        <div className="mb-8">
-          {/*
-            KNOWN WRONG, until the pager lands. This counts `results`, and `results` is one page
-            — so a search that found 26 tradespeople announces 24 of them. `found.total` is the
-            number this sentence means, and `found.totalCapped` says whether to print it as
-            "240" or "240+"; the API started sending both when paging was added.
+        <div className="mb-8 flex flex-wrap items-end justify-between gap-5">
+          <div>
+            {/*
+              KNOWN WRONG, until the pager lands. This counts `results`, and `results` is one page
+              — so a search that found 26 tradespeople announces 24 of them. `found.total` is the
+              number this sentence means, and `found.totalCapped` says whether to print it as
+              "240" or "240+"; the API started sending both when paging was added.
 
-            Not fixed here on purpose. A truthful count with no way to reach the rest is the
-            worse of the two states: "26 professionals" above 24 cards invites the reader to
-            look for two that are nowhere on the page. The heading and the pager are one change,
-            and this comment is here so the first is not made without the second.
+              Not fixed here on purpose. A truthful count with no way to reach the rest is the
+              worse of the two states: "26 professionals" above 24 cards invites the reader to
+              look for two that are nowhere on the page. The heading and the pager are one change,
+              and this comment is here so the first is not made without the second.
 
-            The same count is repeated further down, above the grid.
-          */}
-          <h1 className="mb-1.5 text-[clamp(24px,3vw,32px)] font-extrabold tracking-[-0.03em]">
-            {results.length === 0
-              ? `No one travels to ${zip} yet`
-              : `${results.length} professional${results.length === 1 ? "" : "s"} near ${zip}`}
-          </h1>
-          <div className="flex flex-wrap items-center gap-2 text-[14.5px] text-muted-ink">
-            {job && <span>{job}</span>}
-            {job && <span className="text-[#CBD6E2]">•</span>}
-            <span>{zip}</span>
-            <span className="text-[#CBD6E2]">•</span>
-            <Badge className="h-auto border-transparent bg-brand-50 px-2.5 py-0.5 text-[12.5px] font-semibold text-brand-500">
-              {whenLabel}
-            </Badge>
+              The same count is repeated further down, above the grid.
+            */}
+            <h1 className="mb-1.5 text-[clamp(24px,3vw,32px)] font-extrabold tracking-[-0.03em]">
+              {results.length === 0
+                ? `No one travels to ${zip} yet`
+                : `${results.length} professional${results.length === 1 ? "" : "s"} near ${zip}`}
+            </h1>
+            <div className="flex flex-wrap items-center gap-2 text-[14.5px] text-muted-ink">
+              {job && <span>{job}</span>}
+              {job && <span className="text-[#CBD6E2]">•</span>}
+              <span>{zip}</span>
+              <span className="text-[#CBD6E2]">•</span>
+              <Badge className="h-auto border-transparent bg-brand-50 px-2.5 py-0.5 text-[12.5px] font-semibold text-brand-500">
+                {whenLabel}
+              </Badge>
           </div>
 
           {picked ? (
             <Picked label={picked.label} zip={zip} when={when} />
           ) : (
             job && <Understood job={job} trades={trades} />
+          )}
+          </div>
+
+          {/* As on the browse page. It orders within each group below, never across them. */}
+          {results.length > 1 && (
+            <div className="flex items-center gap-2">
+              <Label className="text-[13.5px] font-medium text-muted-ink">Sort by</Label>
+              <Select items={SORT_OPTIONS} value={sort} onValueChange={(v) => setSort(v ?? "recommended")}>
+                <SelectTrigger className="w-[190px]">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {SORT_OPTIONS.map((o) => (
+                    <SelectItem key={o.value} value={o.value}>
+                      {o.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
           )}
         </div>
 
@@ -395,8 +430,17 @@ export function JobSearchResults({
                       />
                     </div>
                   )}
+
+                  <LicensedOnly checked={licensedOnly} onChange={setLicensedOnly} className="mt-5" />
                 </div>
               )}
+
+              {/* The whole overview, for filters this panel does not have. */}
+              <div className="mt-5 border-t border-line pt-4 text-center text-[13.5px] text-muted-ink">
+                <Link href="/browse" className="font-semibold text-brand-500 no-underline hover:underline">
+                  Browse all professionals
+                </Link>
+              </div>
             </div>
           </div>
 
@@ -440,7 +484,7 @@ export function JobSearchResults({
                   </>
                 ) : (
                   <>
-                    No tradesperson travels to {zip} yet. The marketplace is new — this is a gap in who
+                    No professional travels to {zip} yet. The marketplace is new — this is a gap in who
                     has signed up, not in what you asked.
                   </>
                 )}
@@ -461,30 +505,18 @@ export function JobSearchResults({
                 the emptier one.
               */
               <div className="space-y-8">
-                <div className="grid grid-cols-[repeat(auto-fill,260px)] gap-5">
-                  {listing.map((result) => (
-                    <ProCard key={result.slug} view={viewOf(result, job)} />
-                  ))}
-                </div>
+                <Cards results={listing} job={job} when={whenPhrase} />
 
                 <div>
                   <p className="mb-4 text-[13.5px] text-muted-ink">
                     <span className="font-medium text-brand">Also nearby</span> — these do the trade
                     but have not listed this job. Worth asking.
                   </p>
-                  <div className="grid grid-cols-[repeat(auto-fill,260px)] gap-5">
-                    {rest.map((result) => (
-                      <ProCard key={result.slug} view={viewOf(result, job)} />
-                    ))}
-                  </div>
+                  <Cards results={rest} job={job} when={whenPhrase} />
                 </div>
               </div>
             ) : (
-              <div className="grid grid-cols-[repeat(auto-fill,260px)] gap-5">
-                {visible.map((result) => (
-                  <ProCard key={result.slug} view={viewOf(result, job)} />
-                ))}
-              </div>
+              <Cards results={visible} job={job} when={whenPhrase} />
             )}
           </div>
         </div>
@@ -503,6 +535,41 @@ function FilterRow({ label, value }: { label: string; value: string }) {
 }
 
 /**
+ * One group of result cards. When a day was asked for, the businesses free in it come first and
+ * the rest follow under a line that says they are not — with their next openings still on the
+ * cards, since busy that day is not unavailable.
+ */
+function Cards({ results, job, when }: { results: SearchResult[]; job: string; when: string | null }) {
+  const free = results.filter((r) => r.freeInWindow !== false);
+  const later = results.filter((r) => r.freeInWindow === false);
+
+  return (
+    <div className="space-y-6">
+      {free.length > 0 && <Grid results={free} job={job} />}
+      {later.length > 0 && (
+        <div>
+          <p className="mb-4 text-[13.5px] text-muted-ink">
+            <span className="font-medium text-brand">Not free {when ?? "then"}</span> — their next openings are
+            shown instead.
+          </p>
+          <Grid results={later} job={job} />
+        </div>
+      )}
+    </div>
+  );
+}
+
+function Grid({ results, job }: { results: SearchResult[]; job: string }) {
+  return (
+    <div className="grid grid-cols-[repeat(auto-fill,260px)] gap-5">
+      {results.map((result) => (
+        <ProCard key={result.slug} view={viewOf(result, job)} />
+      ))}
+    </div>
+  );
+}
+
+/**
  * The job the customer chose, and a way out of it.
  *
  * Clickable where `Understood` is not, and the difference is real rather than cosmetic: that one
@@ -515,7 +582,7 @@ function Picked({ label, zip, when }: { label: string; zip: string; when: string
 
   return (
     <p className="mt-2 text-[14.5px] text-muted-ink">
-      Showing tradespeople for{" "}
+      Showing professionals for{" "}
       <span className="font-medium text-brand">“{label}”</span>{" "}
       <Link href={`/browse?${wider}`} className="font-semibold text-brand-500 hover:underline">
         show everyone nearby
@@ -639,9 +706,10 @@ export function viewOf(result: SearchResult, job?: string): ProCardView {
  * to. It is also what makes this deterministic — the server pass and the browser format the same
  * instant against the same zone, so the label survives hydration instead of being rewritten.
  *
- * The weekday is always shown. Deriving "today" would mean reading a clock, and a clock read once
- * on the server and again in the browser is the nondeterminism this exists to avoid — for a badge
- * that a day of required notice makes almost unreachable anyway.
+ * A time today is drawn in the "go" colour without its weekday, as on the sample cards, so an
+ * opening today is seen at a glance. That reads the clock — on the server and again in the browser —
+ * and the two can only disagree in the moment the business's day turns over, which is a fair
+ * price for the one thing a customer in a hurry is scanning for.
  */
 export function opening(instant: string, timeZone: string): ProCardSlot {
   const at = new Date(instant);
@@ -666,9 +734,12 @@ export function opening(instant: string, timeZone: string): ProCardSlot {
     minute: "2-digit",
   }).format(at);
 
-  const dayLabel = new Intl.DateTimeFormat("en-US", { timeZone, weekday: "short" }).format(at);
+  const day = (when: Date) =>
+    new Intl.DateTimeFormat("en-CA", { timeZone, year: "numeric", month: "2-digit", day: "2-digit" }).format(when);
+  const today = day(at) === day(new Date());
+  const dayLabel = today ? "" : new Intl.DateTimeFormat("en-US", { timeZone, weekday: "short" }).format(at);
 
-  return { key: instant, label, dayLabel, dateLabel, timeLabel, today: false };
+  return { key: instant, label, dayLabel, dateLabel, timeLabel, today };
 }
 
 /**

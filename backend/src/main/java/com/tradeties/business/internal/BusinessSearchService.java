@@ -1,7 +1,10 @@
 package com.tradeties.business.internal;
 
+import java.time.DayOfWeek;
 import java.time.Instant;
+import java.time.LocalDate;
 import java.time.ZoneId;
+import java.time.temporal.TemporalAdjusters;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -114,6 +117,9 @@ public class BusinessSearchService {
 	 *        keyed on
 	 * @param jobDescription the problem in the customer's words, or null
 	 * @param name part of a business name, or null. Blank and absent narrow the same nothing
+	 * @param when when the customer wants the work done — {@code today}, {@code tomorrow},
+	 *        {@code week} or a date — or null to read from now. Read on each business's own
+	 *        calendar; the contract has already checked its shape
 	 * @param page which page to answer with, counting from 1. A page past the end is an empty
 	 *        result and not a refusal — running off the end of a list that exists is not the
 	 *        caller's mistake, and the count in the answer already said where the end was
@@ -125,7 +131,10 @@ public class BusinessSearchService {
 	 */
 	@Transactional(readOnly = true)
 	public BusinessSearchResults search(String postalCode, String jobDescription, String serviceCode,
-			String name, int page) {
+			String name, int page, String when) {
+
+		// One reading of the clock for the page, so two rows cannot disagree about which day it is.
+		Instant now = Instant.now();
 
 		GeoPoint origin = Geocoder.fiveDigitZip(postalCode)
 				.flatMap(zips::findById)
@@ -171,21 +180,71 @@ public class BusinessSearchService {
 		Map<UUID, List<Instant>> slots = availability.nextSlots(
 				rows.stream().collect(Collectors.toMap(
 						BusinessSearchRepository.SearchRow::getId,
-						row -> new NextAvailability.Asked(
-								ZoneId.of(row.getTimeZone()), row.getServiceMinutes()))),
+						row -> {
+							ZoneId zone = ZoneId.of(row.getTimeZone());
+							Window window = Window.of(when, zone, now);
+							return new NextAvailability.Asked(zone, row.getServiceMinutes(),
+									window == null ? null : window.from());
+						})),
 				SLOTS_PER_RESULT);
 
 		Map<UUID, List<String>> services = leadingServices(rows);
 
 		List<BusinessSearchResult> results = rows.stream()
-				.map(row -> new BusinessSearchResult(row.getSlug(), row.getDisplayName(), row.getCity(),
-						row.getState(), row.getPrimaryTrade(), row.getDistanceMiles(), row.getTimeZone(),
-						row.getHourlyRate(), row.getOffersThisJob(), row.getServiceId(), row.getLicensed(),
-						row.getLicenseVerified(), slots.getOrDefault(row.getId(), List.of()),
-						services.getOrDefault(row.getId(), List.of())))
+				.map(row -> {
+					List<Instant> theirs = slots.getOrDefault(row.getId(), List.of());
+					return new BusinessSearchResult(row.getSlug(), row.getDisplayName(), row.getCity(),
+							row.getState(), row.getPrimaryTrade(), row.getDistanceMiles(), row.getTimeZone(),
+							row.getHourlyRate(), row.getOffersThisJob(), row.getServiceId(), row.getLicensed(),
+							row.getLicenseVerified(), theirs, services.getOrDefault(row.getId(), List.of()),
+							freeInWindow(theirs, ZoneId.of(row.getTimeZone()), Window.of(when, ZoneId.of(row.getTimeZone()), now)));
+				})
 				.toList();
 
 		return new BusinessSearchResults(picked, matched, results, page, pageSize, total, totalCapped);
+	}
+
+	/**
+	 * The days a customer asked about, on one business's calendar.
+	 *
+	 * <p>Per business rather than once for the search, because "today" is a date only in a place:
+	 * the business's zone is where the work happens and what its openings are read against, so it
+	 * is the calendar the customer's word is read on too.
+	 */
+	record Window(LocalDate from, LocalDate to) {
+
+		/** @return the window, or null when nothing was asked */
+		static Window of(String when, ZoneId zone, Instant now) {
+			if (when == null || when.isBlank()) {
+				return null;
+			}
+			LocalDate today = LocalDate.ofInstant(now, zone);
+			return switch (when) {
+				case "today" -> new Window(today, today);
+				case "tomorrow" -> new Window(today.plusDays(1), today.plusDays(1));
+				// The rest of this week, through Sunday — what "this week" means to somebody reading
+				// it on a Thursday, rather than the seven days from today.
+				case "week" -> new Window(today, today.with(TemporalAdjusters.nextOrSame(DayOfWeek.SUNDAY)));
+				default -> {
+					// A day already past is read as today: nobody can be booked yesterday.
+					LocalDate day = LocalDate.parse(when);
+					LocalDate asked = day.isBefore(today) ? today : day;
+					yield new Window(asked, asked);
+				}
+			};
+		}
+	}
+
+	/**
+	 * Whether the first opening falls on or before the window's last day, on the business's own
+	 * calendar. The openings already start at the window's first day, so the first is the only one
+	 * to read. Null when no window was asked for.
+	 */
+	private static Boolean freeInWindow(List<Instant> slots, ZoneId zone, Window window) {
+		if (window == null) {
+			return null;
+		}
+		return !slots.isEmpty() && !LocalDate.ofInstant(slots.getFirst(), zone).isAfter(window.to());
 	}
 
 	/**

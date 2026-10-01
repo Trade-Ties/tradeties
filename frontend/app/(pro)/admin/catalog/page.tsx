@@ -46,9 +46,9 @@ export default async function CatalogQueuePage({
     <div className="w-full max-w-5xl px-8 py-10">
       <h1 className="text-2xl font-semibold tracking-tight">Catalogue queue</h1>
       <p className="mt-2 max-w-2xl text-sm text-muted-foreground">
-        What customers searched for and tradespeople typed that no job in the catalogue answers.
+        What customers searched for and professionals typed that no job in the catalogue answers.
         Promoting one takes effect straight away — no deployment — so customers are offered it
-        while they type and tradespeople can tick it on their own profile.
+        while they type and professionals can tick it on their own profile.
       </p>
 
       <nav className="mt-6 flex gap-1 border-b">

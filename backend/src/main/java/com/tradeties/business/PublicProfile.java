@@ -1,6 +1,7 @@
 package com.tradeties.business;
 
 import java.time.DayOfWeek;
+import java.time.LocalDate;
 import java.util.List;
 import java.util.Map;
 
@@ -42,7 +43,10 @@ public record PublicProfile(
 		List<ServiceDetails> services,
 		PricingTerms pricing,
 		List<LicenseDetails> licenses,
-		Map<DayOfWeek, List<OpeningHours.Stretch>> hours) {
+		Map<DayOfWeek, List<OpeningHours.Stretch>> hours,
+		int serviceRadiusMiles,
+		LocalDate onTradeTiesSince,
+		OpeningHours.BookingTerms booking) {
 
 	public PublicProfile {
 		services = services == null ? List.of() : List.copyOf(services);

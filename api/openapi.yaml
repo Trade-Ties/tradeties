@@ -413,6 +413,27 @@ paths:
             minimum: 1
             maximum: 10
             default: 1
+        - name: when
+          in: query
+          required: false
+          description: |
+            When the customer wants the work done: `today`, `tomorrow`, `week` (the rest
+            of this week, through Sunday) or one date. Read on **each business's own calendar** —
+            "today" is today where the work is, which is the customer's today too, and not
+            whatever day it already is on the server.
+
+            Given, `nextSlots` start from the first day of that window rather than from now,
+            and every result says through `freeInWindow` whether it has a time inside it.
+
+            **Sorts nothing and hides nobody.** A business busy that day still serves the
+            customer, and its next openings after the window are worth showing; the flag
+            lets a client put it second. Absent, the search reads from now, as it always
+            has. A date already past is read as today.
+          schema:
+            type: string
+            pattern: '^(today|tomorrow|week|\d{4}-\d{2}-\d{2})$'
+            maxLength: 10
+            examples: ["tomorrow", "2026-10-02"]
       responses:
         "200":
           description: |
@@ -2533,8 +2554,17 @@ components:
       description: |
         Counts across the whole marketplace. Numbers only: nothing here names or narrows to
         a business.
-      required: [freeWithinWindow, windowHours]
+      required: [freeWithinWindow, windowHours, freeToday]
       properties:
+        freeToday:
+          type: integer
+          format: int32
+          minimum: 0
+          description: |
+            Published businesses with a bookable start later today — today on each
+            business's own calendar. Often zero, since most businesses ask a day's notice;
+            a client says "free today" when it is not, and falls back to
+            `freeWithinWindow` when it is.
         freeWithinWindow:
           type: integer
           format: int32
@@ -2675,6 +2705,15 @@ components:
           oneOf:
             - $ref: "#/components/schemas/MoneyAmount"
             - type: "null"
+        freeInWindow:
+          type: boolean
+          description: |
+            Whether this business has a time inside the `when` window. **Absent when no
+            window was asked for**, which is not the same as
+            `false` — the same distinction `offersThisJob` draws.
+
+            False is not "unavailable": `nextSlots` still carries its next openings, which
+            simply fall after the window.
         offersThisJob:
           type: boolean
           description: |
@@ -2777,7 +2816,7 @@ components:
 
         Everything here is either something the business published about itself or something
         TradeTies checked. Nothing is about a person.
-      required: [slug, displayName, city, state, timeZone, trades, services, pricing, licenses, workingHours]
+      required: [slug, displayName, city, state, timeZone, trades, services, pricing, licenses, workingHours, serviceRadiusMiles, booking]
       properties:
         slug:
           $ref: "#/components/schemas/Slug"
@@ -2870,6 +2909,40 @@ components:
           maxItems: 7
           items:
             $ref: "#/components/schemas/WorkingDay"
+        serviceRadiusMiles:
+          type: integer
+          format: int32
+          minimum: 1
+          description: |
+            How far this business travels, in miles from its own address — the radius the
+            search reaches customers with. Said on the profile as "within 25 miles of
+            Denver, CO", which names the town and never the address.
+        onTradeTiesSince:
+          type: [string, "null"]
+          format: date
+          description: |
+            The day the profile first went live, on the business's own calendar. Null
+            never in practice, since only published profiles are public.
+        booking:
+          $ref: "#/components/schemas/PublicBookingTerms"
+
+    PublicBookingTerms:
+      type: object
+      description: |
+        How far ahead this business can be booked — the rules its calendar applies, so a
+        customer reads why tomorrow morning is not on offer before trying for it.
+      required: [minNoticeHours, horizonDays]
+      properties:
+        minNoticeHours:
+          type: integer
+          format: int32
+          minimum: 0
+          description: The notice it needs between a request and the appointment.
+        horizonDays:
+          type: integer
+          format: int32
+          minimum: 1
+          description: How many days ahead it takes bookings.
 
     PublicService:
       type: object

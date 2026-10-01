@@ -7,6 +7,8 @@ import { BrowseProfessionals } from "@/components/marketing/BrowseProfessionals"
 import { JobSearchResults } from "@/components/marketing/JobSearchResults";
 import { INVALID_SELECTION } from "@/lib/api/failure";
 import { searchBusinesses } from "@/lib/api/marketplace";
+import { isZip, ZIP_COOKIE } from "@/lib/zip-memory";
+import { cookies } from "next/headers";
 
 function firstValue(value: string | string[] | undefined): string {
   return (Array.isArray(value) ? value[0] : value) ?? "";
@@ -49,6 +51,10 @@ export default async function BrowsePage({
   // The page number is deliberately not among them: it says where in a
   // search you are, not that there is one, and on its own it is nothing to
   // page through.
+  // Where the overview starts: the ZIP the visitor last gave, or none — never somebody else's.
+  const remembered = (await cookies()).get(ZIP_COOKIE)?.value;
+  const rememberedZip = isZip(remembered) ? remembered : "";
+
   const cameFromSearch = job !== "" || zip !== "" || when !== "" || service !== "";
 
   return (
@@ -61,7 +67,7 @@ export default async function BrowsePage({
         // useSearchParams(), which the App Router requires a Suspense
         // boundary for.
         <Suspense fallback={<div className="pb-20 pt-10 text-center text-[14.5px] text-muted-ink">Loading…</div>}>
-          <BrowseProfessionals />
+          <BrowseProfessionals initialZip={rememberedZip} />
         </Suspense>
       )}
       <SiteFooter />
@@ -96,12 +102,12 @@ async function Searched({
     return (
       <Empty
         heading="Tell us where you are."
-        body="A search needs a ZIP code — it is what decides which tradespeople travel to you."
+        body="A search needs a ZIP code — it is what decides which professionals travel to you."
       />
     );
   }
 
-  const result = await searchBusinesses(zip, job || null, service || null, page);
+  const result = await searchBusinesses(zip, job || null, service || null, page, windowOf(when));
 
   // A postal code the backend cannot place is the one failure worth its own words — and it is
   // recognised by its problem type, not by the status. A description over the length the contract
@@ -123,6 +129,17 @@ async function Searched({
   }
 
   return <JobSearchResults job={job} zip={zip} when={when} found={result.data} />;
+}
+
+/**
+ * The address's answer to "when?", in the contract's words: this site writes "this week" as
+ * `flexible`, the contract as `week`. Anything else it does not recognise asks for no window,
+ * rather than failing a search over a hand-edited address.
+ */
+function windowOf(when: string): string | null {
+  if (when === "today" || when === "tomorrow") return when;
+  if (when === "flexible") return "week";
+  return /^\d{4}-\d{2}-\d{2}$/.test(when) ? when : null;
 }
 
 function Empty({ heading, body }: { heading: string; body: string }) {

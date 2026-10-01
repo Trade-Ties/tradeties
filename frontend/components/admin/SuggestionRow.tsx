@@ -46,7 +46,7 @@ export function SuggestionRow({
       <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
         <span className="font-medium">{suggestion.phrase}</span>
         <span className="text-sm text-muted-foreground">
-          {suggestion.seenCount}× · {suggestion.source === "PRO" ? "a tradesperson" : "customers"} ·
+          {suggestion.seenCount}× · {suggestion.source === "PRO" ? "a professional" : "customers"} ·
           first seen {new Date(suggestion.firstSeenAt).toLocaleDateString()}
         </span>
 
