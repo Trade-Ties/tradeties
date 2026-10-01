@@ -1,6 +1,7 @@
 import type { Conversation, ConversationSummary } from "@/lib/api/inbox";
 
 import type { DemoAppointment, DemoMessage } from "../demo-data";
+import { statusOf } from "../requests";
 
 /**
  * The inbox's real data in the shapes its views were built on.
@@ -71,8 +72,28 @@ export function appointmentOf(conversation: Conversation): DemoAppointment {
       start
     ),
     durationMinutes: request.estimatedDurationMinutes,
-    // Only a request and an accepted one exist in the views; anything settled reads as the latter.
-    status: request.status === "PENDING" ? "pending" : "confirmed",
+    status: statusOf(request.status),
+  };
+}
+
+/**
+ * One conversation as the dashboard's inbox card lists it: who, and the latest line. The card shows
+ * no more than that, and opening one goes to the full inbox, where the whole thread is.
+ */
+export function messageOf(summary: ConversationSummary): DemoMessage {
+  return {
+    id: summary.requestId,
+    customerName: summary.customerName,
+    appointmentId: summary.requestId,
+    unread: summary.unreadCount > 0,
+    thread: [
+      {
+        id: `${summary.requestId}-latest`,
+        from: summary.lastMessage.author === "BUSINESS" ? "pro" : "customer",
+        text: summary.lastMessage.body,
+        sentAt: new Date(summary.lastMessage.sentAt),
+      },
+    ],
   };
 }
 

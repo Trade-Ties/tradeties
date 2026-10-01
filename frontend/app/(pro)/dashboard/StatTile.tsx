@@ -44,10 +44,11 @@ export function StatTile({
         <Icon className={highlighted ? "size-4.5 text-amber-700" : "size-4.5 text-brand-500"} />
       </div>
       <div className="min-w-0 flex-1">
-        <p className="text-lg font-bold leading-tight text-brand">
+        {/* One line each, cut short rather than wrapped, so tiles side by side stay one height. */}
+        <p className="truncate text-lg font-bold leading-tight whitespace-nowrap text-brand">
           {value} {unit && <span className="text-sm font-normal text-muted-ink">{unit}{value === 1 ? "" : "s"}</span>}
         </p>
-        <p className="text-xs text-muted-ink">{label}</p>
+        <p className="truncate text-xs whitespace-nowrap text-muted-ink">{label}</p>
       </div>
       {href && (
         <ChevronRight className="size-4 shrink-0 text-faint transition-transform group-hover:translate-x-0.5 group-hover:text-brand-500" />

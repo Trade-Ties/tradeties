@@ -6,6 +6,7 @@ import { addMinutes, format, parse } from "date-fns";
 import { toE164 } from "@/components/profile/phone";
 import { Button } from "@/components/ui/button";
 import {
+  DIALOG_WIDE,
   Dialog,
   DialogClose,
   DialogContent,
@@ -515,7 +516,7 @@ export function NewEntryDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[calc(100dvh-2rem)] overflow-y-auto">
+      <DialogContent className={cn(DIALOG_WIDE, "max-h-[calc(100dvh-2rem)] overflow-y-auto")}>
         <form
           noValidate
           onSubmit={(e) => {
@@ -589,6 +590,7 @@ export function NewEntryDialog({
                     onChange={(e) => setDeclineReason(e.target.value)}
                     rows={3}
                     maxLength={500}
+                    className={TEXTAREA}
                   />
                 </FormField>
               )}
@@ -645,7 +647,7 @@ export function NewEntryDialog({
                               type="date"
                               value={answer.date}
                               onChange={(e) => answerRoom(c.requestId, { date: e.target.value })}
-                              className="h-10"
+                              className={FIELD}
                             />
                           </FormField>
                           <FormField id={`${id}-${c.requestId}-start`} label="From">
@@ -654,7 +656,7 @@ export function NewEntryDialog({
                               type="time"
                               value={answer.start}
                               onChange={(e) => answerRoom(c.requestId, { start: e.target.value })}
-                              className="h-10"
+                              className={FIELD}
                             />
                           </FormField>
                           <FormField id={`${id}-${c.requestId}-end`} label="To">
@@ -663,7 +665,7 @@ export function NewEntryDialog({
                               type="time"
                               value={answer.end}
                               onChange={(e) => answerRoom(c.requestId, { end: e.target.value })}
-                              className="h-10"
+                              className={FIELD}
                             />
                           </FormField>
                         </div>
@@ -706,7 +708,7 @@ export function NewEntryDialog({
                   <FormField id={`${id}-service`} label="Job" problem={shown("service")}>
                     {editing?.kind === "appointment" ? (
                       // Its terms were copied when it was booked; to change the service, remove it and book again.
-                      <Input id={`${id}-service`} value={editing.appointment.service} disabled className="h-10" />
+                      <Input id={`${id}-service`} value={editing.appointment.service} disabled className={FIELD} />
                     ) : (
                       <SelectControl
                         id={`${id}-service`}
@@ -716,30 +718,32 @@ export function NewEntryDialog({
                         placeholder={services.length === 0 ? "Add a service to your profile first" : "Pick one of your services"}
                         disabled={services.length === 0}
                         aria-invalid={shown("service") ? true : undefined}
+                        className={FIELD}
                       />
                     )}
                   </FormField>
 
                   <fieldset disabled={detailsFixed} className="flex flex-col gap-3 disabled:opacity-60">
+                    <FormField id={`${id}-customer`} label="Customer" problem={shown("customerName")}>
+                      <Input
+                        id={`${id}-customer`}
+                        value={draft.customerName}
+                        onChange={(e) => pickCustomer(e.target.value)}
+                        placeholder="Jane Cooper"
+                        maxLength={120}
+                        autoComplete="off"
+                        list={customers.length > 0 ? listId : undefined}
+                        aria-invalid={shown("customerName") ? true : undefined}
+                        className={FIELD}
+                      />
+                      <datalist id={listId}>
+                        {customers.map((c) => (
+                          <option key={c.name} value={c.name} />
+                        ))}
+                      </datalist>
+                    </FormField>
+                    {/* As the booking form asks it: the name on its own line, then phone and email side by side. */}
                     <div className="grid grid-cols-1 gap-3 min-[480px]:grid-cols-2">
-                      <FormField id={`${id}-customer`} label="Customer" problem={shown("customerName")}>
-                        <Input
-                          id={`${id}-customer`}
-                          value={draft.customerName}
-                          onChange={(e) => pickCustomer(e.target.value)}
-                          placeholder="Jane Cooper"
-                          maxLength={120}
-                          autoComplete="off"
-                          list={customers.length > 0 ? listId : undefined}
-                          aria-invalid={shown("customerName") ? true : undefined}
-                          className="h-10"
-                        />
-                        <datalist id={listId}>
-                          {customers.map((c) => (
-                            <option key={c.name} value={c.name} />
-                          ))}
-                        </datalist>
-                      </FormField>
                       <FormField id={`${id}-phone`} label="Phone (optional)" problem={shown("phone")}>
                         <Input
                           id={`${id}-phone`}
@@ -749,44 +753,43 @@ export function NewEntryDialog({
                           placeholder="(303) 555-0182"
                           autoComplete="off"
                           aria-invalid={shown("phone") ? true : undefined}
-                          className="h-10"
+                          className={FIELD}
+                        />
+                      </FormField>
+                      <FormField
+                        id={`${id}-email`}
+                        label={draft.notify && !editingAppointment ? "Email" : "Email (optional)"}
+                        problem={shown("email")}
+                      >
+                        <Input
+                          id={`${id}-email`}
+                          type="email"
+                          value={draft.email}
+                          onChange={(e) => set({ email: e.target.value })}
+                          placeholder="jane@email.com"
+                          autoComplete="off"
+                          aria-invalid={shown("email") ? true : undefined}
+                          className={FIELD}
                         />
                       </FormField>
                     </div>
 
-                    <FormField
-                      id={`${id}-email`}
-                      label={draft.notify && !editingAppointment ? "Email" : "Email (optional)"}
-                      problem={shown("email")}
-                    >
-                      <Input
-                        id={`${id}-email`}
-                        type="email"
-                        value={draft.email}
-                        onChange={(e) => set({ email: e.target.value })}
-                        placeholder="jane@email.com"
-                        autoComplete="off"
-                        aria-invalid={shown("email") ? true : undefined}
-                        className="h-10"
-                      />
-                    </FormField>
-
                     <div className="space-y-2">
-                      <p className="mb-1.5 text-sm font-medium">Address (optional)</p>
+                      <p className="mb-1.5 text-xs font-semibold text-muted-ink">Address (optional)</p>
                       <div className="grid grid-cols-[1fr_5.5rem] gap-2">
                         <Input
                           aria-label="Street"
                           value={draft.street}
                           onChange={(e) => set({ street: e.target.value })}
                           placeholder="Street"
-                          className="h-10"
+                          className={FIELD}
                         />
                         <Input
                           aria-label="House number"
                           value={draft.number}
                           onChange={(e) => set({ number: e.target.value })}
                           placeholder="No."
-                          className="h-10"
+                          className={FIELD}
                         />
                       </div>
                       <div className="grid grid-cols-[1fr_4.5rem_5.5rem] gap-2">
@@ -795,7 +798,7 @@ export function NewEntryDialog({
                           value={draft.city}
                           onChange={(e) => set({ city: e.target.value })}
                           placeholder="City"
-                          className="h-10"
+                          className={FIELD}
                         />
                         <Input
                           aria-label="State"
@@ -804,7 +807,7 @@ export function NewEntryDialog({
                           placeholder="State"
                           maxLength={2}
                           aria-invalid={shown("state") ? true : undefined}
-                          className="h-10"
+                          className={FIELD}
                         />
                         <Input
                           aria-label="ZIP code"
@@ -813,7 +816,7 @@ export function NewEntryDialog({
                           onChange={(e) => set({ zip: e.target.value.replace(/\D/g, "").slice(0, 5) })}
                           placeholder="ZIP"
                           aria-invalid={shown("zip") ? true : undefined}
-                          className="h-10"
+                          className={FIELD}
                         />
                       </div>
                       {shown("zip") && <p className="text-xs text-destructive">ZIP code: {shown("zip")}</p>}
@@ -829,7 +832,7 @@ export function NewEntryDialog({
                           type="date"
                           value={draft.date}
                           onChange={(e) => set({ date: e.target.value })}
-                          className="h-10"
+                          className={FIELD}
                         />
                       </FormField>
                       <FormField id={`${id}-start`} label="From">
@@ -838,7 +841,7 @@ export function NewEntryDialog({
                           type="time"
                           value={draft.start}
                           onChange={(e) => moveStart(e.target.value)}
-                          className="h-10"
+                          className={FIELD}
                         />
                       </FormField>
                       <FormField id={`${id}-end`} label="To">
@@ -847,14 +850,14 @@ export function NewEntryDialog({
                           type="time"
                           value={draft.end}
                           onChange={(e) => set({ end: e.target.value, endTouched: true })}
-                          className="h-10"
+                          className={FIELD}
                         />
                       </FormField>
                     </div>
                     {shown("time") && <p className="text-xs text-destructive">{shown("time")}</p>}
                   </div>
 
-                  <FormField id={`${id}-notes`} label="What needs doing? (optional)">
+                  <FormField id={`${id}-notes`} label="What needs to be done? (optional)">
                     <Textarea
                       id={`${id}-notes`}
                       value={draft.notes}
@@ -862,6 +865,7 @@ export function NewEntryDialog({
                       rows={3}
                       maxLength={2000}
                       disabled={detailsFixed}
+                      className={TEXTAREA}
                     />
                   </FormField>
 
@@ -905,7 +909,7 @@ export function NewEntryDialog({
                                 toDate: draft.toDate < e.target.value ? e.target.value : draft.toDate,
                               })
                             }
-                            className="h-10"
+                            className={FIELD}
                           />
                         </FormField>
                         <FormField id={`${id}-to`} label="Last day away">
@@ -915,7 +919,7 @@ export function NewEntryDialog({
                             value={draft.toDate}
                             min={draft.fromDate}
                             onChange={(e) => set({ toDate: e.target.value })}
-                            className="h-10"
+                            className={FIELD}
                           />
                         </FormField>
                       </div>
@@ -932,7 +936,7 @@ export function NewEntryDialog({
                                 toDate: draft.toDate < e.target.value ? e.target.value : draft.toDate,
                               })
                             }
-                            className="h-10"
+                            className={FIELD}
                           />
                         </FormField>
                         <FormField id={`${id}-from-time`} label="Time">
@@ -941,7 +945,7 @@ export function NewEntryDialog({
                             type="time"
                             value={draft.fromTime}
                             onChange={(e) => set({ fromTime: e.target.value })}
-                            className="h-10"
+                            className={FIELD}
                           />
                         </FormField>
                         <FormField id={`${id}-to`} label="To">
@@ -951,7 +955,7 @@ export function NewEntryDialog({
                             value={draft.toDate}
                             min={draft.fromDate}
                             onChange={(e) => set({ toDate: e.target.value })}
-                            className="h-10"
+                            className={FIELD}
                           />
                         </FormField>
                         <FormField id={`${id}-to-time`} label="Time">
@@ -960,7 +964,7 @@ export function NewEntryDialog({
                             type="time"
                             value={draft.toTime}
                             onChange={(e) => set({ toTime: e.target.value })}
-                            className="h-10"
+                            className={FIELD}
                           />
                         </FormField>
                       </div>
@@ -975,7 +979,7 @@ export function NewEntryDialog({
                       onChange={(e) => set({ note: e.target.value })}
                       placeholder={draft.allDay ? "Family vacation" : "Supplier pickup"}
                       maxLength={200}
-                      className="h-10"
+                      className={FIELD}
                     />
                   </FormField>
                 </>
@@ -1019,6 +1023,13 @@ export function NewEntryDialog({
   );
 }
 
+/**
+ * The booking dialogue's field — white, roomy, rounded — so a form the professional fills in reads
+ * like the one their customers do.
+ */
+const FIELD = "h-11 rounded-xl border-line bg-white px-3.5 text-sm focus-visible:ring-brand-500/30";
+const TEXTAREA = "min-h-20 rounded-xl border-line bg-white px-3.5 text-sm focus-visible:ring-brand-500/30";
+
 function FormField({
   id,
   label,
@@ -1032,7 +1043,9 @@ function FormField({
 }) {
   return (
     <div className="space-y-1.5">
-      <Label htmlFor={id}>{label}</Label>
+      <Label htmlFor={id} className="text-xs font-semibold text-muted-ink">
+        {label}
+      </Label>
       {children}
       {problem && <p className="text-xs text-destructive">{problem}</p>}
     </div>

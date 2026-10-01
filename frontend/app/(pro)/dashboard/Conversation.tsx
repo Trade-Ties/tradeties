@@ -7,7 +7,7 @@ import { ArrowLeft, CalendarDays, ChevronRight, CircleCheck, Phone, Send } from 
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
-import { AppointmentDetail, telHref } from "./AppointmentDetail";
+import { AppointmentDetail, STATUS_TONE, telHref } from "./AppointmentDetail";
 import { prefersPhone, type DemoAppointment, type DemoMessage } from "./demo-data";
 import { messageTime } from "./messageTime";
 
@@ -45,7 +45,7 @@ export function Conversation({
   onOpenDetails?: () => void;
   /** Whether that column is showing this conversation's booking, so the strip can say so. */
   detailsOpen?: boolean;
-  /** The narrower side panel: a shorter thread area and a smaller box. */
+  /** The side panel: the thread shown whole, never scrolling inside. */
   compact?: boolean;
 }) {
   // Which conversation has its booking open, rather than a flag: moving to another
@@ -87,7 +87,9 @@ export function Conversation({
 
       <ol
         aria-label={`Conversation with ${conversation.customerName}`}
-        className={cn("flex flex-col gap-3 overflow-y-auto py-4", compact ? "max-h-72" : "flex-1")}
+        // In the side panel the whole thread shows and the page scrolls; in the inbox's fixed
+        // height it fills what is left and scrolls inside.
+        className={cn("flex flex-1 flex-col gap-3 py-4", !compact && "overflow-y-auto")}
       >
         {conversation.thread.map((message) => (
           <li
@@ -138,6 +140,13 @@ export function Conversation({
   );
 }
 
+const CHIP_LABEL: Record<DemoAppointment["status"], string> = {
+  pending: "Requested",
+  confirmed: "Confirmed",
+  declined: "Declined",
+  cancelled: "Cancelled",
+};
+
 /** The request the conversation is about, in a line — and the way into all of it. */
 function RequestChip({
   appointment,
@@ -164,13 +173,8 @@ function RequestChip({
         About <span className="font-semibold text-brand">{appointment.service}</span> ·{" "}
         {format(appointment.date, "EEE, MMM d")} at {appointment.time}
       </span>
-      <span
-        className={cn(
-          "ml-auto shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold",
-          appointment.status === "pending" ? "bg-amber-500/15 text-amber-700" : "bg-go-bg text-[#07734F]"
-        )}
-      >
-        {appointment.status === "pending" ? "Requested" : "Confirmed"}
+      <span className={cn("ml-auto shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold", STATUS_TONE[appointment.status])}>
+        {CHIP_LABEL[appointment.status]}
       </span>
       <span className="flex shrink-0 items-center gap-0.5 font-semibold text-brand-500">
         Details

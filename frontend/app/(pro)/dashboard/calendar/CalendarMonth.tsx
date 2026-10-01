@@ -30,7 +30,7 @@ import { DetailPanel } from "../DetailPanel";
 import { EntryRow } from "../EntryRow";
 import { isOff, knownCustomers, type CalendarEntry, type DemoAppointment } from "../demo-data";
 import { prefillFrom, type BookingPrefill, type BookResult, type NewBooking, type ServiceOption } from "../booking";
-import { BookedNotice } from "../BookedNotice";
+import { asSentence, BookedNotice } from "../BookedNotice";
 import { NewEntryDialog, type Editing, type EntryKind } from "../NewEntryDialog";
 import { TimeOffBanner } from "../TimeOffBanner";
 import { acceptRequest, declineRequest } from "../actions";
@@ -44,13 +44,20 @@ const today = new Date(new Date().setHours(0, 0, 0, 0));
 const WEEKDAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
 /**
+ * The calendar and the column beside it — one fixed width in month, week and day, so switching
+ * between them leaves the side where it was. Shared by the page's header, so its tabs line up with
+ * the column.
+ */
+const COLUMNS = "lg:grid-cols-[minmax(0,1fr)_440px]";
+
+/**
  * What the right-hand column lists: the day picked in the grid, or every request still waiting
  * for an answer, whichever day it is on — what the dashboard's "Need your response" tile opens.
  */
 export type CalendarListView = "day" | "requests";
 
 /** The month with the picked day's list beside it, or the picked day's week hour by hour. */
-type CalendarGrid = "month" | "week";
+type CalendarGrid = "month" | "week" | "day";
 
 /** A line in a day's list: a customer's appointment or one of the tradesperson's own entries. */
 type DayItem =
@@ -240,17 +247,87 @@ export function CalendarMonth({
 
   const listed = view === "day" ? dayItems : requests;
 
+  // The column beside the calendar in every view: the picked day's list (or the requests), or the
+  // appointment opened from it.
+  const side =
+    open !== null ? (
+      <DetailPanel
+        selection={{ type: "appointment", item: open }}
+        onClose={() => setOpenId(null)}
+        onConfirm={confirm}
+        onDecline={decline}
+        onRebook={rebook}
+        onChange={(appointment) => openForm({ editing: { kind: "appointment", appointment } })}
+        onRemove={removeBooked}
+        className="h-full"
+        boxClassName="lg:static lg:h-full"
+      />
+    ) : (
+      <Card className="gap-4 rounded-3xl border border-line bg-white py-0 shadow-card h-full">
+        <CardHeader className="flex flex-col gap-3 px-5 pt-5">
+          <div role="tablist" aria-label="Show" className="flex w-full gap-1 rounded-full bg-brand-50 p-1">
+            <ViewTab active={view === "day"} onClick={() => setView("day")}>
+              {format(selected, "MMM d")}
+            </ViewTab>
+            <ViewTab active={view === "requests"} onClick={() => setView("requests")}>
+              Requests{requests.length > 0 && ` (${requests.length})`}
+            </ViewTab>
+          </div>
+          <CardTitle className="text-base font-semibold">
+            {view === "day" ? format(selected, "EEEE, MMMM d") : "Needs your response"}
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="px-5 pb-5">
+          {view === "day" && selectedOff && (
+            <div className={cn(listed.length > 0 && "mb-2")}>
+              <TimeOffBanner off={selectedOff} onEdit={editBlock} onRemove={removeBlock} />
+            </div>
+          )}
+          {listed.length === 0 && view === "day" && selectedOff ? null : listed.length === 0 ? (
+            <p className="rounded-2xl border border-dashed border-line py-6 text-center text-sm text-muted-ink">
+              {view === "day" ? "Nothing booked this day." : "You're all caught up — no requests waiting."}
+            </p>
+          ) : (
+            <div className="flex flex-col gap-2">
+              {listed.map((line) =>
+                line.kind === "appointment" ? (
+                  <AppointmentRow
+                    key={line.item.id}
+                    appointment={line.item}
+                    onConfirm={confirm}
+                    onDecline={decline}
+                    onSelect={(appointment) => setOpenId(appointment.id)}
+                    showDate={view === "requests"}
+                    away={awayDuring(line.item, timeOff, entries)}
+                  />
+                ) : (
+                  <EntryRow key={line.item.id} entry={line.item} onEdit={editBlock} onRemove={removeBlock} />
+                ),
+              )}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+    );
+
   return (
     <>
-      <div className="mb-8 flex flex-wrap items-end justify-between gap-3">
+      {/*
+        On the same columns as what is under it, so the layout tabs start where the side column
+        does and the buttons end where it ends.
+      */}
+      <div className={cn("mb-8 grid grid-cols-1 items-end gap-x-4 gap-y-3", COLUMNS)}>
         <h1 className="text-3xl font-bold tracking-[-0.02em] text-brand">Calendar</h1>
-        <div className="flex flex-wrap gap-2">
+        <div className="flex flex-wrap items-center justify-between gap-2">
           <div role="tablist" aria-label="Calendar layout" className="flex gap-1 rounded-full bg-brand-50 p-1">
             <ViewTab active={grid === "month"} onClick={() => showGrid("month")}>
               Month
             </ViewTab>
             <ViewTab active={grid === "week"} onClick={() => showGrid("week")}>
               Week
+            </ViewTab>
+            <ViewTab active={grid === "day"} onClick={() => showGrid("day")}>
+              Day
             </ViewTab>
           </div>
           <Button
@@ -271,8 +348,8 @@ export function CalendarMonth({
       {notice && <BookedNotice onDismiss={() => setNotice(null)}>{notice}</BookedNotice>}
 
       {refusal && (
-        <BookedNotice onDismiss={() => setRefusal(null)}>
-          {refusal.message}
+        <BookedNotice tone="warning" onDismiss={() => setRefusal(null)}>
+          {asSentence(refusal.message)}
           {refusal.gone && " Reload to see what is still open."}
         </BookedNotice>
       )}
@@ -299,39 +376,33 @@ export function CalendarMonth({
         onSaveTimeOff={saveTimeOff}
       />
 
-      {grid === "week" ? (
-        <CalendarWeek
-          selected={selected}
-          appointments={appointments}
-          entries={entries}
-          timeOff={timeOff}
-          workingHours={workingHours}
-          openId={openId}
-          onSelectDay={setSelected}
-          onOpen={(appointment) => setOpenId(appointment.id)}
-          onAdd={addAt}
-          onEditBlock={editBlock}
-          onRemoveBlock={removeBlock}
-          aside={
-            open && (
-              <DetailPanel
-                selection={{ type: "appointment", item: open }}
-                onClose={() => setOpenId(null)}
-                onConfirm={confirm}
-                onDecline={decline}
-                onRebook={rebook}
-                onChange={(appointment) => openForm({ editing: { kind: "appointment", appointment } })}
-                onRemove={removeBooked}
-                // As tall as the grid, so the panel can stay in sight while the page scrolls; only
-                // the panel itself takes clicks, not the days beneath the rest of that height.
-                className="pointer-events-none h-full *:pointer-events-auto"
-              />
-            )
-          }
-        />
+      {grid === "week" || grid === "day" ? (
+        // The same side as the month's — the day's list, or the open appointment — beside the grid
+        // rather than over it, from the start. Both as tall as the taller, ending level.
+        <div className={cn("grid grid-cols-1 gap-4 lg:items-stretch", COLUMNS)}>
+          <div className="min-w-0">
+            <CalendarWeek
+              layout={grid}
+              selected={selected}
+              appointments={appointments}
+              entries={entries}
+              timeOff={timeOff}
+              workingHours={workingHours}
+              openId={openId}
+              onSelectDay={setSelected}
+              onOpen={(appointment) => setOpenId(appointment.id)}
+              onAdd={addAt}
+              onEditBlock={editBlock}
+              onRemoveBlock={removeBlock}
+            />
+          </div>
+          <div>{side}</div>
+        </div>
       ) : (
-        <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-[1.4fr_1fr]">
-          <Card className="gap-4 rounded-3xl border border-line bg-white py-0 shadow-card">
+        // Both columns as tall as the taller one, ending level: a long panel or list makes the page
+        // longer rather than scrolling inside, and the month stretches to meet it.
+        <div className={cn("grid grid-cols-1 items-start gap-4 lg:items-stretch", COLUMNS)}>
+          <Card className="h-full gap-4 rounded-3xl border border-line bg-white py-0 shadow-card">
             <CardHeader className="flex flex-row items-center justify-between px-5 pt-5">
               <CardTitle className="text-base font-semibold">{format(month, "MMMM yyyy")}</CardTitle>
               <div className="flex items-center gap-1">
@@ -385,6 +456,12 @@ export function CalendarMonth({
                         setView("day");
                         setOpenId(null);
                       }}
+                      // Twice to put something on it: the form opens on that day.
+                      onDoubleClick={() => {
+                        setSelected(day);
+                        setOpenId(null);
+                        openForm();
+                      }}
                       className={cn(
                         "flex aspect-square flex-col items-center justify-center gap-1 rounded-xl text-sm transition-colors",
                         !inMonth && "text-faint/60",
@@ -423,64 +500,7 @@ export function CalendarMonth({
 
           {/* The same panel the dashboard opens, in place of the day's list rather than beside it:
             a third column does not fit this page's width. Closing it goes back to the list. */}
-          {open !== null ? (
-            <DetailPanel
-              selection={{ type: "appointment", item: open }}
-              onClose={() => setOpenId(null)}
-              onConfirm={confirm}
-              onDecline={decline}
-              onRebook={rebook}
-              onChange={(appointment) => openForm({ editing: { kind: "appointment", appointment } })}
-              onRemove={removeBooked}
-              className=""
-            />
-          ) : (
-            <Card className="gap-4 rounded-3xl border border-line bg-white py-0 shadow-card">
-              <CardHeader className="flex flex-col gap-3 px-5 pt-5">
-                <div role="tablist" aria-label="Show" className="flex w-full gap-1 rounded-full bg-brand-50 p-1">
-                  <ViewTab active={view === "day"} onClick={() => setView("day")}>
-                    {format(selected, "MMM d")}
-                  </ViewTab>
-                  <ViewTab active={view === "requests"} onClick={() => setView("requests")}>
-                    Requests{requests.length > 0 && ` (${requests.length})`}
-                  </ViewTab>
-                </div>
-                <CardTitle className="text-base font-semibold">
-                  {view === "day" ? format(selected, "EEEE, MMMM d") : "Needs your response"}
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="px-5 pb-5">
-                {view === "day" && selectedOff && (
-                  <div className={cn(listed.length > 0 && "mb-2")}>
-                    <TimeOffBanner off={selectedOff} onEdit={editBlock} onRemove={removeBlock} />
-                  </div>
-                )}
-                {listed.length === 0 && view === "day" && selectedOff ? null : listed.length === 0 ? (
-                  <p className="rounded-2xl border border-dashed border-line py-6 text-center text-sm text-muted-ink">
-                    {view === "day" ? "Nothing booked this day." : "You're all caught up — no requests waiting."}
-                  </p>
-                ) : (
-                  <div className="flex flex-col gap-2">
-                    {listed.map((line) =>
-                      line.kind === "appointment" ? (
-                        <AppointmentRow
-                          key={line.item.id}
-                          appointment={line.item}
-                          onConfirm={confirm}
-                          onDecline={decline}
-                          onSelect={(appointment) => setOpenId(appointment.id)}
-                          showDate={view === "requests"}
-                          away={awayDuring(line.item, timeOff, entries)}
-                        />
-                      ) : (
-                        <EntryRow key={line.item.id} entry={line.item} onEdit={editBlock} onRemove={removeBlock} />
-                      ),
-                    )}
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-          )}
+          <div>{side}</div>
         </div>
       )}
     </>

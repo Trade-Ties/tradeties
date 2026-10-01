@@ -98,7 +98,15 @@ function DialogDescription({ className, ...props }: DialogPrimitive.Description.
   )
 }
 
+/**
+ * The one width the site's working dialogues share: half the screen once that is wide enough for a
+ * form, never under 36rem, never past the screen's edge — the booking dialogue's, so every dialogue
+ * opens the same size wherever it is.
+ */
+const DIALOG_WIDE = "p-4 sm:w-[max(50vw,36rem)] sm:max-w-[calc(100%-2rem)] sm:p-6"
+
 export {
+  DIALOG_WIDE,
   Dialog,
   DialogTrigger,
   DialogClose,

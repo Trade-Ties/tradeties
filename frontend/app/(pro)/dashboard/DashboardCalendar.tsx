@@ -60,7 +60,8 @@ export function DashboardCalendar({
   const selectedOff = isOff(selectedDay, timeOff);
 
   return (
-    <Card className="gap-4 rounded-3xl border border-line bg-white py-0 shadow-card">
+    // As tall as the row it sits in; the day's list scrolls inside, below the week, which stays put.
+    <Card className="gap-4 rounded-3xl border border-line bg-white py-0 shadow-card lg:h-full lg:min-h-0">
       <CardHeader className="flex flex-row items-center justify-between px-5 pt-5">
         <CardTitle className="flex items-center gap-2 text-base font-semibold">
           <Calendar className="size-4 text-brand-500" />
@@ -78,7 +79,7 @@ export function DashboardCalendar({
           <CardHeaderLink href={CALENDAR_PATH}>Full calendar</CardHeaderLink>
         </div>
       </CardHeader>
-      <CardContent className="px-5 pb-5">
+      <CardContent className="flex min-h-0 flex-1 flex-col px-5 pb-5 lg:group-data-[panel=open]/row:basis-0">
         <div className="mb-4 grid grid-cols-7 gap-1.5">
           {WEEK.map((day) => {
             const isSelected = isSameDay(day, selectedDay);
@@ -127,34 +128,37 @@ export function DashboardCalendar({
           })}
         </div>
 
-        {selectedOff && (
-          <div className={cn(dayItems.length > 0 && "mb-2")}>
-            <TimeOffBanner off={selectedOff} />
-          </div>
-        )}
-        {dayItems.length === 0 && selectedOff ? null : dayItems.length === 0 ? (
-          <p className="rounded-2xl border border-dashed border-line py-6 text-center text-sm text-muted-ink">
-            Nothing booked {isSameDay(selectedDay, today) ? "today" : `on ${format(selectedDay, "EEE, MMM d")}`}.
-          </p>
-        ) : (
-          <div className="flex flex-col gap-2">
-            {dayItems.map((line) =>
-              line.kind === "appointment" ? (
-                <AppointmentRow
-                  key={line.item.id}
-                  appointment={line.item}
-                  onConfirm={onConfirm}
-                  onDecline={onDecline}
-                  onSelect={onSelect}
-                  selected={line.item.id === selectedId}
-                  away={awayDuring(line.item, timeOff, entries)}
-                />
-              ) : (
-                <EntryRow key={line.item.id} entry={line.item} />
-              )
-            )}
-          </div>
-        )}
+        {/* Room on every side for a selected row's outline, which the scrolling would cut off. */}
+        <div className="-mx-1 -mt-1 min-h-0 flex-1 overflow-y-auto px-1 pt-1 lg:group-data-[panel=open]/row:basis-0">
+          {selectedOff && (
+            <div className={cn(dayItems.length > 0 && "mb-2")}>
+              <TimeOffBanner off={selectedOff} />
+            </div>
+          )}
+          {dayItems.length === 0 && selectedOff ? null : dayItems.length === 0 ? (
+            <p className="rounded-2xl border border-dashed border-line py-6 text-center text-sm text-muted-ink">
+              Nothing booked {isSameDay(selectedDay, today) ? "today" : `on ${format(selectedDay, "EEE, MMM d")}`}.
+            </p>
+          ) : (
+            <div className="flex flex-col gap-2">
+              {dayItems.map((line) =>
+                line.kind === "appointment" ? (
+                  <AppointmentRow
+                    key={line.item.id}
+                    appointment={line.item}
+                    onConfirm={onConfirm}
+                    onDecline={onDecline}
+                    onSelect={onSelect}
+                    selected={line.item.id === selectedId}
+                    away={awayDuring(line.item, timeOff, entries)}
+                  />
+                ) : (
+                  <EntryRow key={line.item.id} entry={line.item} />
+                )
+              )}
+            </div>
+          )}
+        </div>
       </CardContent>
     </Card>
   );

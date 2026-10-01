@@ -103,7 +103,8 @@ export function declineJobRequest(
   return attempt("POST /api/v1/me/business/job-requests/{requestId}/decline", () =>
     apiClient(accessToken).POST("/api/v1/me/business/job-requests/{requestId}/decline", {
       params: { path: { requestId } },
-      body: { reason },
+      // Left out when blank: declining without a reason is allowed, and nothing is nothing.
+      body: reason.trim() ? { reason: reason.trim() } : {},
     }),
   );
 }
@@ -195,6 +196,18 @@ export function sendMessage(accessToken: string, requestId: string, body: string
 export function markConversationRead(accessToken: string, requestId: string): Promise<ApiResult<unknown>> {
   return attempt("POST /api/v1/me/conversations/{requestId}/read", () =>
     apiClient(accessToken).POST("/api/v1/me/conversations/{requestId}/read", {
+      params: { path: { requestId } },
+    }),
+  );
+}
+
+/**
+ * Out of the inbox — not deleted: the request stays the customer's record, and a new message from
+ * them brings the conversation back.
+ */
+export function deleteConversation(accessToken: string, requestId: string): Promise<ApiResult<unknown>> {
+  return attempt("DELETE /api/v1/me/conversations/{requestId}", () =>
+    apiClient(accessToken).DELETE("/api/v1/me/conversations/{requestId}", {
       params: { path: { requestId } },
     }),
   );

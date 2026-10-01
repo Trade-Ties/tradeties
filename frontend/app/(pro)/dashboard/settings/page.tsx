@@ -7,6 +7,7 @@ import type { StoredTimeOff } from "../blocks";
 import { ComingSoonTag } from "../ComingSoon";
 import { timeOffRange } from "../TimeOffBanner";
 import { localDay, localMoment } from "../wallClock";
+import { ChangePassword } from "./ChangePassword";
 import { WeekHours } from "./WeekHours";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { fetchMyBookingPolicy, fetchMyWorkingHours } from "@/lib/api/business";
@@ -46,135 +47,147 @@ export default async function SettingsPage() {
     <div className="mx-auto w-full max-w-7xl px-8 py-10">
       <h1 className="mb-8 text-3xl font-bold tracking-[-0.02em] text-brand">Settings</h1>
 
-      {/* Two columns at the width every tab now has; one card per column would stretch a
-          seven-line timetable across the whole page. The account sits across the top. */}
-      <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-2">
-        <Card className="gap-4 rounded-3xl border border-line bg-white py-0 shadow-card lg:col-span-2">
-          <CardHeader className="px-5 pt-5">
-            <CardTitle className="flex items-center gap-2 text-base font-semibold">
-              <UserIcon className="size-4 text-brand-500" />
-              Account
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="flex flex-wrap items-center justify-between gap-4 px-5 pb-5">
-            <div>
-              <p className="text-sm font-medium">
-                {[user.firstName, user.lastName].filter(Boolean).join(" ") || "Your account"}
-              </p>
-              <p className="text-sm text-muted-ink">{user.email}</p>
-            </div>
-            <form action={signOutFromPortal}>
-              <button
-                type="submit"
-                className="inline-flex h-9 items-center gap-1.5 rounded-full border border-line px-4 text-sm font-semibold text-muted-ink hover:bg-brand-50 hover:text-brand-500"
-              >
-                <LogOut className="size-3.5" />
-                Sign out
-              </button>
-            </form>
-          </CardContent>
-        </Card>
+      {/*
+        Two rows, each pair level top and bottom: the account beside the notifications, then the
+        week — the tallest card — beside time off and the booking rules, which share its height half
+        and half. Whichever side grows, the other stretches with it, so the pair stays level.
+      */}
+      <div className="flex flex-col gap-4">
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+          <Card className="gap-4 rounded-3xl border border-line bg-white py-0 shadow-card h-full">
+            <CardHeader className="px-5 pt-5">
+              <CardTitle className="flex items-center gap-2 text-base font-semibold">
+                <UserIcon className="size-4 text-brand-500" />
+                Account
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="flex flex-col gap-4 px-5 pb-5">
+              <div className="flex flex-wrap items-center justify-between gap-4">
+                <div>
+                  <p className="text-sm font-medium">
+                    {[user.firstName, user.lastName].filter(Boolean).join(" ") || "Your account"}
+                  </p>
+                  <p className="text-sm text-muted-ink">{user.email}</p>
+                </div>
+                <form action={signOutFromPortal}>
+                  <button
+                    type="submit"
+                    className="inline-flex h-9 items-center gap-1.5 rounded-full border border-line px-4 text-sm font-semibold text-muted-ink hover:bg-brand-50 hover:text-brand-500"
+                  >
+                    <LogOut className="size-3.5" />
+                    Sign out
+                  </button>
+                </form>
+              </div>
+              <div className="border-t border-line pt-4">
+                <ChangePassword />
+              </div>
+            </CardContent>
+          </Card>
+          <Card className="gap-4 rounded-3xl border border-line bg-white py-0 shadow-card h-full">
+            <CardHeader className="flex flex-row items-center justify-between px-5 pt-5">
+              <CardTitle className="flex items-center gap-2 text-base font-semibold">
+                <Bell className="size-4 text-brand-500" />
+                Notifications
+              </CardTitle>
+              <ComingSoonTag />
+            </CardHeader>
+            <CardContent className="flex flex-col gap-3 px-5 pb-5 opacity-50">
+              <ToggleRow label="Email me about new booking requests" />
+              <ToggleRow label="Text me when a customer messages" />
+              <ToggleRow label="Weekly performance summary" />
+            </CardContent>
+          </Card>
+        </div>
 
-        <Card className="gap-4 rounded-3xl border border-line bg-white py-0 shadow-card">
-          <CardHeader className="flex flex-row items-center justify-between px-5 pt-5">
-            <CardTitle className="flex items-center gap-2 text-base font-semibold">
-              <Clock3 className="size-4 text-brand-500" />
-              Working hours
-            </CardTitle>
-            <Link href={wizardPathAt("availability", "workingHours")} className="text-xs font-semibold text-brand-500 hover:underline">
-              Edit
-            </Link>
-          </CardHeader>
-          <CardContent className="px-5 pb-5">
-            {workingHours.ok && workingHours.data ? (
-              <WeekHours hours={workingHours.data} />
-            ) : (
-              <p className="text-sm text-muted-ink">
-                Not set up yet.{" "}
-                <Link href={WIZARD_PATH} className="font-semibold text-brand-500 hover:underline">
-                  Finish setup
-                </Link>{" "}
-                to set your working hours.
-              </p>
-            )}
-          </CardContent>
-        </Card>
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+          <Card className="gap-4 rounded-3xl border border-line bg-white py-0 shadow-card h-full">
+            <CardHeader className="flex flex-row items-center justify-between px-5 pt-5">
+              <CardTitle className="flex items-center gap-2 text-base font-semibold">
+                <Clock3 className="size-4 text-brand-500" />
+                Working hours
+              </CardTitle>
+              <Link href={wizardPathAt("availability", "workingHours")} className="text-xs font-semibold text-brand-500 hover:underline">
+                Edit
+              </Link>
+            </CardHeader>
+            <CardContent className="px-5 pb-5">
+              {workingHours.ok && workingHours.data ? (
+                <WeekHours hours={workingHours.data} />
+              ) : (
+                <p className="text-sm text-muted-ink">
+                  Not set up yet.{" "}
+                  <Link href={WIZARD_PATH} className="font-semibold text-brand-500 hover:underline">
+                    Finish setup
+                  </Link>{" "}
+                  to set your working hours.
+                </p>
+              )}
+            </CardContent>
+          </Card>
 
-        <Card className="gap-4 rounded-3xl border border-line bg-white py-0 shadow-card">
-          <CardHeader className="flex flex-row items-center justify-between px-5 pt-5">
-            <CardTitle className="flex items-center gap-2 text-base font-semibold">
-              <Palmtree className="size-4 text-brand-500" />
-              Time off
-            </CardTitle>
-            <Link href={CALENDAR_TIME_OFF_PATH} className="text-xs font-semibold text-brand-500 hover:underline">
-              Add time off
-            </Link>
-          </CardHeader>
-          <CardContent className="px-5 pb-5">
-            {upcomingTimeOff.length > 0 ? (
-              <ul className="flex flex-col gap-2">
-                {upcomingTimeOff.map((block) => (
-                  <li key={block.id} className="flex items-center justify-between gap-3 border-b border-line py-1.5 text-sm last:border-0">
-                    <span className="font-medium">{whenAway(block)}</span>
-                    <span className="truncate text-muted-ink">{block.note ?? (block.allDay ? "Away" : "Blocked")}</span>
-                  </li>
-                ))}
-              </ul>
-            ) : (
-              <p className="text-sm text-muted-ink">
-                Nothing planned. Going away? Add the days and customers can&apos;t book you on them.
-              </p>
-            )}
-          </CardContent>
-        </Card>
-
-        <Card className="gap-4 rounded-3xl border border-line bg-white py-0 shadow-card">
-          <CardHeader className="flex flex-row items-center justify-between px-5 pt-5">
-            <CardTitle className="flex items-center gap-2 text-base font-semibold">
-              <CalendarClock className="size-4 text-brand-500" />
-              Booking policy
-            </CardTitle>
-            <Link href={wizardPathAt("availability", "bookingPolicy")} className="text-xs font-semibold text-brand-500 hover:underline">
-              Edit
-            </Link>
-          </CardHeader>
-          <CardContent className="px-5 pb-5">
-            {bookingPolicy.ok && bookingPolicy.data ? (
-              <dl className="grid grid-cols-1 gap-3 text-sm min-[560px]:grid-cols-2">
-                <Row label="Booking horizon">{bookingPolicy.data.bookingHorizonDays} days ahead</Row>
-                <Row label="Minimum lead time">{bookingPolicy.data.minLeadTimeHours} hours</Row>
-                <Row label="Daily booking limit">
-                  {bookingPolicy.data.maxAcceptedAppointmentsPerDay ?? "No limit"}
-                </Row>
-                <Row label="Slot length">{bookingPolicy.data.slotGranularityMinutes} minutes</Row>
-                <Row label="Buffer between jobs">{bookingPolicy.data.appointmentBufferMinutes} minutes</Row>
-              </dl>
-            ) : (
-              <p className="text-sm text-muted-ink">
-                Not set up yet.{" "}
-                <Link href={WIZARD_PATH} className="font-semibold text-brand-500 hover:underline">
-                  Finish setup
-                </Link>{" "}
-                to set your booking policy.
-              </p>
-            )}
-          </CardContent>
-        </Card>
-
-        <Card className="gap-4 rounded-3xl border border-line bg-white py-0 shadow-card">
-          <CardHeader className="flex flex-row items-center justify-between px-5 pt-5">
-            <CardTitle className="flex items-center gap-2 text-base font-semibold">
-              <Bell className="size-4 text-brand-500" />
-              Notifications
-            </CardTitle>
-            <ComingSoonTag />
-          </CardHeader>
-          <CardContent className="flex flex-col gap-3 px-5 pb-5 opacity-50">
-            <ToggleRow label="Email me about new booking requests" />
-            <ToggleRow label="Text me when a customer messages" />
-            <ToggleRow label="Weekly performance summary" />
-          </CardContent>
-        </Card>
+          <div className="flex flex-col gap-4">
+            <Card className="gap-4 rounded-3xl border border-line bg-white py-0 shadow-card flex-1 basis-0">
+              <CardHeader className="flex flex-row items-center justify-between px-5 pt-5">
+                <CardTitle className="flex items-center gap-2 text-base font-semibold">
+                  <Palmtree className="size-4 text-brand-500" />
+                  Time off
+                </CardTitle>
+                <Link href={CALENDAR_TIME_OFF_PATH} className="text-xs font-semibold text-brand-500 hover:underline">
+                  Add time off
+                </Link>
+              </CardHeader>
+              <CardContent className="px-5 pb-5">
+                {upcomingTimeOff.length > 0 ? (
+                  <ul className="flex flex-col gap-2">
+                    {upcomingTimeOff.map((block) => (
+                      <li key={block.id} className="flex items-center justify-between gap-3 border-b border-line py-1.5 text-sm last:border-0">
+                        <span className="font-medium">{whenAway(block)}</span>
+                        <span className="truncate text-muted-ink">{block.note ?? (block.allDay ? "Away" : "Blocked")}</span>
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="text-sm text-muted-ink">
+                    Nothing planned. Going away? Add the days and customers can&apos;t book you on them.
+                  </p>
+                )}
+              </CardContent>
+            </Card>
+            <Card className="gap-4 rounded-3xl border border-line bg-white py-0 shadow-card flex-1 basis-0">
+              <CardHeader className="flex flex-row items-center justify-between px-5 pt-5">
+                <CardTitle className="flex items-center gap-2 text-base font-semibold">
+                  <CalendarClock className="size-4 text-brand-500" />
+                  Booking policy
+                </CardTitle>
+                <Link href={wizardPathAt("availability", "bookingPolicy")} className="text-xs font-semibold text-brand-500 hover:underline">
+                  Edit
+                </Link>
+              </CardHeader>
+              <CardContent className="px-5 pb-5">
+                {bookingPolicy.ok && bookingPolicy.data ? (
+                  <dl className="grid grid-cols-1 gap-3 text-sm min-[560px]:grid-cols-2">
+                    <Row label="Booking horizon">{bookingPolicy.data.bookingHorizonDays} days ahead</Row>
+                    <Row label="Minimum lead time">{bookingPolicy.data.minLeadTimeHours} hours</Row>
+                    <Row label="Daily booking limit">
+                      {bookingPolicy.data.maxAcceptedAppointmentsPerDay ?? "No limit"}
+                    </Row>
+                    <Row label="Slot length">{bookingPolicy.data.slotGranularityMinutes} minutes</Row>
+                    <Row label="Buffer between jobs">{bookingPolicy.data.appointmentBufferMinutes} minutes</Row>
+                  </dl>
+                ) : (
+                  <p className="text-sm text-muted-ink">
+                    Not set up yet.{" "}
+                    <Link href={WIZARD_PATH} className="font-semibold text-brand-500 hover:underline">
+                      Finish setup
+                    </Link>{" "}
+                    to set your booking policy.
+                  </p>
+                )}
+              </CardContent>
+            </Card>
+          </div>
+        </div>
       </div>
     </div>
   );

@@ -1,11 +1,8 @@
-import Link from "next/link";
-import { ArrowLeft } from "lucide-react";
-
 import { fetchMyServices, fetchMyWorkingHours } from "@/lib/api/business";
 import { fetchMyTimeOff } from "@/lib/api/calendar";
 import { fetchMyJobRequests } from "@/lib/api/inbox";
 import { portalToken } from "@/lib/portal/session";
-import { CALENDAR_NEW_PARAM, CALENDAR_VIEW_PARAM, DASHBOARD_PATH } from "@/lib/routes";
+import { CALENDAR_NEW_PARAM, CALENDAR_VIEW_PARAM } from "@/lib/routes";
 
 import { serviceOptionsOf } from "../booking";
 import { incoming } from "../requests";
@@ -34,14 +31,6 @@ export default async function CalendarPage({
 
   return (
     <div className="mx-auto w-full max-w-7xl px-8 py-10">
-      <Link
-        href={DASHBOARD_PATH}
-        className="mb-4 inline-flex items-center gap-1.5 text-sm font-medium text-muted-ink hover:text-brand-500"
-      >
-        <ArrowLeft className="size-3.5" />
-        Back to dashboard
-      </Link>
-
       <CalendarMonth
         sent={requests}
         blocks={blocked.ok ? blocked.data : []}

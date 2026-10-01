@@ -1,6 +1,7 @@
 package com.tradeties.job;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -156,6 +157,49 @@ class ConversationTests {
 
 		mockMvc.perform(get("/api/v1/me/conversations").with(theirs.owner()))
 				.andExpect(jsonPath("$.length()").value(0));
+	}
+
+	/**
+	 * Deleting takes the conversation out of the inbox and nothing more — the customer's link still
+	 * opens the request — and their next message brings it back, so nothing they write is lost.
+	 */
+	@Test
+	void aDeletedConversationLeavesTheInboxUntilTheCustomerWritesAgain() throws Exception {
+		Booking booking = JobFixtures.bookable(mockMvc, "user_conv_hide", "conv-hide", 60);
+		String placed = JobFixtures.place(mockMvc, booking);
+		String requestId = JsonPath.read(placed, "$.request.id");
+		String token = JsonPath.read(placed, "$.accessToken");
+
+		mockMvc.perform(delete("/api/v1/me/conversations/{id}", requestId).with(booking.owner()))
+				.andExpect(status().isNoContent());
+
+		mockMvc.perform(get("/api/v1/me/conversations").with(booking.owner()))
+				.andExpect(jsonPath("$.length()").value(0));
+		mockMvc.perform(get("/api/v1/jobs/by-token").header("X-Job-Token", token))
+				.andExpect(status().isOk());
+
+		mockMvc.perform(post("/api/v1/jobs/by-token/requests/{id}/messages", requestId)
+						.header("X-Job-Token", token)
+						.contentType(MediaType.APPLICATION_JSON)
+						.content("{\"body\":\"Are you still able to come?\"}"))
+				.andExpect(status().isCreated());
+
+		mockMvc.perform(get("/api/v1/me/conversations").with(booking.owner()))
+				.andExpect(jsonPath("$.length()").value(1))
+				.andExpect(jsonPath("$[0].requestId").value(requestId));
+	}
+
+	/** Another business cannot take a conversation out of an inbox it does not own. */
+	@Test
+	void anotherBusinessCannotDeleteTheConversation() throws Exception {
+		Booking mine = JobFixtures.bookable(mockMvc, "user_conv_keep", "conv-keep", 60);
+		Booking theirs = JobFixtures.bookable(mockMvc, "user_conv_other_del", "conv-other-del", 60);
+		String requestId = JsonPath.read(JobFixtures.place(mockMvc, mine), "$.request.id");
+
+		mockMvc.perform(delete("/api/v1/me/conversations/{id}", requestId).with(theirs.owner()))
+				.andExpect(status().isNotFound());
+		mockMvc.perform(get("/api/v1/me/conversations").with(mine.owner()))
+				.andExpect(jsonPath("$.length()").value(1));
 	}
 
 	/** A token opens one job, and no other job's conversation through it. */

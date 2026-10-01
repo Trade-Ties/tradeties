@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useSyncExternalStore } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import {
   addDays,
   addWeeks,
@@ -36,8 +36,14 @@ const HOUR_HEIGHT = 48;
 const DAY_MINUTES = 24 * 60;
 /** Anything shorter is drawn this long, or it could be neither read nor hit. */
 const SHORTEST_MINUTES = 30;
-/** The same template on every row, so the hour labels and the seven days line up down the grid. */
-const COLUMNS = "grid grid-cols-[3.5rem_repeat(7,minmax(0,1fr))]";
+/**
+ * The same template on every row, so the hour labels and the days line up down the grid: seven
+ * days for the week, one wide one for a day.
+ */
+const COLUMNS = {
+  week: "grid grid-cols-[3.5rem_repeat(7,minmax(0,1fr))]",
+  day: "grid grid-cols-[3.5rem_minmax(0,1fr)]",
+} as const;
 /** Time nobody can book — time off and blocked hours — whatever the working hours say. */
 const HATCHED = "bg-[repeating-linear-gradient(135deg,transparent_0_6px,var(--color-line)_6px_7px)]";
 
@@ -66,9 +72,12 @@ export function CalendarWeek({
   onEditBlock,
   onRemoveBlock,
   aside,
+  layout = "week",
 }: {
   /** The week shown is the one this day is in; moving a week moves it. */
   selected: Date;
+  /** The whole week, or the selected day alone — the same grid with one column, hour by hour. */
+  layout?: "week" | "day";
   appointments: DemoAppointment[];
   entries: CalendarEntry[];
   timeOff: TimeOff[];
@@ -90,9 +99,23 @@ export function CalendarWeek({
   const minute = useSyncExternalStore(everyMinute, currentMinute, noMinute);
   const now = minute === null ? null : new Date(minute * 60_000);
 
-  const days = eachDayOfInterval({ start: startOfWeek(selected), end: endOfWeek(selected) });
+  const days =
+    layout === "day" ? [selected] : eachDayOfInterval({ start: startOfWeek(selected), end: endOfWeek(selected) });
+  const columnsClass = COLUMNS[layout];
+  // A step is a day in the day view and a week in the week view.
+  const step = (by: number) => (layout === "day" ? addDays(selected, by) : by > 0 ? addWeeks(selected, by) : subWeeks(selected, -by));
   const columns = days.map((day) => inLanes(placedOn(day, appointments, entries)));
-  const { first, last } = visibleHours(days, columns, workingHours);
+  // The whole day, scrolling: nothing is cut off, and the grid opens at the first working hour
+  // (or the first thing booked) rather than at midnight.
+  const first = 0;
+  const last = 24;
+  const opensAt = visibleHours(days, columns, workingHours).first;
+  const body = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (body.current) body.current.scrollTop = opensAt * HOUR_HEIGHT;
+    // Only when the layout or the week changes — not under the reader's own scrolling.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [layout, days[0]?.getTime()]);
   const hours = Array.from({ length: last - first }, (_, i) => first + i);
   const height = hours.length * HOUR_HEIGHT;
 
@@ -110,10 +133,10 @@ export function CalendarWeek({
   };
 
   return (
-    <Card className="gap-0 overflow-visible rounded-3xl border border-line bg-white py-0 shadow-card">
+    <Card className="flex h-full flex-col gap-0 overflow-visible rounded-3xl border border-line bg-white py-0 shadow-card">
       <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-3 px-5 py-5">
         <CardTitle className="flex items-baseline gap-2 text-base font-semibold">
-          {weekTitle(days[0]!, days[6]!)}
+          {layout === "day" ? format(selected, "EEEE, MMMM d") : weekTitle(days[0]!, days[6]!)}
           <span className="font-normal text-faint">/</span>
           <span className="text-sm font-medium text-muted-ink">Week {getWeek(selected)}</span>
         </CardTitle>
@@ -128,8 +151,8 @@ export function CalendarWeek({
           <Button
             variant="ghost"
             size="icon"
-            aria-label="Previous week"
-            onClick={() => onSelectDay(subWeeks(selected, 1))}
+            aria-label={layout === "day" ? "Previous day" : "Previous week"}
+            onClick={() => onSelectDay(step(-1))}
             className="size-8 rounded-full text-muted-ink hover:bg-brand-50 hover:text-brand-500"
           >
             <ChevronLeft className="size-4" />
@@ -137,8 +160,8 @@ export function CalendarWeek({
           <Button
             variant="ghost"
             size="icon"
-            aria-label="Next week"
-            onClick={() => onSelectDay(addWeeks(selected, 1))}
+            aria-label={layout === "day" ? "Next day" : "Next week"}
+            onClick={() => onSelectDay(step(1))}
             className="size-8 rounded-full text-muted-ink hover:bg-brand-50 hover:text-brand-500"
           >
             <ChevronRight className="size-4" />
@@ -146,74 +169,81 @@ export function CalendarWeek({
         </div>
       </CardHeader>
 
-      <CardContent className="relative px-0">
-        {/* Scrolls sideways on a phone rather than squeezing seven days into its width. */}
-        <div className="overflow-x-auto rounded-b-3xl">
+      <CardContent className="relative flex min-h-0 flex-1 flex-col px-0">
+        {/*
+          One area scrolling both ways — sideways on a phone, down through the hours — with the days
+          and the all-day row pinned on top. One area, so the scrollbar takes its width from the
+          headers and the hours alike, and their lines run straight through. At least this tall, and
+          as tall as the card when the side beside it makes the row taller.
+        */}
+        <div ref={body} className="min-h-[30rem] flex-1 basis-0 overflow-auto rounded-b-3xl">
           <div className="min-w-[42rem]">
-            <div className={cn(COLUMNS, "border-b border-line")}>
-              <div className="sticky left-0 z-20 bg-white" />
-              {days.map((day) => {
-                const isSelected = isSameDay(day, selected);
-                const isToday = isSameDay(day, today);
+            <div className="sticky top-0 z-30 bg-white">
+              <div className={cn(columnsClass, "border-b border-line")}>
+                <div className="sticky left-0 z-20 bg-white" />
+                {days.map((day) => {
+                  const isSelected = isSameDay(day, selected);
+                  const isToday = isSameDay(day, today);
 
-                return (
-                  <button
-                    key={day.toISOString()}
-                    type="button"
-                    onClick={() => onSelectDay(day)}
-                    aria-label={format(day, "EEEE, MMMM d")}
-                    aria-pressed={isSelected}
-                    className="group flex flex-col items-center gap-0.5 pb-2"
-                  >
-                    <span className={cn("text-[11px] font-semibold uppercase", isToday ? "text-brand-500" : "text-faint")}>
-                      {format(day, "EEE")}
-                    </span>
-                    <span
-                      className={cn(
-                        "grid size-10 place-items-center rounded-full text-xl font-bold tracking-[-0.02em] transition-colors",
-                        isSelected && "bg-brand text-white",
-                        !isSelected && isToday && "text-brand-500 group-hover:bg-brand-50",
-                        !isSelected && !isToday && isBefore(day, today) && "text-faint group-hover:bg-brand-50",
-                        !isSelected && !isToday && !isBefore(day, today) && "text-foreground group-hover:bg-brand-50"
-                      )}
+                  return (
+                    <button
+                      key={day.toISOString()}
+                      type="button"
+                      onClick={() => onSelectDay(day)}
+                      aria-label={format(day, "EEEE, MMMM d")}
+                      aria-pressed={isSelected}
+                      className="group flex flex-col items-center gap-0.5 pb-2"
                     >
-                      {format(day, "d")}
-                    </span>
-                  </button>
-                );
-              })}
-            </div>
-
-            <div className={cn(COLUMNS, "border-b border-line")}>
-              <div className="sticky left-0 z-20 bg-white py-2.5 pr-2 text-right text-[11px] font-medium text-faint">
-                all day
+                      <span className={cn("text-[11px] font-semibold uppercase", isToday ? "text-brand-500" : "text-faint")}>
+                        {format(day, "EEE")}
+                      </span>
+                      <span
+                        className={cn(
+                          "grid size-10 place-items-center rounded-full text-xl font-bold tracking-[-0.02em] transition-colors",
+                          isSelected && "bg-brand text-white",
+                          !isSelected && isToday && "text-brand-500 group-hover:bg-brand-50",
+                          !isSelected && !isToday && isBefore(day, today) && "text-faint group-hover:bg-brand-50",
+                          !isSelected && !isToday && !isBefore(day, today) && "text-foreground group-hover:bg-brand-50"
+                        )}
+                      >
+                        {format(day, "d")}
+                      </span>
+                    </button>
+                  );
+                })}
               </div>
-              {days.map((day) => {
-                const off = isOff(day, timeOff);
-                const key = `${off?.id}:${dayField(day)}`;
 
-                return (
-                  <div key={day.toISOString()} className="min-h-9 border-l border-line p-1">
-                    {off && (
-                      <Popover open={peek === key} onOpenChange={(open) => setPeek(open ? key : null)}>
-                        <PopoverTrigger
-                          aria-label={`Time off${off.note ? `, ${off.note}` : ""}`}
-                          className="flex w-full items-center gap-1 rounded-lg bg-slate-100 px-1.5 py-1 text-left text-[11px] font-semibold text-muted-ink transition-colors hover:bg-slate-200/70"
-                        >
-                          <Palmtree className="size-3 shrink-0" />
-                          <span className="truncate">{off.note ?? "Time off"}</span>
-                        </PopoverTrigger>
-                        <PopoverContent align="start" className="w-[min(24rem,calc(100vw-2rem))] rounded-2xl p-1.5">
-                          <TimeOffBanner off={off} onEdit={thenClose(onEditBlock)} onRemove={thenClose(onRemoveBlock)} />
-                        </PopoverContent>
-                      </Popover>
-                    )}
-                  </div>
-                );
-              })}
+              <div className={cn(columnsClass, "border-b border-line")}>
+                <div className="sticky left-0 z-20 bg-white py-2.5 pr-2 text-right text-[11px] font-medium text-faint">
+                  all day
+                </div>
+                {days.map((day) => {
+                  const off = isOff(day, timeOff);
+                  const key = `${off?.id}:${dayField(day)}`;
+
+                  return (
+                    <div key={day.toISOString()} className="min-h-9 border-l border-line p-1">
+                      {off && (
+                        <Popover open={peek === key} onOpenChange={(open) => setPeek(open ? key : null)}>
+                          <PopoverTrigger
+                            aria-label={`Time off${off.note ? `, ${off.note}` : ""}`}
+                            className="flex w-full items-center gap-1 rounded-lg bg-slate-100 px-1.5 py-1 text-left text-[11px] font-semibold text-muted-ink transition-colors hover:bg-slate-200/70"
+                          >
+                            <Palmtree className="size-3 shrink-0" />
+                            <span className="truncate">{off.note ?? "Time off"}</span>
+                          </PopoverTrigger>
+                          <PopoverContent align="start" className="w-[min(24rem,calc(100vw-2rem))] rounded-2xl p-1.5">
+                            <TimeOffBanner off={off} onEdit={thenClose(onEditBlock)} onRemove={thenClose(onRemoveBlock)} />
+                          </PopoverContent>
+                        </Popover>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
             </div>
 
-            <div className={COLUMNS}>
+            <div className={columnsClass}>
               <div className="sticky left-0 z-20 bg-white py-3">
                 <div className="relative" style={{ height }}>
                   {hours.map((hour) => (

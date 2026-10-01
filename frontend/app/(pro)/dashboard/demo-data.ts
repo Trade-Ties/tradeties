@@ -20,10 +20,15 @@ const today = new Date(new Date().setHours(0, 0, 0, 0));
 /**
  * A booking request starts "pending" — the pro has to confirm or decline it —
  * and only shows on the calendar as a real commitment once "confirmed".
- * There's no third "declined" state to render: declining just removes it
- * from view (see DashboardCalendar/CalendarMonth's local state).
+ * "declined" and "cancelled" never reach the calendar, which drops them; they
+ * are for a conversation, which outlives its request and should say how it ended.
  */
-export type AppointmentStatus = "pending" | "confirmed";
+export type AppointmentStatus = "pending" | "confirmed" | "declined" | "cancelled";
+
+/** Whether the request was answered with a no, or taken out of the calendar afterwards. */
+export function isSettled(status: AppointmentStatus): boolean {
+  return status === "declined" || status === "cancelled";
+}
 
 /**
  * Where the job is, as the customer typed it into the booking form: street and house number in
@@ -80,6 +85,8 @@ export interface DemoAppointment {
   serviceId?: string;
   /** False where the customer typed the details themselves: those stay theirs. */
   detailsEditable?: boolean;
+  /** What the customer was told when it was declined, when anything was. */
+  declineReason?: string;
 }
 
 export const DEMO_APPOINTMENTS: DemoAppointment[] = [

@@ -11,7 +11,11 @@ import type { DemoAppointment, DemoMessage } from "./demo-data";
 
 export type Selection =
   | { type: "appointment"; item: DemoAppointment }
-  | { type: "message"; item: DemoMessage };
+  /**
+   * `request` is the one the conversation is about as the server last told it — what the chip falls
+   * back on once the request has left the calendar, declined or cancelled, and is not in its list.
+   */
+  | { type: "message"; item: DemoMessage; request?: DemoAppointment };
 
 export function DetailPanel({
   selection,
@@ -25,6 +29,7 @@ export function DetailPanel({
   onRemove,
   appointments = [],
   className = "lg:w-[360px]",
+  boxClassName,
 }: {
   selection: Selection;
   onClose: () => void;
@@ -44,10 +49,12 @@ export function DetailPanel({
   appointments?: DemoAppointment[];
   /** Width at the breakpoints; the dashboard docks it beside the grid, the calendar in a column. */
   className?: string;
+  /** For the panel's own box — the calendar sizes it to the month beside it, scrolling inside. */
+  boxClassName?: string;
 }) {
   return (
     <div className={cn("w-full shrink-0 duration-200 animate-in fade-in slide-in-from-right-4", className)}>
-      <div className="sticky top-4 rounded-3xl border border-line bg-white p-5 shadow-lift">
+      <div className={cn("sticky top-4 rounded-3xl border border-line bg-white p-5 shadow-lift", boxClassName)}>
         <div className="mb-4 flex items-start justify-between gap-3">
           <p className="text-xs font-semibold uppercase tracking-wide text-faint">
             {selection.type === "appointment" ? "Appointment" : "Conversation"}
@@ -75,7 +82,7 @@ export function DetailPanel({
         ) : (
           <MessageDetail
             conversation={selection.item}
-            appointment={appointments.find((a) => a.id === selection.item.appointmentId)}
+            appointment={appointments.find((a) => a.id === selection.item.appointmentId) ?? selection.request}
             onReply={onReply ?? (() => {})}
             onBook={onBook}
             onConfirm={onConfirm}
@@ -106,7 +113,8 @@ function MessageDetail({
   onRebook?: (appointment: DemoAppointment) => void;
 }) {
   return (
-    <div className="flex flex-col">
+    // Fills the panel when the panel is stretched taller than it, the reply box at the bottom.
+    <div className="flex flex-1 flex-col">
       <div className="mb-3 flex items-baseline justify-between gap-3">
         <h2 className="text-xl font-bold tracking-[-0.01em] text-brand">{conversation.customerName}</h2>
         <Link

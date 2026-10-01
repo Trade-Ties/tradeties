@@ -5,6 +5,7 @@ import { format } from "date-fns";
 
 import { Button } from "@/components/ui/button";
 import {
+  DIALOG_WIDE,
   Dialog,
   DialogClose,
   DialogContent,
@@ -20,11 +21,10 @@ import type { DemoAppointment } from "./demo-data";
 /**
  * Why the job is being turned down.
  *
- * <p><strong>The reason is required, and that is a product decision rather than validation.</strong>
- * A refusal with nothing attached reads as a refusal of the person; "booked that morning already"
- * or "outside the area I cover" is the difference between a customer trying again and never
- * coming back. The backend insists on it too, so this box is where somebody finds that out
- * kindly.
+ * <p><strong>The reason is optional, and asked for anyway.</strong> A refusal with nothing attached
+ * can read as a refusal of the person; "booked that morning already" or "outside the area I cover"
+ * is the difference between a customer trying again and never coming back. So the box is there and
+ * says so — but saying no does not wait on it.
  *
  * <p>Says plainly that the customer will read it, because a tradesperson writing a note to self
  * would word it differently.
@@ -58,7 +58,7 @@ export function DeclineDialog({
 
   return (
     <Dialog open onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-md">
+      <DialogContent className={DIALOG_WIDE}>
         <DialogHeader>
           <DialogTitle>Turn this job down</DialogTitle>
           <DialogDescription>
@@ -70,20 +70,19 @@ export function DeclineDialog({
         <form onSubmit={submit} className="flex flex-col gap-4">
           <div>
             <Label htmlFor="decline-reason" className="mb-1 block text-sm font-medium">
-              Why?
+              Why? <span className="font-normal text-muted-ink">(optional)</span>
             </Label>
             <Textarea
               id="decline-reason"
               value={reason}
               onChange={(event) => setReason(event.target.value)}
-              required
               maxLength={500}
               rows={3}
               placeholder="Booked that morning already — happy to look at another day."
               autoFocus
             />
             <p className="mt-1 text-xs text-muted-ink">
-              {request.customerName} will be given this, so write it for them.
+              If you give one, {request.customerName} will read it, so write it for them.
             </p>
           </div>
 
@@ -95,7 +94,7 @@ export function DeclineDialog({
                 </Button>
               }
             />
-            <Button type="submit" variant="destructive" disabled={pending || reason.trim() === ""}>
+            <Button type="submit" variant="destructive" disabled={pending}>
               {pending ? "Sending…" : "Decline"}
             </Button>
           </div>
