@@ -210,13 +210,13 @@ export function JobSearchResults({
               <Badge className="h-auto border-transparent bg-brand-50 px-2.5 py-0.5 text-[12.5px] font-semibold text-brand-500">
                 {whenLabel}
               </Badge>
-          </div>
+            </div>
 
-          {picked ? (
-            <Picked label={picked.label} zip={zip} when={when} />
-          ) : (
-            job && <Understood job={job} trades={trades} />
-          )}
+            {picked ? (
+              <Picked label={picked.label} zip={zip} when={when} />
+            ) : (
+              job && <Understood job={job} trades={trades} />
+            )}
           </div>
 
           {/* As on the browse page. It orders within each group below, never across them. */}
