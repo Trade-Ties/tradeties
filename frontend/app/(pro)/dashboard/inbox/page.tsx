@@ -1,9 +1,12 @@
 import { AlertCircle } from "lucide-react";
 
-import { getConversation, listConversations, markConversationRead } from "@/lib/api/inbox";
+import { fetchMyServices } from "@/lib/api/business";
+import { fetchMyJobRequests, getConversation, listConversations, markConversationRead } from "@/lib/api/inbox";
 import { portalToken } from "@/lib/portal/session";
 import { INBOX_CONVERSATION_PARAM, INBOX_FILTER_PARAM } from "@/lib/routes";
 
+import { serviceOptionsOf } from "../booking";
+import { incoming } from "../requests";
 import { InboxView } from "./InboxView";
 
 /**
@@ -22,7 +25,11 @@ export default async function InboxPage({
   const asked = params[INBOX_CONVERSATION_PARAM];
 
   const token = await portalToken();
-  const listed = await listConversations(token);
+  const [listed, sent, services] = await Promise.all([
+    listConversations(token),
+    fetchMyJobRequests(token),
+    fetchMyServices(token),
+  ]);
 
   if (!listed.ok) {
     return (
@@ -50,9 +57,19 @@ export default async function InboxPage({
     entry.requestId === open?.request.id ? { ...entry, unreadCount: 0 } : entry
   );
 
+  // The open conversation's request in full — what answering, changing or removing it needs, and
+  // how it ended when it has.
+  const found = open && sent.ok ? sent.data.find((request) => request.id === open.request.id) : undefined;
+
   return (
     <Frame>
-      <InboxView conversations={conversations} open={open} initialFilter={filter} />
+      <InboxView
+        conversations={conversations}
+        open={open}
+        request={found ? incoming(found) : null}
+        services={serviceOptionsOf(services.ok ? services.data : null)}
+        initialFilter={filter}
+      />
     </Frame>
   );
 }

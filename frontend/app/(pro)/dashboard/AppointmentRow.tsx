@@ -48,74 +48,106 @@ export function AppointmentRow({
           : undefined
       }
       className={cn(
-        "flex flex-wrap items-center gap-3 rounded-2xl border px-3.5 py-3",
+        "rounded-2xl border px-3.5 py-2",
         pending ? "border-amber-200 bg-amber-50/60" : "border-line bg-white",
         onSelect && "cursor-pointer transition-colors hover:border-brand-100",
         selected && "ring-2 ring-brand-500"
       )}
     >
-      <div className="w-[74px] shrink-0 text-sm font-semibold text-brand">
-        {showDate && (
-          <span className="block text-[11px] font-medium text-muted-ink">{format(appointment.date, "EEE, MMM d")}</span>
-        )}
-        {appointment.time}
-      </div>
+      {/*
+        Three columns, the same on every row and in every list: the time; who, with the job under
+        it and the answer under that, starting where the name does; and on the right the status
+        with the ZIP under it, on one edge so they line up down the list.
+      */}
+      <div className="grid grid-cols-[64px_minmax(0,1fr)_92px] items-center gap-x-3 gap-y-1">
+        {/* From the name's line down, rather than centred on the whole row. */}
+        <div className="row-span-2 self-start text-sm leading-5 font-semibold text-brand">
+          {showDate && (
+            <span className="block text-[11px] font-medium text-muted-ink">{format(appointment.date, "EEE, MMM d")}</span>
+          )}
+          {appointment.time}
+        </div>
 
-      <div className="min-w-0 flex-1">
-        <div className="flex items-center gap-2">
-          <p className="truncate text-sm font-semibold">{appointment.customerName}</p>
-          <span
-            className={
-              pending
-                ? "shrink-0 rounded-full bg-amber-500/15 px-2 py-0.5 text-[11px] font-semibold text-amber-700"
-                : "shrink-0 rounded-full bg-go-bg px-2 py-0.5 text-[11px] font-semibold text-[#07734F]"
-            }
-          >
-            {pending ? "Requested" : "Confirmed"}
-          </span>
+        <div className="flex min-w-0 items-center gap-1.5">
+          <p className="truncate text-sm leading-5 font-semibold">{appointment.customerName}</p>
           {away && (
             <span className="shrink-0 rounded-full bg-slate-200/70 px-2 py-0.5 text-[11px] font-semibold text-muted-ink">
-              In your time off
+              Time off
             </span>
           )}
         </div>
-        <p className="truncate text-xs text-muted-ink">{appointment.service}</p>
+        <Status pending={pending} />
+
+        <p className="col-start-2 truncate text-xs text-muted-ink">{appointment.service}</p>
+        <Zip zip={appointment.address.zip} />
+
+        {pending && <Answer id={appointment.id} onConfirm={onConfirm} onDecline={onDecline} />}
       </div>
+    </div>
+  );
+}
 
-      {appointment.address.zip && (
-        <div className="flex shrink-0 items-center gap-1 text-xs text-muted-ink">
+function Status({ pending }: { pending: boolean }) {
+  return (
+    <span
+      className={cn(
+        "w-fit rounded-full px-2 py-0.5 text-[11px] font-semibold",
+        pending ? "bg-amber-500/15 text-amber-700" : "bg-go-bg text-[#07734F]"
+      )}
+    >
+      {pending ? "Requested" : "Confirmed"}
+    </span>
+  );
+}
+
+/** Always takes its cell, so a row without a ZIP keeps the others' shape. */
+function Zip({ zip }: { zip?: string | null }) {
+  return (
+    <span className="flex min-h-4 items-center gap-1 text-xs text-muted-ink">
+      {zip && (
+        <>
           <MapPin className="size-3" />
-          {appointment.address.zip}
-        </div>
+          {zip}
+        </>
       )}
+    </span>
+  );
+}
 
-      {pending && (
-        <div className="flex w-full shrink-0 items-center gap-2 min-[420px]:w-auto">
-          <Button
-            size="sm"
-            onClick={(e) => {
-              e.stopPropagation();
-              onConfirm(appointment.id);
-            }}
-            className="h-8 flex-1 gap-1.5 rounded-full bg-go px-3 text-xs font-semibold text-white hover:bg-go/90 min-[420px]:flex-none"
-          >
-            <Check className="size-3.5" />
-            Confirm
-          </Button>
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={(e) => {
-              e.stopPropagation();
-              onDecline(appointment.id);
-            }}
-            className="h-8 flex-1 gap-1.5 rounded-full border-line px-3 text-xs font-semibold text-muted-ink hover:border-destructive/40 hover:bg-destructive/5 hover:text-destructive min-[420px]:flex-none"
-          >
-            <X className="size-3.5" />
-            Decline
-          </Button>
-        </div>
-      )}
+function Answer({
+  id,
+  onConfirm,
+  onDecline,
+}: {
+  id: string;
+  onConfirm: (id: string) => void;
+  onDecline: (id: string) => void;
+}) {
+  return (
+    <div className="col-span-2 col-start-2 mt-1 flex items-center gap-2">
+      <Button
+        size="sm"
+        onClick={(e) => {
+          e.stopPropagation();
+          onConfirm(id);
+        }}
+        className="h-8 gap-1.5 rounded-full bg-go px-3 text-xs font-semibold text-white hover:bg-go/90"
+      >
+        <Check className="size-3.5" />
+        Confirm
+      </Button>
+      <Button
+        size="sm"
+        variant="outline"
+        onClick={(e) => {
+          e.stopPropagation();
+          onDecline(id);
+        }}
+        className="h-8 gap-1.5 rounded-full border-line px-3 text-xs font-semibold text-muted-ink hover:border-destructive/40 hover:bg-destructive/5 hover:text-destructive"
+      >
+        <X className="size-3.5" />
+        Decline
+      </Button>
     </div>
   );
 }

@@ -4,6 +4,7 @@ import java.time.Instant;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.function.Function;
@@ -97,6 +98,10 @@ public class ConversationService {
 					ConversationMessage last = thread.isEmpty()
 							? opening(request, job)
 							: Summaries.of(thread.getLast());
+					// Taken out of the inbox, and nobody has written since: not listed.
+					if (request.hiddenFromInbox(last.sentAt())) {
+						return null;
+					}
 					int unread = (int) thread.stream()
 							.filter(m -> m.author() == JobMessageRow.Author.CUSTOMER && m.unread())
 							.count();
@@ -104,6 +109,7 @@ public class ConversationService {
 					return new InboxEntry(request.id(), job.customerName(), Summaries.of(request, job, name), last,
 							unread);
 				})
+				.filter(Objects::nonNull)
 				.sorted(Comparator.comparing((InboxEntry entry) -> entry.lastMessage().sentAt()).reversed())
 				.toList();
 	}
@@ -169,6 +175,19 @@ public class ConversationService {
 	 *
 	 * @throws NoSuchConversationException not a request of the caller's business
 	 */
+	/**
+	 * Out of the caller's inbox — not deleted: the request stays the customer's record, and a new
+	 * message from them brings the conversation back.
+	 *
+	 * @throws NoSuchConversationException not a request of the caller's business
+	 */
+	@Transactional
+	public void hideByOwner(UUID ownerUserId, UUID requestId) {
+		JobRequestRow request = ownedRequest(ownerUserId, requestId);
+		request.hideFromInbox(Instant.now());
+		requests.save(request);
+	}
+
 	@Transactional
 	public void markReadByOwner(UUID ownerUserId, UUID requestId) {
 		ownedRequest(ownerUserId, requestId);

@@ -167,16 +167,18 @@ class InboxTests {
 				.andExpect(jsonPath("$.length()").value(1));
 	}
 
-	/** A refusal with nothing attached reads as a refusal of the person, so the reason is required. */
+	/** A reason is worth giving but not required: a blank one declines without one, stored as nothing. */
 	@Test
-	void refusesToDeclineWithoutAReason() throws Exception {
+	void declinesWithoutAReason() throws Exception {
 		Business acme = publish("user_inbox_why", "inbox-why", 60);
 		String requestId = send(acme, "Dana Reyes", "dana@example.com");
 
 		mockMvc.perform(post("/api/v1/me/business/job-requests/{id}/decline", requestId).with(acme.token())
 						.contentType(MediaType.APPLICATION_JSON)
-						.content("{\"reason\":\"\"}"))
-				.andExpect(status().isBadRequest());
+						.content("{\"reason\":\"   \"}"))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.status").value("DECLINED"))
+				.andExpect(jsonPath("$.declineReason").doesNotExist());
 	}
 
 	/** Somebody else's request is not found rather than forbidden — a 403 confirms the id. */

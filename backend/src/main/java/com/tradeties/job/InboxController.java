@@ -111,6 +111,12 @@ class InboxController implements InboxApi {
 		return ResponseEntity.noContent().build();
 	}
 
+	@Override
+	public ResponseEntity<Void> deleteMyConversation(UUID requestId) {
+		conversations.hideByOwner(ownerId(), requestId);
+		return ResponseEntity.noContent().build();
+	}
+
 	/** The caller's own user id — the conversations resolve the business from it themselves. */
 	private UUID ownerId() {
 		return currentMarketplaceUser.requireTradesperson().id();
@@ -172,7 +178,11 @@ class InboxController implements InboxApi {
 
 	@Override
 	public ResponseEntity<BusinessJobRequest> declineJobRequest(UUID requestId, JobRequestDecline decline) {
-		return ResponseEntity.ok(inbox.decline(myBusiness(), requestId, decline.getReason())
+		// Optional: no body, no reason and a blank one all decline without one, stored as nothing.
+		String reason = decline == null || decline.getReason() == null || decline.getReason().isBlank()
+				? null
+				: decline.getReason().trim();
+		return ResponseEntity.ok(inbox.decline(myBusiness(), requestId, reason)
 				.map(InboxController::toWire)
 				.orElseThrow(InboxController::noSuchRequest));
 	}

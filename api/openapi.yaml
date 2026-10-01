@@ -931,6 +931,31 @@ paths:
         "404":
           $ref: "#/components/responses/NotFound"
 
+    delete:
+      tags: [inbox]
+      operationId: deleteMyConversation
+      summary: Take the conversation out of the inbox.
+      description: |
+        Removes the line from this business's inbox, and only that. The request is
+        not deleted — it is the customer's record of what they asked for, and the
+        link in their email still opens it — and nothing is said to the customer.
+
+        **It comes back if the customer writes again**, so a message sent after it
+        is never lost behind a choice made before it.
+      parameters:
+        - name: requestId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "204":
+          description: Out of the inbox.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
   /api/v1/me/conversations/{requestId}/messages:
     post:
       tags: [inbox]
@@ -1999,11 +2024,12 @@ paths:
     post:
       tags: [inbox]
       operationId: declineJobRequest
-      summary: Turn the job down, and say why.
+      summary: Turn the job down, and say why if there is a reason worth giving.
       description: |
         Costs the customer nothing and commits no calendar, so none of the
-        acceptance rules apply. What it does carry is a reason, because a refusal
-        with no reason reads as a refusal of the person.
+        acceptance rules apply. A reason may come with it, and is worth giving —
+        a refusal with nothing attached can read as a refusal of the person — but
+        it is the tradesperson's choice, not a condition of saying no.
 
         **The row stays.** A declined request is the record of a decision
         somebody already made, and of what was asked for — the service, the hour
@@ -3447,19 +3473,17 @@ components:
 
     JobRequestDecline:
       type: object
-      required: [reason]
       description: |
-        Why the job is being turned down.
+        Why the job is being turned down, if the tradesperson says.
       properties:
         reason:
           type: string
-          minLength: 1
           maxLength: 500
           description: |
-            In the tradesperson's own words, and required rather than optional. A
-            refusal with nothing attached reads as a refusal of the person, and
-            "booked that morning already" or "outside the area I cover" is the
-            difference between a customer trying again and never coming back.
+            In the tradesperson's own words, and optional: absent or blank declines
+            without one. Worth giving all the same — "booked that morning already" or
+            "outside the area I cover" is the difference between a customer trying
+            again and never coming back.
 
             It reaches the customer, so it is written for them rather than as a
             note to self.
@@ -3596,8 +3620,8 @@ components:
           type: string
           maxLength: 500
           description: |
-            Present only on a declined request, and then always — the reason is
-            required when declining.
+            Present on a declined request when a reason was given. Absent on one
+            declined without, and on every request not declined.
 
     JobRequestStatus:
       type: string

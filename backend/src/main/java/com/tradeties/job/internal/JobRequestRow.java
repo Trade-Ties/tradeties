@@ -108,6 +108,10 @@ class JobRequestRow {
 	@Column(name = "cancelled_at")
 	private Instant cancelledAt;
 
+	/** When the business took the conversation out of its inbox, or null while it is there. */
+	@Column(name = "inbox_hidden_at")
+	private Instant inboxHiddenAt;
+
 	@Enumerated(EnumType.STRING)
 	@Column(name = "cancelled_by", length = 16)
 	private BookingParty cancelledBy;
@@ -287,6 +291,19 @@ class JobRequestRow {
 	void accept(Instant when) {
 		this.status = RequestStatus.ACCEPTED;
 		this.decidedAt = when;
+	}
+
+	/**
+	 * Out of the business's inbox until the customer writes again. The request itself is untouched:
+	 * it is the customer's record, and their link still opens it.
+	 */
+	void hideFromInbox(Instant when) {
+		this.inboxHiddenAt = when;
+	}
+
+	/** Whether the inbox leaves it out: hidden, and nothing written since. */
+	boolean hiddenFromInbox(Instant lastActivity) {
+		return inboxHiddenAt != null && !lastActivity.isAfter(inboxHiddenAt);
 	}
 
 	void decline(Instant when, String reason) {

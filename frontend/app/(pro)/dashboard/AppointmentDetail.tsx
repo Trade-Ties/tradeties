@@ -17,9 +17,18 @@ import {
 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 
 import { calendarFile, downloadCalendarFile } from "./calendarFile";
-import { addressLine, type DemoAppointment } from "./demo-data";
+import { addressLine, type AppointmentStatus, type DemoAppointment } from "./demo-data";
+
+/** The colour each state is drawn in, wherever a request's state is shown. */
+export const STATUS_TONE: Record<AppointmentStatus, string> = {
+  pending: "bg-amber-500/15 text-amber-700",
+  confirmed: "bg-go-bg text-[#07734F]",
+  declined: "bg-brand-50 text-muted-ink",
+  cancelled: "bg-destructive/10 text-destructive",
+};
 
 /** A phone number as a link that dials it: `tel:` takes digits and a leading plus, nothing else. */
 export function telHref(phone: string): string {
@@ -50,6 +59,8 @@ export function AppointmentDetail({
   onRemove?: (id: string) => Promise<void>;
 }) {
   const pending = appointment.status === "pending";
+  // Only a confirmed appointment goes into a calendar, or can be changed or removed.
+  const confirmed = appointment.status === "confirmed";
   const address = addressLine(appointment.address);
   // A customer agreed to this time, so changing it is asked about first; removing always is.
   const customerBooked = appointment.bookedBy !== "pro";
@@ -75,15 +86,22 @@ export function AppointmentDetail({
   return (
     <div>
       <h2 className="text-xl font-bold tracking-[-0.01em] text-brand">{appointment.customerName}</h2>
-      <span
-        className={
-          pending
-            ? "mt-2 inline-flex rounded-full bg-amber-500/15 px-2.5 py-1 text-xs font-semibold text-amber-700"
-            : "mt-2 inline-flex rounded-full bg-go-bg px-2.5 py-1 text-xs font-semibold text-[#07734F]"
-        }
-      >
-        {pending ? "Requested — needs your response" : appointment.bookedBy === "pro" ? "Confirmed · booked by you" : "Confirmed"}
+      <span className={cn("mt-2 inline-flex rounded-full px-2.5 py-1 text-xs font-semibold", STATUS_TONE[appointment.status])}>
+        {pending
+          ? "Requested — needs your response"
+          : confirmed
+            ? appointment.bookedBy === "pro"
+              ? "Confirmed · booked by you"
+              : "Confirmed"
+            : appointment.status === "declined"
+              ? "Declined by you"
+              : "Cancelled · no longer in your calendar"}
       </span>
+      {appointment.status === "declined" && appointment.declineReason && (
+        <p className="mt-2 text-xs text-muted-ink">
+          You told them: <span className="text-foreground">&ldquo;{appointment.declineReason}&rdquo;</span>
+        </p>
+      )}
 
       <dl className="mt-5 flex flex-col gap-3 text-sm text-foreground">
         <Row icon={CalendarIcon}>{format(appointment.date, "EEEE, MMMM d")}</Row>
@@ -133,7 +151,7 @@ export function AppointmentDetail({
 
       {/* Only once confirmed: a request can still be declined, and should not be sitting in
           anybody's calendar until it cannot. */}
-      {!pending && (
+      {confirmed && (
         <Button
           variant="outline"
           onClick={() =>
@@ -147,7 +165,7 @@ export function AppointmentDetail({
       )}
 
       {/* Any confirmed appointment, whoever booked it; a request still waiting is answered instead. */}
-      {!pending && (onChange || onRemove) && asking === null && (
+      {confirmed && (onChange || onRemove) && asking === null && (
         <div className="mt-2 flex gap-2">
           {onChange && (
             <Button
@@ -172,7 +190,7 @@ export function AppointmentDetail({
         </div>
       )}
 
-      {!pending && asking !== null && (
+      {confirmed && asking !== null && (
         <div role="alert" className="mt-2 rounded-2xl border border-amber-500/30 bg-amber-500/5 px-4 py-3 text-sm text-amber-800">
           <p className="font-semibold">
             {customerBooked

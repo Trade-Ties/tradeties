@@ -4,7 +4,7 @@ import { ArrowRight, CalendarCheck, Clock3, Mail } from "lucide-react";
 import { buttonVariants } from "@/components/ui/button";
 import { fetchMyBusiness, fetchMyReadiness, fetchMyServices, fetchMyTrades } from "@/lib/api/business";
 import { fetchMyTimeOff } from "@/lib/api/calendar";
-import { fetchMyJobRequests } from "@/lib/api/inbox";
+import { fetchMyJobRequests, listConversations } from "@/lib/api/inbox";
 import { dayOf } from "@/components/marketing/availability";
 import { portalSession, portalToken } from "@/lib/portal/session";
 import { CALENDAR_PATH, CALENDAR_REQUESTS_PATH, INBOX_UNREAD_PATH, WIZARD_PATH } from "@/lib/routes";
@@ -12,22 +12,26 @@ import { CALENDAR_PATH, CALENDAR_REQUESTS_PATH, INBOX_UNREAD_PATH, WIZARD_PATH }
 import { serviceOptionsOf } from "./booking";
 import { DashboardShell } from "./DashboardShell";
 import { StatTile } from "./StatTile";
-import { DEMO_MESSAGES, DEMO_REVIEWS } from "./demo-data";
 import { incoming } from "./requests";
+import { messageOf } from "./inbox/live";
+import { ComingSoonTag } from "./ComingSoon";
 import { RatingBadge } from "./RatingBadge";
 
 export default async function DashboardPage() {
   const { user } = await portalSession();
   const token = await portalToken();
 
-  const [business, trades, readiness, sent, blocked, services] = await Promise.all([
+  const [business, trades, readiness, sent, blocked, services, conversations] = await Promise.all([
     fetchMyBusiness(token),
     fetchMyTrades(token),
     fetchMyReadiness(token),
     fetchMyJobRequests(token),
     fetchMyTimeOff(token),
     fetchMyServices(token),
+    listConversations(token),
   ]);
+  // The real inbox, latest first, in the card's shape — a handful is all the card has room for.
+  const messages = (conversations.ok ? conversations.data : []).map(messageOf);
 
   const primaryTrade = trades.ok ? trades.data?.primary?.displayName : undefined;
   const needsSetup = !business.ok || business.data === null || (readiness.ok && readiness.data?.ready === false);
@@ -51,14 +55,32 @@ export default async function DashboardPage() {
 
   const todayCount = requests.filter((request) => request.day === todayThere).length;
   const pendingCount = requests.filter((request) => request.status === "pending").length;
-  const unreadCount = DEMO_MESSAGES.filter((m) => m.unread).length;
+  const unreadCount = messages.filter((m) => m.unread).length;
 
   return (
     <DashboardShell
       requests={requests}
       blocks={blocked.ok ? blocked.data : []}
       services={serviceOptionsOf(services.ok ? services.data : null)}
-      messages={DEMO_MESSAGES}
+      messages={messages.slice(0, 6)}
+      // Over the cards they count: today's appointments over the schedule, the requests and the
+      // unread messages sharing the inbox's width — so the tiles' edges are the cards' edges.
+      overSchedule={
+        <StatTile icon={CalendarCheck} label="Today" value={todayCount} unit="appointment" href={CALENDAR_PATH} />
+      }
+      overInbox={
+        <>
+          <StatTile
+            icon={Clock3}
+            label="Need your response"
+            value={pendingCount}
+            unit="request"
+            accent
+            href={CALENDAR_REQUESTS_PATH}
+          />
+          <StatTile icon={Mail} label="Unread" value={unreadCount} unit="message" href={INBOX_UNREAD_PATH} />
+        </>
+      }
     >
       <div className="mb-8 flex flex-wrap items-end justify-between gap-4">
         <div>
@@ -70,7 +92,16 @@ export default async function DashboardPage() {
             Here&apos;s what&apos;s on today.
           </p>
         </div>
-        <RatingBadge reviews={DEMO_REVIEWS} />
+        {/*
+          Reviews are not live yet: no review is real, so it shows none — greyed and out of reach,
+          under the same tag every coming-soon part of the portal carries.
+        */}
+        <div className="flex flex-col items-end gap-1.5">
+          <ComingSoonTag />
+          <div aria-hidden="true" inert className="pointer-events-none select-none opacity-50 grayscale">
+            <RatingBadge reviews={[]} />
+          </div>
+        </div>
       </div>
 
       {needsSetup && (
@@ -88,18 +119,6 @@ export default async function DashboardPage() {
         </div>
       )}
 
-      <div className="mb-6 grid grid-cols-1 gap-3 min-[560px]:grid-cols-3">
-        <StatTile icon={CalendarCheck} label="Today" value={todayCount} unit="appointment" href={CALENDAR_PATH} />
-        <StatTile
-          icon={Clock3}
-          label="Need your response"
-          value={pendingCount}
-          unit="request"
-          accent
-          href={CALENDAR_REQUESTS_PATH}
-        />
-        <StatTile icon={Mail} label="Unread" value={unreadCount} unit="message" href={INBOX_UNREAD_PATH} />
-      </div>
     </DashboardShell>
   );
 }

@@ -309,33 +309,55 @@ function Details({ profile, timeZone }: { profile: BusinessProfile; timeZone: st
       </CardHeader>
 
       <CardContent className="px-5 pb-5">
-        <dl className="grid gap-x-8 gap-y-4 sm:grid-cols-[12rem_1fr]">
-          <Row label="Status">
-            <span className={`inline-flex rounded-full px-2.5 py-1 text-[11px] font-semibold ${status.className}`}>
-              {status.label}
-            </span>
-          </Row>
-          <Row label="Public profile URL">
-            {profile.slugLocked || profile.status === "PUBLISHED"
-              ? `${PROFILE_URL_PREFIX}${profile.slug}`
-              : `${PROFILE_URL_PREFIX}${profile.slug} — not taken until you publish`}
-          </Row>
-          <Row label="Business name shown">{profile.displayName}</Row>
-          <Row label="Registered name">{profile.legalName}</Row>
-          <Row label="About">{profile.description}</Row>
-          <Row label="Phone">{profile.phone}</Row>
-          <Row label="Email">{profile.email}</Row>
-          <Row label="Website">{profile.websiteUrl}</Row>
-          <Row label="Address">
-            {[address.street1, address.street2, `${address.city}, ${address.state} ${address.postalCode}`]
-              .filter(Boolean)
-              .join(" · ")}
-          </Row>
-          <Row label="Time zone">{timeZone}</Row>
-          <Row label="Service radius">{`${profile.serviceRadiusMiles} miles`}</Row>
-        </dl>
+        {/*
+          Three groups side by side — what the public page shows, how to reach the business, and the
+          business itself — each label above its value, so the card's width is used rather than a
+          long two-column list with its right half empty.
+        */}
+        <div className="grid grid-cols-1 gap-x-8 gap-y-6 md:grid-cols-3">
+          <Group title="Public page">
+            <Row label="Status">
+              <span className={`inline-flex rounded-full px-2.5 py-1 text-[11px] font-semibold ${status.className}`}>
+                {status.label}
+              </span>
+            </Row>
+            <Row label="Public profile URL">
+              {profile.slugLocked || profile.status === "PUBLISHED"
+                ? `${PROFILE_URL_PREFIX}${profile.slug}`
+                : `${PROFILE_URL_PREFIX}${profile.slug} — not taken until you publish`}
+            </Row>
+            <Row label="Business name shown">{profile.displayName}</Row>
+            <Row label="Website">{profile.websiteUrl}</Row>
+            <Row label="About">{profile.description}</Row>
+          </Group>
+
+          <Group title="Contact">
+            <Row label="Phone">{profile.phone}</Row>
+            <Row label="Email">{profile.email}</Row>
+            <Row label="Address">
+              {[address.street1, address.street2, `${address.city}, ${address.state} ${address.postalCode}`]
+                .filter(Boolean)
+                .join(" · ")}
+            </Row>
+          </Group>
+
+          <Group title="Business">
+            <Row label="Registered name">{profile.legalName}</Row>
+            <Row label="Time zone">{timeZone}</Row>
+            <Row label="Service radius">{`${profile.serviceRadiusMiles} miles`}</Row>
+          </Group>
+        </div>
       </CardContent>
     </Card>
+  );
+}
+
+function Group({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <section>
+      <h3 className="mb-3 border-b border-line pb-2 text-xs font-bold uppercase tracking-[0.04em] text-faint">{title}</h3>
+      <dl className="m-0 flex flex-col gap-3">{children}</dl>
+    </section>
   );
 }
 
@@ -343,9 +365,11 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
   const empty = children === null || children === undefined || children === "";
 
   return (
-    <>
-      <dt className="text-sm text-muted-ink">{label}</dt>
-      <dd className={empty ? "text-sm text-faint" : "text-sm font-medium"}>{empty ? "Not given" : children}</dd>
-    </>
+    <div>
+      <dt className="text-xs text-muted-ink">{label}</dt>
+      <dd className={empty ? "m-0 mt-0.5 text-sm text-faint" : "m-0 mt-0.5 break-words text-sm font-medium"}>
+        {empty ? "Not given" : children}
+      </dd>
+    </div>
   );
 }

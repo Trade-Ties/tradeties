@@ -21,7 +21,8 @@ export function DashboardInbox({
   const unreadCount = messages.filter((m) => m.unread).length;
 
   return (
-    <Card className="gap-4 rounded-3xl border border-line bg-white py-0 shadow-card">
+    // As tall as the row it sits in, the list scrolling inside.
+    <Card className="gap-4 rounded-3xl border border-line bg-white py-0 shadow-card lg:h-full lg:min-h-0">
       <CardHeader className="flex flex-row items-center justify-between px-5 pt-5">
         <CardTitle className="flex items-center gap-2 text-base font-semibold">
           <Inbox className="size-4 text-brand-500" />
@@ -34,13 +35,14 @@ export function DashboardInbox({
         </CardTitle>
         <CardHeaderLink href={INBOX_PATH}>Full inbox</CardHeaderLink>
       </CardHeader>
-      <CardContent className="px-5 pb-5">
+      {/* Room on every side for the selected row's outline, which the scrolling would cut off. */}
+      <CardContent className="-mt-1 min-h-0 flex-1 overflow-y-auto px-4 pt-1 pb-5 lg:group-data-[panel=open]/row:basis-0">
         {messages.length === 0 ? (
           <p className="rounded-2xl border border-dashed border-line py-6 text-center text-sm text-muted-ink">
             No messages yet.
           </p>
         ) : (
-          <div className="flex flex-col gap-1">
+          <div className="flex flex-col gap-1 px-1">
             {messages.map((m) => (
               <button
                 key={m.id}

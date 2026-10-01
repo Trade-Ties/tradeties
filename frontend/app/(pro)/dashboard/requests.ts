@@ -1,6 +1,6 @@
 import { dayOf, timeLabel } from "@/components/marketing/availability";
 import { fromE164 } from "@/components/profile/phone";
-import type { BusinessJobRequest } from "@/lib/api/inbox";
+import type { BusinessJobRequest, JobRequestStatus } from "@/lib/api/inbox";
 
 import type { DemoAppointment, ServiceAddress } from "./demo-data";
 
@@ -30,13 +30,14 @@ export interface IncomingRequest {
   preferredContact?: DemoAppointment["preferredContact"];
   bookedByBusiness: boolean;
   detailsEditable: boolean;
+  declineReason?: string;
 }
 
 /**
  * What the dashboard shows, out of what the API answers.
  *
- * <p>Only the two states a request can be in here. `DECLINED` and the rest are filtered out
- * before this, because the calendar draws what is on it and a declined request never was.
+ * <p>The calendar filters out all but pending and accepted before this, because it draws what is
+ * on it and a declined request never was; the inbox keeps the rest, to say how a request ended.
  */
 export function incoming(request: BusinessJobRequest): IncomingRequest {
   return {
@@ -45,7 +46,8 @@ export function incoming(request: BusinessJobRequest): IncomingRequest {
     time: timeLabel(request.startsAt, request.timeZone),
     // The span, not the estimate: an appointment the business booked runs as long as it chose.
     durationMinutes: (Date.parse(request.endsAt) - Date.parse(request.startsAt)) / 60_000,
-    status: request.status === "ACCEPTED" ? "confirmed" : "pending",
+    status: statusOf(request.status),
+    declineReason: request.declineReason,
     customerName: request.customerName,
     // The dashboard's rows expect strings and skip an empty one; absent means nobody gave one.
     phone: fromE164(request.customerPhone ?? ""),
@@ -103,5 +105,25 @@ export function asAppointment(request: IncomingRequest): DemoAppointment {
     serviceId: request.serviceId,
     bookedBy: request.bookedByBusiness ? "pro" : undefined,
     detailsEditable: request.detailsEditable,
+    declineReason: request.declineReason,
   };
+}
+
+/**
+ * The API's six states in the four the views draw. A finished job was still a confirmed one, and a
+ * withdrawn request — which nothing can do yet — ends the same way as a cancelled appointment.
+ */
+export function statusOf(status: JobRequestStatus): DemoAppointment["status"] {
+  switch (status) {
+    case "PENDING":
+      return "pending";
+    case "ACCEPTED":
+    case "COMPLETED":
+      return "confirmed";
+    case "DECLINED":
+      return "declined";
+    case "WITHDRAWN":
+    case "CANCELLED":
+      return "cancelled";
+  }
 }

@@ -19,6 +19,14 @@ import { portalToken as token } from "@/lib/portal/session";
 import { DASHBOARD_PATH } from "@/lib/routes";
 
 /**
+ * Everything under the dashboard, not the one page: a request answered here is also a row in the
+ * calendar and the state its conversation shows in the inbox, and neither should be read stale.
+ */
+function revalidateRequests() {
+  revalidatePath(DASHBOARD_PATH, "layout");
+}
+
+/**
  * Retries the registration the callback route attempts on every sign-in.
  *
  * Only reachable from the "registration incomplete" state, which the user sees when the
@@ -30,7 +38,7 @@ export async function retryRegistration() {
 
   await registerAsTradesperson(accessToken);
 
-  revalidatePath(DASHBOARD_PATH);
+  revalidateRequests();
 }
 
 /**
@@ -64,7 +72,7 @@ export async function acceptRequest(requestId: string): Promise<Answered> {
   const result = await api.acceptJobRequest(await token(), requestId);
 
   if (result.ok) {
-    revalidatePath(DASHBOARD_PATH);
+    revalidateRequests();
     return { ok: true };
   }
 
@@ -89,7 +97,7 @@ export async function declineRequest(requestId: string, reason: string): Promise
   const result = await api.declineJobRequest(await token(), requestId, reason);
 
   if (result.ok) {
-    revalidatePath(DASHBOARD_PATH);
+    revalidateRequests();
     return { ok: true };
   }
 
@@ -110,7 +118,7 @@ export async function saveTimeOff(
   const outcome = await calendar.saveMyTimeOff(await token(), input, existing);
 
   if (outcome.outcome === "saved") {
-    revalidatePath(DASHBOARD_PATH);
+    revalidateRequests();
     return { kind: "saved", timeOff: outcome.timeOff };
   }
 
@@ -126,7 +134,7 @@ export async function deleteTimeOff(timeOffId: string): Promise<Answered> {
   const result = await calendar.removeMyTimeOff(await token(), timeOffId);
 
   if (result.ok || isAlreadyGone(result.failure)) {
-    revalidatePath(DASHBOARD_PATH);
+    revalidateRequests();
     return { ok: true };
   }
 
@@ -141,7 +149,7 @@ export type Booked =
 
 function booked(outcome: api.AppointmentOutcome): Booked {
   if (outcome.outcome === "saved") {
-    revalidatePath(DASHBOARD_PATH);
+    revalidateRequests();
     return { kind: "saved", request: outcome.request };
   }
 
@@ -162,7 +170,7 @@ export async function removeAppointment(requestId: string): Promise<Answered> {
   const result = await api.removeAppointment(await token(), requestId);
 
   if (result.ok) {
-    revalidatePath(DASHBOARD_PATH);
+    revalidateRequests();
     return { ok: true };
   }
 

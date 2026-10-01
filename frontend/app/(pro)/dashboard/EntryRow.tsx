@@ -20,8 +20,8 @@ export function EntryRow({
   showDate?: boolean;
 }) {
   return (
-    <div className="flex items-center gap-3 rounded-2xl border border-dashed border-line bg-slate-50 px-3.5 py-3">
-      <div className="w-[74px] shrink-0 text-sm font-semibold text-muted-ink">
+    <div className="flex items-center gap-3 rounded-2xl border border-dashed border-line bg-slate-50 px-3.5 py-2">
+      <div className="w-[64px] shrink-0 text-sm font-semibold text-muted-ink">
         {showDate && <span className="block text-[11px] font-medium">{format(entry.start, "EEE, MMM d")}</span>}
         {format(entry.start, "h:mm a")}
         <span className="block text-[11px] font-normal text-faint">to {format(entry.end, "h:mm a")}</span>

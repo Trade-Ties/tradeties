@@ -6,6 +6,7 @@ import { ArrowRight, Calendar, Check, ChevronDown, ChevronLeft, ChevronRight } f
 
 import { Button } from "@/components/ui/button";
 import {
+  DIALOG_WIDE,
   DialogClose,
   DialogContent,
   DialogDescription,
@@ -269,7 +270,7 @@ export function BookingModal({ view, initialSlot }: { view: ProCardView; initial
       // keyboard over the calendar before anybody asked to type. There the dialogue itself takes
       // focus; with a mouse, the description does, ready to type into.
       initialFocus={() => (window.matchMedia("(pointer: coarse)").matches ? contentRef.current : true)}
-      className="p-4 sm:w-[max(50vw,36rem)] sm:max-w-[calc(100%-2rem)] sm:p-6"
+      className={DIALOG_WIDE}
     >
       {status === "sent" && slot ? (
         <RequestSent view={view} slot={slot} real={!!slug} />
