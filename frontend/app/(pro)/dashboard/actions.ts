@@ -42,19 +42,23 @@ export async function retryRegistration() {
 }
 
 /**
- * Signs out and returns to the public marketplace, not to the portal.
+ * Signs out and returns to the public marketplace — this site's own landing page, not the portal.
  *
- * Deliberately without `returnTo`. That value is passed straight through to WorkOS as
- * `return_to`, which has to be an absolute URL and has to be registered under Sign-out URIs
- * — WorkOS validates it to prevent open redirects. Omitting it makes WorkOS use the
- * App homepage URL configured for the environment, which is the destination we want anyway.
+ * <p>The landing page is named rather than left to WorkOS. Without `returnTo`, WorkOS sends
+ * everybody to the one App homepage URL of the environment — and one WorkOS environment can serve
+ * more than one site: the Staging environment serves both a developer's localhost and the Vercel
+ * deployment, and there was only one homepage for the two, so signing out of one landed on the
+ * other.
  *
- * The point is not that it saves a dashboard entry: it moves the sign-out destination into
- * per-environment configuration instead of hard-coding a localhost URL that production
- * would have to override.
+ * <p>The address is the origin of `NEXT_PUBLIC_WORKOS_REDIRECT_URI`, the per-site setting each
+ * deployment already has for coming back from sign-in; going back after sign-out lands on the same
+ * site. WorkOS checks `return_to` against the environment's Sign-out redirects, so each site's
+ * landing page has to be registered there. With the setting missing, WorkOS's homepage applies as
+ * before.
  */
 export async function signOutFromPortal() {
-  await signOut();
+  const callback = process.env.NEXT_PUBLIC_WORKOS_REDIRECT_URI;
+  await signOut(callback ? { returnTo: `${new URL(callback).origin}/` } : undefined);
 }
 /**
  * What answering a request can end in, in the words the dashboard puts in front of somebody.
